@@ -49,24 +49,32 @@ pub struct BrowserSession {
 
 #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), wasm_bindgen)]
 impl BrowserSession {
+    #[cfg(feature = "source")]
     /// Install only the standard library and the bounded `web::print(String)` sink.
     #[cfg_attr(
         all(target_arch = "wasm32", target_os = "unknown"),
         wasm_bindgen(constructor)
     )]
     pub fn new() -> Result<BrowserSession, String> {
-        let output = Arc::new(Mutex::new(Output::default()));
-        let engine = output::engine(output.clone()).map_err(|error| {
-            to_string(&Response::error(WebError::sdk(&error))).expect("JSON records")
-        })?;
-        let runtime = engine.runtime(Default::default());
-        Ok(Self {
-            engine,
-            runtime,
-            module: None,
-            active: None,
-            output,
-        })
+        Self::create(output::engine)
+    }
+
+    /// Install the standard providers against a trusted host-selected core image.
+    /// The independently loaded application never chooses the host's declarations.
+    #[cfg(not(feature = "source"))]
+    #[cfg_attr(
+        all(target_arch = "wasm32", target_os = "unknown"),
+        wasm_bindgen(constructor)
+    )]
+    pub fn new(core_artifact: &[u8]) -> Result<BrowserSession, String> {
+        if core_artifact.len() > ARTIFACT_BYTES {
+            return Err(to_string(&Response::error(WebError::new(
+                "WEB_ARTIFACT_LIMIT",
+                "core artifact exceeds 16777216 bytes",
+            )))
+            .expect("JSON records"));
+        }
+        Self::create(|output| output::engine(output, core_artifact))
     }
 
     /// Compile one `memory://main.kgr` directly to verified code and load a fresh runtime.
@@ -221,6 +229,23 @@ impl BrowserSession {
 }
 
 impl BrowserSession {
+    fn create(
+        prepare: impl FnOnce(Arc<Mutex<Output>>) -> Result<KagariEngine, EmbeddingError>,
+    ) -> Result<Self, String> {
+        let output = Arc::new(Mutex::new(Output::default()));
+        let engine = prepare(output.clone()).map_err(|error| {
+            to_string(&Response::error(WebError::sdk(&error))).expect("JSON records")
+        })?;
+        let runtime = engine.runtime(Default::default());
+        Ok(Self {
+            engine,
+            runtime,
+            module: None,
+            active: None,
+            output,
+        })
+    }
+
     fn load(&mut self, program: Program) -> String {
         let mut runtime = self.engine.runtime(Default::default());
         match runtime.load_program(&program, Default::default()) {

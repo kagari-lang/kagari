@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -7,7 +8,6 @@ use crate::{
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::carriers::RootedValue};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 mod boundaries;
 mod inventory;
@@ -26,7 +26,7 @@ const WIDTHS: [(&str, u32); 8] = [
 fn engine() -> KagariEngine {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap()
+    KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap()
 }
 
 fn context() -> ExecutionContext {

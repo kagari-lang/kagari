@@ -3,7 +3,7 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_contract::language::primitive;
-use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
+use kagari_stdlib::{identity as library, namespaces};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
@@ -190,21 +190,16 @@ pub(crate) fn function_module(
 }
 
 pub(crate) fn fixture_context() -> DefinitionContext {
-    let providers = foundation_catalog::shared().unwrap();
-    let definitions = providers[0].definitions();
-    let iterable = Protocol::Iterable.definition(definitions).unwrap();
-    let required = [
-        Protocol::Hash.definition(definitions).unwrap(),
-        iterable,
-        definitions
-            .lookup_child(iterable, DefinitionKind::AssociatedType, "Item", 0)
-            .unwrap(),
-        definitions.lookup(&library::trait_id("List")).unwrap(),
-        definitions
-            .lookup(&library::trait_id("MutableList"))
-            .unwrap(),
-    ];
     let context = DefinitionContext::new().unwrap();
-    context.import(definitions, required).unwrap();
+    context.intern(&language::identity(Protocol::Hash)).unwrap();
+    let iterable = context
+        .intern(&language::identity(Protocol::Iterable))
+        .unwrap();
+    context
+        .intern_child(iterable, DefinitionKind::AssociatedType, "Item", 0)
+        .unwrap();
+    for name in ["List", "MutableList"] {
+        context.intern(&library::trait_id(name)).unwrap();
+    }
     context
 }

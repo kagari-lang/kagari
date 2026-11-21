@@ -2,7 +2,7 @@
 
 use crate::imports::environment::ImportEnvironment;
 use crate::{
-    analysis::{AnalysisDatabase, external::ExternalModule},
+    analysis::{AnalysisDatabase, core_source, external::ExternalModule},
     native::render::DeclarationSource,
     typeck::const_budget::ConstLimits,
 };
@@ -10,6 +10,48 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::module::ModuleDecl;
 use std::sync::Arc;
+
+/// One immutable preparation inventory, with bundled owners before caller inputs.
+/// Captures share the allocation; replay does not go through the additive composition step.
+#[derive(Debug, Clone)]
+pub(super) struct LibrarySources {
+    modules: Arc<[ExternalModule]>,
+    core_len: usize,
+}
+
+impl Default for LibrarySources {
+    fn default() -> Self {
+        let modules = core_source::shared_modules();
+        Self {
+            core_len: modules.len(),
+            modules,
+        }
+    }
+}
+
+impl LibrarySources {
+    pub(super) fn all(&self) -> &[ExternalModule] {
+        &self.modules
+    }
+
+    pub(super) fn parse_inputs(
+        &self,
+        caller_limits: ParseLimits,
+    ) -> impl Iterator<Item = (&ExternalModule, ParseLimits)> {
+        let (core, external) = self.modules.split_at(self.core_len);
+        core.iter()
+            .map(|input| (input, ParseLimits::default()))
+            .chain(external.iter().map(move |input| (input, caller_limits)))
+    }
+
+    pub(super) fn set_external(&mut self, external: Vec<ExternalModule>) {
+        self.modules = self.modules[..self.core_len]
+            .iter()
+            .cloned()
+            .chain(external)
+            .collect();
+    }
+}
 
 /// Captured providers, their identity scopes, presentation origins and query limits.
 ///
@@ -23,13 +65,25 @@ pub struct AnalysisInputs {
     import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
-    external_modules: Vec<ExternalModule>,
+    libraries: LibrarySources,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
 }
 
 impl AnalysisDatabase {
+    /// Exercise an altered bundled resource without exposing an alternate core policy.
+    #[cfg(test)]
+    pub(crate) fn replace_core_fixture(&mut self, fixture: ExternalModule) {
+        let bundled = &mut Arc::make_mut(&mut self.libraries.modules)[..self.libraries.core_len];
+        let owner = bundled
+            .iter_mut()
+            .find(|m| m.source.module_identity() == fixture.source.module_identity())
+            .expect("fixture must replace an existing core owner");
+        *owner = fixture;
+        self.invalidate_library_queries();
+    }
+
     /// Captures only immutable inputs, independently of this session's cached facts.
     pub fn inputs(&self) -> Arc<AnalysisInputs> {
         Arc::new(AnalysisInputs {
@@ -37,7 +91,7 @@ impl AnalysisDatabase {
             import_environment: self.import_environment.clone(),
             native_modules: self.native_modules.clone(),
             native_sources: self.native_sources.clone(),
-            external_modules: self.external_modules.clone(),
+            libraries: self.libraries.clone(),
             const_limits: self.const_limits,
             parse_limits: self.parse_limits,
             max_semantic_diagnostics: self.max_semantic_diagnostics,
@@ -52,7 +106,7 @@ impl AnalysisInputs {
         database.import_environment = self.import_environment.clone();
         database.native_modules = self.native_modules.clone();
         database.native_sources = self.native_sources.clone();
-        database.external_modules = self.external_modules.clone();
+        database.libraries = self.libraries.clone();
         database.const_limits = self.const_limits;
         database.parse_limits = self.parse_limits;
         database.max_semantic_diagnostics = self.max_semantic_diagnostics;
@@ -76,9 +130,19 @@ impl AnalysisInputs {
         self.native_sources.as_deref()
     }
 
-    /// Explicit source-backed offline declarations retained by this environment.
+    /// The bundled authored modules in this snapshot; their file IDs can root a checked seed.
+    pub fn core_modules(&self) -> &[ExternalModule] {
+        &self.libraries.modules[..self.libraries.core_len]
+    }
+
+    /// Caller-supplied offline declarations, excluding the immutable packaged core.
     pub fn external_modules(&self) -> &[ExternalModule] {
-        &self.external_modules
+        &self.libraries.modules[self.libraries.core_len..]
+    }
+
+    /// All authored library inputs, e.g. for rendering Native views with matching aliases.
+    pub fn library_modules(&self) -> &[ExternalModule] {
+        self.libraries.all()
     }
 
     pub fn const_limits(&self) -> ConstLimits {
@@ -98,7 +162,10 @@ impl AnalysisInputs {
 mod tests {
     use super::*;
     use crate::imports::environment::ModuleScope;
-    use crate::{native::render::declaration_source, tests::native_fixture::function_module};
+    use crate::tests::standard::standard_modules;
+    use crate::{
+        native::render::declaration_source_with_external, tests::native_fixture::function_module,
+    };
     use kagari_common::{
         cancellation::CancellationToken,
         identity::{ModuleIdentity, PackageId},
@@ -106,7 +173,6 @@ mod tests {
     use kagari_source::{
         package::PackageScope, source::SourceFile, source_database::SourceSnapshot,
     };
-    use kagari_stdlib::catalog as foundation_catalog;
     use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     #[test]
@@ -123,14 +189,21 @@ mod tests {
             vec![],
             Ty::Builtin(BuiltinType::I32),
         );
-        let mut providers = foundation_catalog::shared().unwrap();
+        let mut providers = standard_modules();
         providers.push(provider.clone());
         for rendered in [false, true] {
             let mut database = AnalysisDatabase::new("/capsule").unwrap();
             if rendered {
                 let sources = providers
                     .iter()
-                    .map(|provider| declaration_source(provider, &providers).unwrap())
+                    .map(|provider| {
+                        declaration_source_with_external(
+                            provider,
+                            &providers,
+                            database.inputs().library_modules(),
+                        )
+                        .unwrap()
+                    })
                     .collect();
                 database
                     .set_native_sources(providers.clone(), sources)

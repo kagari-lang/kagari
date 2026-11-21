@@ -1,17 +1,20 @@
 #![cfg(feature = "source")]
 
+use crate::standard_library;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{native::conversion::context::ConversionContext, value::view::ValueView};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use std::thread;
 use tokio::{runtime::Builder, sync::mpsc, task};
 
 #[test]
 fn task_owns_a_live_runtime_across_message_receive_awaits() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let context = ExecutionContext::default();
     let artifact = engine
         .compile_to_artifact(

@@ -47,7 +47,7 @@ impl AnalysisDatabase {
                 .compiler_input_bytes(provider.definitions(), cancel)?;
             hash_bytes(&mut hash, &bytes, cancel)?;
         }
-        let mut external = self.external_modules.iter().collect::<Vec<_>>();
+        let mut external = self.libraries.all().iter().collect::<Vec<_>>();
         external.sort_by_key(|input| input.source.module_identity());
         hash.update(&(external.len() as u64).to_le_bytes());
         for input in external {

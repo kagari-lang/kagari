@@ -18,7 +18,7 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use rstest::rstest;
 use std::{sync::Arc, thread};
 use {
@@ -26,8 +26,16 @@ use {
     kagari_contract::native::ExecutableSafepointKind,
 };
 
+fn standard_modules() -> Vec<NativeModule> {
+    let builder = KagariEngine::builder().unwrap();
+    StandardLibrary::new(builder.declarations())
+        .unwrap()
+        .modules()
+        .unwrap()
+}
+
 fn mir(source: &str) -> VerifiedMirProgram {
-    let checked = KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+    let checked = KagariEngine::with_native_modules(Default::default(), standard_modules())
         .unwrap()
         .compile_source(SourceFile::new("native.kgr", source))
         .unwrap();
@@ -53,7 +61,7 @@ fn runtime() -> Runtime {
         },
         ..Default::default()
     });
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_modules(), &mut runtime).unwrap();
     runtime
 }
 

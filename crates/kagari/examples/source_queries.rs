@@ -7,7 +7,7 @@ use kagari_hir::{
     resolver::resolved::ResolvedName,
     types::TypeId,
 };
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use {
     kagari_common::identity::{ModuleIdentity, PackageId},
     kagari_source::{
@@ -20,8 +20,10 @@ use kagari::engine::KagariEngine;
 use kagari_types::declaration::names::NameNamespace;
 
 fn main() -> kagari::CompileResult<()> {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     // Bound parser recovery for incomplete editor input. A limit error prevents
     // compilation while retaining the parsed prefix for navigation.
     engine.set_parse_limits(ParseLimits {

@@ -1,4 +1,5 @@
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::tests::{native, native_fixture};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -35,7 +36,7 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
         .set("root.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = native::database();
-    let mut modules = kagari_stdlib::catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(native_fixture::module());
     modules.push(native_fixture::function_module(
         ModuleIdentity {

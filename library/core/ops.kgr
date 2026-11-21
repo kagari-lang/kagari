@@ -1,0 +1,291 @@
+//! Operators, range endpoints and the branch protocol used by `?`.
+use core::convert::Infallible;
+/// Describes one endpoint, independently of the other end of a range. Match
+/// the variant before using its value: an absent bound is not zero or a
+/// maximum value. For example, the upper endpoint of `1..4` excludes `4`.
+pub enum Bound<T> {
+    /// The endpoint value itself is in bounds on this side.
+    Included(T),
+    /// The endpoint value itself is out of bounds on this side.
+    Excluded(T),
+    /// This side places no limit on the range.
+    Unbounded,
+}
+
+pub use self::Bound::{ Included, Excluded, Unbounded };
+/// Describes whether to stop with a `B` or continue with a `C`. Use this
+/// instead of `Result` when stopping is not an error, for example when a
+/// search finds its answer. For `ControlFlow<B, C>`, `?` extracts `C` or
+/// returns early with the same `B`, even if the next success type differs.
+pub enum ControlFlow<B, C> {
+    /// Stops the operation, carrying its early-exit value.
+    Break(B),
+    /// Continues the operation, carrying its next value.
+    Continue(C),
+}
+/// Defines `left + right`. The right operand and result need not have the
+/// left operand's type: adding a distance to a position can return a position.
+/// Builtin integer addition traps on overflow; a custom type defines its sum.
+///
+/// ```kagari
+/// use core::ops::Add;
+/// struct Position { val x: i32 }
+/// impl Add<i32> for Position {
+///     type Output = Position;
+///     fn add(self, distance: i32) -> Position { Position { x: self.x + distance } }
+/// }
+/// fn advance(p: Position) -> Position { p + 2 }
+/// ```
+///
+/// `advance(Position { x: 3 }).x` returns `5`.
+#[lang = "add"]
+pub trait Add<Rhs> {
+    /// Type of the sum.
+    type Output;
+    /// Adds `arg1` to `self` and returns the sum.
+    fn add(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left - right`. For example, subtracting two positions could
+/// return a distance. Builtin integer subtraction traps on overflow.
+#[lang = "sub"]
+pub trait Sub<Rhs> {
+    /// Type of the difference; it need not be the receiver type.
+    type Output;
+    /// Subtracts `arg1` from `self`, not the other way around.
+    fn sub(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left * right`. Multiplying a vector by a scalar need not take two
+/// operands of the same type. Builtin integer multiplication traps on overflow.
+#[lang = "mul"]
+pub trait Mul<Rhs> {
+    /// Type of the product.
+    type Output;
+    /// Multiplies `self` by `arg1`.
+    fn mul(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left / right`. Builtin integer division traps on a zero divisor
+/// or signed overflow; implementing this trait does not add a zero check.
+#[lang = "div"]
+pub trait Div<Rhs> {
+    /// Type of the quotient.
+    type Output;
+    /// Divides `self` by `arg1` and returns the quotient.
+    fn div(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left % right`, distinct from computing a quotient with `/`.
+/// Builtin integer remainder traps on a zero divisor and on signed minimum `% -1`.
+#[lang = "rem"]
+pub trait Rem<Rhs> {
+    /// Type of the remainder.
+    type Output;
+    /// Returns the remainder of dividing `self` by `arg1`.
+    fn rem(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left & right`. For bit masks, a result bit is set when both
+/// input bits are set. Unlike `&&`, this evaluates both operands.
+#[lang = "bit_and"]
+pub trait BitAnd<Rhs> {
+    /// Type of the conjunction.
+    type Output;
+    /// Combines `self` with `arg1` using the implementation's conjunction.
+    fn bitand(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left | right`. For bit masks, a result bit is set when either
+/// input bit is set. This is not the short-circuit operator `||`.
+#[lang = "bit_or"]
+pub trait BitOr<Rhs> {
+    /// Type of the disjunction.
+    type Output;
+    /// Combines `self` with `arg1` using the implementation's disjunction.
+    fn bitor(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `left ^ right`. For bit masks, a result bit is set when exactly
+/// one of the two input bits is set; XOR with a mask toggles those bits.
+#[lang = "bit_xor"]
+pub trait BitXor<Rhs> {
+    /// Type of the exclusive disjunction.
+    type Output;
+    /// Combines `self` with `arg1` using the implementation's exclusive disjunction.
+    fn bitxor(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `value << count`. The right operand describes the shift rather
+/// than a second value to combine. Builtin integers check the count against
+/// the left operand's width and discard bits shifted past that width.
+#[lang = "shl"]
+pub trait Shl<Rhs> {
+    /// Type of the left-shifted value.
+    type Output;
+    /// Shifts `self` left by `arg1`.
+    fn shl(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines `value >> count`. Builtin integers check the shift count; a signed
+/// right shift extends the sign bit, unlike shifting an unsigned integer.
+#[lang = "shr"]
+pub trait Shr<Rhs> {
+    /// Type of the right-shifted value.
+    type Output;
+    /// Shifts `self` right by `arg1`.
+    fn shr(self, arg1: Rhs) -> Self::Output;
+}
+/// Defines unary `-value`, not subtraction of a right operand. Negating the
+/// minimum builtin signed integer traps because its positive value does not fit.
+#[lang = "neg"]
+pub trait Neg {
+    /// Type of the negated value.
+    type Output;
+    /// Returns the arithmetic negation of `self`.
+    fn neg(self) -> Self::Output;
+}
+/// Defines unary `!value`. On a boolean this reverses truth; on an integer
+/// it complements all bits at its declared width. It does not control `!=`.
+#[lang = "not"]
+pub trait Not {
+    /// Type of the inverted value.
+    type Output;
+    /// Returns the implementation's inversion of `self`.
+    fn not(self) -> Self::Output;
+}
+/// Defines what is read by `bag[key]`. Use it for element access, not to
+/// expose a writable slot or a Rust reference. A returned object keeps its
+/// usual shared identity. The implementation chooses how to handle a missing
+/// key; provide an optional lookup if callers need to recover from absence.
+#[lang = "index"]
+pub trait Index<Key> {
+    /// Type of the value returned by an indexed read.
+    type Output;
+    /// Reads `self` at the key `arg1`; this method does not replace the element.
+    fn index(self, arg1: Key) -> Self::Output;
+}
+/// Makes a value callable with `f(args...)`. The trait takes one tuple type:
+/// `Fn<(i32,)>` accepts one integer, whereas `Fn<()>` takes no arguments.
+/// Calls evaluate arguments left to right, once each. Use a callable bound
+/// when the caller need not know whether `f` is a closure or a callable object.
+#[lang = "fn"]
+pub trait Fn<Args> {
+    /// Type produced by the call.
+    type Output;
+    /// Calls `self` with the evaluated arguments packed into `arg1`.
+    fn call(self, arg1: Args) -> Self::Output;
+}
+/// Lets a caller inspect each endpoint without enumerating the values in a
+/// range. For example, `1..4` and `1..=4` share an included start, but their
+/// end bounds are respectively `Excluded(4)` and `Included(4)`.
+pub trait RangeBounds<T> {
+    /// Returns the lower bound, or `Unbounded` if there is no lower limit.
+    fn start_bound(self) -> Bound<T>;
+    /// Returns the upper bound, or `Unbounded` if there is no upper limit.
+    fn end_bound(self) -> Bound<T>;
+}
+
+pub native type Range<T>;
+
+pub native type RangeInclusive<T>;
+
+pub native type RangeFrom<T>;
+
+pub native type RangeTo<T>;
+
+pub native type RangeToInclusive<T>;
+
+pub native type RangeFull;
+
+impl<T> RangeBounds<T> for Range<T> {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+
+impl<T> RangeBounds<T> for RangeInclusive<T> {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+
+impl<T> RangeBounds<T> for RangeFrom<T> {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+
+impl<T> RangeBounds<T> for RangeTo<T> {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+
+impl<T> RangeBounds<T> for RangeToInclusive<T> {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+
+impl<T> RangeBounds<T> for RangeFull {
+    fn start_bound(self) -> Bound<T> {
+        __range_start_bound(self)
+    }
+    fn end_bound(self) -> Bound<T> {
+        __range_end_bound(self)
+    }
+}
+/// Defines the two paths of `value?`. The expression evaluates `value` and
+/// calls `branch` once. A `Continue` supplies the expression's value; a
+/// `Break` sends the residual to the enclosing return type's `FromResidual`.
+/// Neither path catches traps. Implement this trait for a carrier, not for
+/// the success or failure payload alone.
+#[lang = "try"]
+pub trait Try: FromResidual<Self::Residual> {
+    /// The value available after `?` continues.
+    type Output;
+    /// The early-return carrier, distinct from its payload (e.g. `Option<Infallible>`).
+    type Residual;
+    /// Wraps `output` on the successful path, e.g. `Some(output)` for an option.
+    fn from_output(output: Self::Output) -> Self;
+    /// Separates the successful value from the residual without converting either.
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output>;
+}
+/// Constructs the enclosing return value when `?` stops early. Implement it
+/// for a compatible residual; two carriers need not interoperate just because
+/// their payloads happen to have the same type.
+#[lang = "from_residual"]
+pub trait FromResidual<R> {
+    /// Returns the enclosing carrier's early-exit value, preserving the meaning of `residual`.
+    fn from_residual(residual: R) -> Self;
+}
+
+impl<B, C> FromResidual<ControlFlow<B, Infallible>> for ControlFlow<B, C> {
+    fn from_residual(residual: ControlFlow<B, Infallible>) -> Self {
+        match residual {
+            ControlFlow::Break(value) => ControlFlow::Break(value),
+            ControlFlow::Continue(never) => match never {},
+        }
+    }
+}
+
+impl<B, C> Try for ControlFlow<B, C> {
+    type Output = C;
+    type Residual = ControlFlow<B, Infallible>;
+    fn from_output(output: C) -> Self {
+        ControlFlow::Continue(output)
+    }
+    fn branch(self) -> ControlFlow<Self::Residual, C> {
+        match self {
+            ControlFlow::Continue(value) => ControlFlow::Continue(value),
+            ControlFlow::Break(value) => ControlFlow::Break(ControlFlow::Break(value)),
+        }
+    }
+}

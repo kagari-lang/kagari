@@ -1,6 +1,6 @@
+use crate::tests::standard::standard_modules;
 use crate::{analyze_source, types::TypeId};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
-use kagari_stdlib::catalog;
 use kagari_types::scalar::BuiltinType;
 
 const ORDINARY_TYPES: &str = include_str!("../../../../tests/fixtures/native/reference_names.kgr");
@@ -9,7 +9,7 @@ const ORDINARY_TYPES: &str = include_str!("../../../../tests/fixtures/native/ref
 fn user_reference_names_allow_ordinary_generic_storage_and_captures() {
     let result = analyze_source(
         &SourceFile::new("reference-names.kgr", ORDINARY_TYPES),
-        catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -52,7 +52,7 @@ fn user_reference_names_do_not_project_or_narrow() {
                 "reference-names-rejected.kgr",
                 format!("{ORDINARY_TYPES}\n{body}"),
             ),
-            catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(

@@ -1,5 +1,6 @@
 //! Shared native-wait fixture for unit and standalone consumer contracts.
 use super::Compilation;
+use super::standard_library;
 use super::{EngineConfig, KagariEngine, KagariEngineBuilder, Runtime};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -35,8 +36,6 @@ use kagari_runtime::{
         types::Type,
     },
 };
-use kagari_stdlib as stdlib;
-use kagari_stdlib::catalog;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{FnDecl, Param, module::ModuleDecl},
@@ -302,9 +301,10 @@ fn synthetic_program(
         functions,
         ..Default::default()
     };
-    let foundation = catalog::shared()
-        .unwrap()
-        .into_iter()
+    let foundation = standard_library()
+        .declarations()
+        .declarations()
+        .iter()
         .find(|declaration| declaration.records().identity == owner)
         .unwrap();
     let foundation = foundation
@@ -370,7 +370,9 @@ impl Fixture {
         ) -> Compilation,
     ) -> Self {
         let mut engine = KagariEngine::builder().unwrap();
-        engine.install_all(stdlib::modules().unwrap()).unwrap();
+        engine
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         engine.config(config);
         let catalog = engine.declarations().clone();
         let starts = Arc::new(AtomicUsize::new(0));

@@ -6,7 +6,7 @@ use kagari_runtime::native::{
     declarations::FunctionDecl, payload::Opaque, typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use kagari_types::ty::Ty;
 
 kagari_runtime::native_data! { struct Config { multiplier: i32 } }
@@ -31,7 +31,8 @@ enum Outcome {
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::damage", builder.declarations()).unwrap();
     let request = module.register_type::<Request>().unwrap();
     let outcome = module.register_type::<Outcome>().unwrap();

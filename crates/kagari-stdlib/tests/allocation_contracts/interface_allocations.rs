@@ -1,5 +1,6 @@
 //! Repeated dispatch must not copy metadata for unused interface methods.
 use crate::bytecode_fixture::load_bytecode;
+use crate::standard_library::STANDARD;
 
 use super::native_allocations_counter::{measured, verify_counter};
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
@@ -13,9 +14,8 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib as foundation;
 
-use std::{hint::black_box, sync::Arc};
+use std::hint::black_box;
 
 #[test]
 fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
@@ -62,7 +62,7 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             }
         )));
         let mut runtime = dispatch_runtime();
-        NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&STANDARD.modules().unwrap(), &mut runtime).unwrap();
         let loaded = load_bytecode(&mut runtime, "interface-width", program).unwrap();
         let _loaded_program = loaded;
         let installed = _loaded_program.clone();
@@ -288,13 +288,7 @@ fn load(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
         .set("interface-cache.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        foundation::modules()
-            .unwrap()
-            .iter()
-            .map(|module| Arc::new(module.to_declaration()))
-            .collect(),
-    );
+    analysis.set_native_modules(STANDARD.declarations().declarations().to_vec());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -308,7 +302,7 @@ fn load(source: &str) -> (Runtime, InstalledProgram, ExecutableModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = dispatch_runtime();
-    NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&STANDARD.modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "interface-cache", program).unwrap();
     let _loaded_program = loaded;
     let _installed = _loaded_program.clone();

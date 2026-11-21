@@ -1,11 +1,11 @@
 //! Bounded same-product installation scaling; allocation and timing builds differ.
+use crate::standard_engine;
 use kagari::{
     context::ExecutionContext,
     engine::{KagariEngine, source::PreparationOptions},
     program::Program,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use std::{collections::HashSet, env, fmt::Write, sync::Arc, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -99,9 +99,7 @@ fn lifecycle(engine: &KagariEngine, program: &Program, options: &Options) -> Mea
     for _ in 0..options.runtimes {
         let runtime = if options.fresh_domain {
             // The temporary engine is dropped before the empty-runtime snapshot.
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .runtime(context.clone())
+            standard_engine(Default::default()).runtime(context.clone())
         } else {
             engine.runtime(context.clone())
         };
@@ -169,8 +167,7 @@ fn print_sample(index: usize, value: &Measurement) {
 pub(super) fn run() {
     let options = Options::parse();
     let preparation = Instant::now();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = standard_engine(Default::default());
     let engine_ns = preparation.elapsed().as_nanos();
     let preparation = Instant::now();
     let checked = engine

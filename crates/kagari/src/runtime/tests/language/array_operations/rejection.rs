@@ -1,11 +1,14 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn byte_literals_reject_type_coercion_and_array_constant_contexts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "fn main() { val value: u16 = b'A'; }",
         "fn main() { val value: char = b'A'; }",
@@ -33,8 +36,11 @@ fn byte_literals_reject_type_coercion_and_array_constant_contexts() {
 
 #[test]
 fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "fn main() { val a = [0; -1]; }",
         "fn main() { val a: Vec<i32> = [1]; }",
@@ -68,8 +74,11 @@ fn invalid_repeat_counts_and_read_only_mutations_are_compile_errors() {
 
 #[test]
 fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for body in [
         "val a = [Cell { value: 1 }; 2];",
         "val a = [Cell { value: 1 }; 0];",

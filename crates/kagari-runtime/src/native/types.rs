@@ -15,7 +15,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{TraitDef, TypeDef, TypeDefKind, module::ModuleDecl},
+    declaration::{
+        TraitDef, TypeDef, TypeDefKind, module::ModuleDecl, native::NativeTypeConstructor,
+    },
+    range::RangeKind,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -23,6 +26,22 @@ use std::{
     collections::{BTreeMap, HashSet},
     sync::Arc,
 };
+
+pub(super) fn constructor_type(
+    constructor: NativeTypeConstructor,
+    mut arguments: Vec<Ty>,
+) -> NativeResult<Ty> {
+    if arguments.len() != constructor.arity() {
+        return Err(conflict("constructor reference argument count"));
+    }
+    Ok(match constructor {
+        NativeTypeConstructor::String => Ty::Builtin(BuiltinType::String),
+        NativeTypeConstructor::Range(RangeKind::Full) => {
+            Ty::Range(Box::new(Ty::Builtin(BuiltinType::Unit)), RangeKind::Full)
+        }
+        NativeTypeConstructor::Range(kind) => Ty::Range(Box::new(arguments.remove(0)), kind),
+    })
+}
 
 /// A semantic type input. Only this outer handle retains a table; nested nodes use IDs.
 /// Identity-free scalar/composite values need no identity table allocation.
@@ -230,7 +249,7 @@ impl TypeRef {
 
     pub fn codec(&self) -> Codec {
         match self.declaration.kind {
-            TypeDefKind::Enum | TypeDefKind::Host(_) => Codec::Value,
+            TypeDefKind::Enum | TypeDefKind::Host(_) | TypeDefKind::Native(_) => Codec::Value,
             _ => Codec::Object {
                 declaration: self.id,
                 definitions: self.definitions.clone(),
@@ -242,6 +261,11 @@ impl TypeRef {
         let arguments = arguments.into_iter().collect::<Vec<_>>();
         if arguments.len() != self.declaration.generic_params.len() {
             return Err(conflict("native type argument count"));
+        }
+        if let TypeDefKind::Native(constructor) = self.declaration.kind {
+            return Type::assemble(arguments, |arguments| {
+                constructor_type(constructor, arguments)
+            });
         }
         let nominal = NominalTy {
             declaration: self.id,

@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, engine::KagariEngine, program::Program};
 use kagari_bytecode::instruction::EnumId;
 use kagari_common::identity::{
@@ -13,7 +14,6 @@ use kagari_runtime::{
     value_semantics::script_equal,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as stdlib;
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeArtifact> {
@@ -54,8 +54,11 @@ fn variant(module: &ExecutableModule, name: &str) -> EnumVariantRef {
 
 #[test]
 fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let source = "enum Option { Some(i32) } enum Other { Some(i32) } enum Holder { Data(Option, [i32]) } fn main() -> Option { Option::Some(42) }";
     let original = compile(&engine, source);
@@ -236,8 +239,11 @@ fn enum_values_retain_versions_and_reject_foreign_or_changed_payload_layouts() {
 
 #[test]
 fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for (name, value) in [("left", 7), ("right", 9)] {
         let path = format!("memory://{name}.kgr");
         engine
@@ -277,8 +283,11 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
 
 #[test]
 fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let mut runtime = engine.runtime(Default::default());
     let source = "struct Point { val x: i32 } pub enum Event { Empty, Data(Point, (i32, [String])) } fn main() -> i32 { 42 }";
     let original = compile(&engine, source);
@@ -383,8 +392,11 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
 
 #[test]
 fn same_spelled_payload_types_from_different_modules_have_different_abi() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for name in ["left", "right"] {
         let path = format!("memory://{name}.kgr");
         engine

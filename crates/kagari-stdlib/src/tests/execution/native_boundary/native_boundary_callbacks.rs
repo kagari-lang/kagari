@@ -1,6 +1,7 @@
 //! Function arguments, generic conversion and retained callback lifetimes.
 use super::{compile, compile_program};
-use crate::{declarations::StandardDeclarations, tests::support::bytecode::reload_bytecode};
+use crate::test_library;
+use crate::tests::support::bytecode::reload_bytecode;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
@@ -29,8 +30,8 @@ type Callback = Function<(i32,), i32>;
 
 #[test]
 fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut builder = ModuleBuilder::new("example::machine_scalars", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("example::machine_scalars", catalog).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let unsigned = builder
         .define_function(
@@ -139,13 +140,8 @@ fn call_repeatedly(
 
 #[test]
 fn function_arguments_call_captured_script_closures_synchronously() {
-    let mut builder = ModuleBuilder::new(
-        "example::callbacks",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::callbacks", test_library::standard().catalog()).unwrap();
     let apply = builder
         .define_function(
             FunctionDecl::new("apply")
@@ -251,13 +247,8 @@ fn function_arguments_call_captured_script_closures_synchronously() {
 #[test]
 fn retained_host_callbacks_pin_their_capture_program_across_reload() {
     let held: Arc<Mutex<Option<Callback>>> = Arc::new(Mutex::new(None));
-    let mut builder = ModuleBuilder::new(
-        "example::retained",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::retained", test_library::standard().catalog()).unwrap();
     let remember = builder
         .define_function(FunctionDecl::new("remember").parameter(
             "callback",
@@ -348,13 +339,8 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
 
 #[test]
 fn stored_callbacks_trace_captures_through_an_ordinary_native_payload() {
-    let mut builder = ModuleBuilder::new(
-        "example::stored",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::stored", test_library::standard().catalog()).unwrap();
     let mut declaration = builder.define_type("Handler").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<StoredCallable>())
@@ -433,13 +419,8 @@ fn identity<'call>(
 
 #[test]
 fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
-    let mut builder = ModuleBuilder::new(
-        "example::generic",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::generic", test_library::standard().catalog()).unwrap();
     let function = builder
         .define_function(FunctionDecl::new("identity"))
         .unwrap();
@@ -502,12 +483,8 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
 
 #[test]
 fn array_and_callable_arguments_share_an_ordinary_rust_binding() {
-    let language = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new(
-        "example::fold",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut builder = ModuleBuilder::new("example::fold", language.catalog()).unwrap();
     let fold = builder
         .define_function(
             FunctionDecl::new("fold")

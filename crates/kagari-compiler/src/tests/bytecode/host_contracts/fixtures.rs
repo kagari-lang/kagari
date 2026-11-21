@@ -1,4 +1,5 @@
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir, tests::common,
 };
@@ -56,7 +57,7 @@ pub(super) fn readable_sources(
     }
     let root = root.unwrap();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -161,7 +162,7 @@ pub(super) fn readable_sources(
     let provider = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), provider, &Default::default()).unwrap(),
     );
-    let mut catalog = kagari_stdlib::catalog::shared().unwrap();
+    let mut catalog = standard_modules();
     catalog.push(provider);
     database.set_native_modules(catalog);
     let (name, source) = inputs.last().unwrap();

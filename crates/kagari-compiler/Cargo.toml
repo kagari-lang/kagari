@@ -31,5 +31,10 @@ name = "layouts"
 required-features = ["source"]
 
 [dev-dependencies]
+kagari-runtime.workspace = true
 kagari-stdlib.workspace = true
 rstest.workspace = true
+
+[[example]]
+name = "export_core_fixture"
+required-features = ["source"]

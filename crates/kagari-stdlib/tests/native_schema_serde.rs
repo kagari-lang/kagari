@@ -1,5 +1,6 @@
 //! Serde executes its own representation against static, source-free DTO facts.
 use crate::bytecode_fixture::load_bytecode;
+use crate::standard_library::STANDARD;
 mod formatting;
 mod snapshot;
 use super::program_for_source;
@@ -19,7 +20,6 @@ use kagari_runtime::{
         serde::Serde,
     },
 };
-use kagari_stdlib::declarations::StandardDeclarations;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 
 #[derive(Default, Debug, PartialEq)]
@@ -64,8 +64,8 @@ impl Serialize for Transformed {
 }
 
 fn module() -> NativeModule {
-    let providers = StandardDeclarations::default().catalog().unwrap();
-    let mut builder = ModuleBuilder::new("game::serde", &providers).unwrap();
+    let providers = STANDARD.declarations().catalog();
+    let mut builder = ModuleBuilder::new("game::serde", providers).unwrap();
     builder.register_type::<Serde<Input>>().unwrap();
     builder.register_type::<Serde<Transformed>>().unwrap();
     builder.register_type::<Serde<snapshot::Graph>>().unwrap();
@@ -100,7 +100,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
         },
         ..Default::default()
     });
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();
@@ -207,7 +207,7 @@ fn serde_uses_conversion_limits_and_reports_nested_error_paths() {
     let module = module();
     let program = program_for_source(&module, include_str!("fixtures/native/serde_request.kgr"));
     let mut runtime = Runtime::default();
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();

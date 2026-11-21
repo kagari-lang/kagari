@@ -1,0 +1,69 @@
+use core::result::{ Result as Outcome, Ok, Err };
+
+use core::convert::{ From, Infallible };
+
+use core::ops::Try;
+
+struct Cause {
+    var code: i32
+}
+
+impl From<Cause> for i32 {
+    fn from(value: Cause) -> Self {
+        value.code += 1;
+        value.code
+    }
+}
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E),
+}
+
+fn origin() -> Outcome<bool, Cause> {
+    Err(Cause { code: 42 })
+}
+
+fn converted(input: Outcome<bool, Cause>) -> Outcome<bool, i32> {
+    Ok(input?)
+}
+
+pub fn success() -> bool {
+    val input = <Outcome<bool, Cause> as Try>::from_output(true);
+    match converted(input) {
+        Ok(value) => value,
+        Err(_) => false
+    }
+}
+
+pub fn propagated() -> Outcome<i32, i32> {
+    Ok(
+        if converted(origin())? {
+            1
+        } else {
+            0
+        }
+    )
+}
+
+pub fn rebuilt() -> Outcome<bool, i32> {
+    match origin() {
+        Ok(value) => Ok(value),
+        Err(error) => Err(error.code),
+    }
+}
+
+fn __forward_err_origin(first: Outcome<Infallible, i32>, replacement: Outcome<bool, i32>) -> Outcome<
+    bool, i32
+> {
+    replacement
+}
+
+pub fn shadowed() -> Outcome<bool, i32> {
+    val first: Outcome<Infallible, i32> = Err(7);
+    __forward_err_origin(first, rebuilt())
+}
+
+pub fn ordinary() -> Result<bool, i32> {
+    Result::Err(42)
+}

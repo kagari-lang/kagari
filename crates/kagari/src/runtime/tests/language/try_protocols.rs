@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     engine::{EngineConfig, KagariEngine},
@@ -7,7 +8,6 @@ use crate::{
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -26,7 +26,8 @@ fn ordinary_execution(
         .unwrap_or_else(|error| panic!("failed to read fixture {}: {error}", path.display()));
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine =
+        KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("memory://try-protocols.kgr", &source),

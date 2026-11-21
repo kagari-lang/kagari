@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{AnalysisSnapshot, FileAnalysis},
     compile_input::program::{AdmissionError, CheckedCompilation},
@@ -53,7 +54,7 @@ fn analyze(input: ExternalModule, text: &str) -> (AnalysisDatabase, AnalysisSnap
     let mut inputs = if input.dependencies.is_empty() {
         Vec::new()
     } else {
-        super::foundation::exported(&kagari_stdlib::catalog::shared().unwrap())
+        super::foundation::exported(&standard_modules())
     };
     inputs.push(input);
     db.set_external_modules(inputs);
@@ -294,7 +295,7 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
     let (_, snapshot, root) = analyze(library, client);
     assert_clean(&snapshot);
     let mut direct = AnalysisDatabase::new("/project").unwrap();
-    let mut providers = kagari_stdlib::catalog::shared().unwrap().to_vec();
+    let mut providers = standard_modules();
     providers.push(super::equivalence::constructor_registration());
     direct.set_native_modules(providers);
     let direct_snapshot = direct
@@ -378,7 +379,7 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
 
 #[test]
 fn foundation_reference_names_are_absent_in_both_declaration_routes() {
-    let providers = kagari_stdlib::catalog::shared().unwrap();
+    let providers = standard_modules();
     for structured in [true, false] {
         let mut db = AnalysisDatabase::new("/project").unwrap();
         if structured {
@@ -549,7 +550,7 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         db.snapshot(SourceSnapshot::single_file(library.source.clone()), &Default::default()),
         Err(AnalysisError::NativeApi(error)) if error.0.contains("source conflicts")
     ));
-    let mut providers = kagari_stdlib::catalog::shared().unwrap().to_vec();
+    let mut providers = standard_modules();
     providers.push(super::equivalence::constructor_registration());
     db.set_native_modules(providers);
     assert!(matches!(
@@ -638,6 +639,7 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
             "pub native type RangeFull { pub val value: i32 }",
         ),
     ] {
+        let mut shapes = AnalysisDatabase::new("/constructor-shapes").unwrap();
         for (text, accepted) in [(valid, true), (wrong_arity, false), (fields, false)] {
             let mut sources = SourceDatabase::new("/constructor-shapes").unwrap();
             sources
@@ -657,8 +659,12 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
                         .types
                         .insert(name.into(), ExternalType::Constructor(constructor));
                 }
-                db.set_external_modules(vec![declaration]);
-                let result = db.declarations(SourceSnapshot::default(), &Default::default());
+                if package == "core" {
+                    shapes.replace_core_fixture(declaration);
+                } else {
+                    shapes.set_external_modules(vec![declaration]);
+                }
+                let result = shapes.declarations(SourceSnapshot::default(), &Default::default());
                 if accepted {
                     assert!(result.is_ok(), "{text}, sidecar={sidecar}: {result:?}");
                 } else {

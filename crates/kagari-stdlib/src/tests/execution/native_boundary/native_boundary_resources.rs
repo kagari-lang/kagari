@@ -1,4 +1,5 @@
 use super::compile_program;
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_runtime::{
@@ -12,7 +13,6 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 
-use crate::declarations::StandardDeclarations;
 use kagari_gc::heap::HeapStats;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::{Arc, Mutex};
@@ -28,13 +28,8 @@ impl MutationFixture {
     fn new(source: &str, policy: RuntimeLimits, retained_type: &str) -> Self {
         let retained: Arc<Mutex<Option<RootedValue>>> = Arc::default();
         let keep = retained.clone();
-        let mut module = ModuleBuilder::new(
-            "test::roots",
-            &StandardDeclarations::default()
-                .catalog()
-                .expect("explicit standard providers"),
-        )
-        .unwrap();
+        let mut module =
+            ModuleBuilder::new("test::roots", test_library::standard().catalog()).unwrap();
         let function = module.define_function(FunctionDecl::new("retain")).unwrap();
         module
             .function(&function, |function| {
@@ -62,7 +57,7 @@ impl MutationFixture {
             ..Default::default()
         });
         kagari_runtime::native::module::NativeModule::install_all(
-            &crate::modules().unwrap(),
+            &test_library::modules().unwrap(),
             &mut runtime,
         )
         .unwrap();

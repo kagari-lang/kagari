@@ -2,10 +2,16 @@
 use kagari_common::identity::{DefinitionKind, DefinitionPath, metadata::DefinitionMetadata};
 use kagari_runtime::{
     error::RuntimeError,
-    native::{assembly::DeclarationSnapshot, binding::NativeResult, types::TypeRef},
+    native::{
+        assembly::DeclarationSnapshot, binding::NativeResult, catalog::DeclarationCatalog,
+        types::TypeRef,
+    },
 };
 use kagari_types::declaration::{TypeDefKind, module::ModuleDecl};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// Independently retained declarations and enum handles from one sealed snapshot.
 /// StandardDeclarations queries this value, not pending work in the parent Bundle.
@@ -13,7 +19,7 @@ use std::{collections::BTreeMap, sync::Arc};
 /// the invoking runtime's generation-pinned layout through its checked call API.
 #[derive(Debug)]
 pub struct Semantic {
-    snapshot: DeclarationSnapshot,
+    catalog: DeclarationCatalog,
     shared: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     enumerations: BTreeMap<DefinitionPath, TypeRef>,
     // Preserve the existing short-name API without scanning modules on enum calls.
@@ -25,39 +31,48 @@ impl Semantic {
     pub(crate) fn new(snapshot: DeclarationSnapshot) -> NativeResult<Self> {
         let mut enumerations = BTreeMap::new();
         let mut enum_names = BTreeMap::new();
+        let mut paths = BTreeSet::new();
         for module in snapshot.modules() {
-            for ty in &module.records().types {
-                if ty.kind != TypeDefKind::Enum {
-                    continue;
+            let definitions = module.definitions();
+            let records = module.records();
+            for ty in &records.types {
+                if ty.kind == TypeDefKind::Enum {
+                    let id = records
+                        .definition(DefinitionKind::Enum, &ty.name, definitions)
+                        .map_err(conflict)?;
+                    paths.insert(definitions.resolve(id).map_err(conflict)?.to_path());
                 }
-                let id = module
-                    .records()
-                    .definition(DefinitionKind::Enum, &ty.name, module.definitions())
-                    .map_err(conflict)?;
-                let path = module
-                    .definitions()
-                    .resolve(id)
-                    .map_err(conflict)?
-                    .to_path();
-                let declaration = snapshot.catalog().type_reference(&path)?;
-                enum_names
-                    .entry(ty.name.clone())
-                    .and_modify(|entry| *entry = None)
-                    .or_insert_with(|| Some(path.clone()));
-                enumerations.insert(path, declaration);
             }
+            // A facade may expose an authored enum without owning its declaration.
+            for id in records.exports.values() {
+                let target = definitions.resolve(*id).map_err(conflict)?;
+                if target
+                    .last()
+                    .is_some_and(|segment| segment.kind == DefinitionKind::Enum)
+                {
+                    paths.insert(target.to_path());
+                }
+            }
+        }
+        for path in paths {
+            let declaration = snapshot.catalog().type_reference(&path)?;
+            enum_names
+                .entry(path.path.last().expect("enum path").name.clone())
+                .and_modify(|entry| *entry = None)
+                .or_insert_with(|| Some(path.clone()));
+            enumerations.insert(path, declaration);
         }
         let shared = snapshot.modules().iter().cloned().map(Arc::new).collect();
         Ok(Self {
-            snapshot,
+            catalog: snapshot.catalog().clone(),
             shared,
             enumerations,
             enum_names,
         })
     }
 
-    pub fn snapshot(&self) -> &DeclarationSnapshot {
-        &self.snapshot
+    pub fn catalog(&self) -> &DeclarationCatalog {
+        &self.catalog
     }
 
     pub fn shared(&self) -> &[Arc<DefinitionMetadata<ModuleDecl>>] {

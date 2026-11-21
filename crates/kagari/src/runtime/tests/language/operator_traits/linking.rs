@@ -1,15 +1,17 @@
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source_database::SourceLayer;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn imported_generic_operators_keep_the_defining_implementation() {
     for downstream_override in [false, true] {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         let model = r#"use std::ops::{Add, Index};
 
 pub struct Box<T> {pub val value:T}

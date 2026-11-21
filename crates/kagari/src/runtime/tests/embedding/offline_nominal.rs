@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
@@ -21,7 +22,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as stdlib;
 
 use kagari_types::{
     declaration::{
@@ -42,10 +42,8 @@ use std::sync::{
 };
 
 fn assert_source_index_path(field_prefix: bool) {
-    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("game", &catalog).unwrap();
+    let catalog = standard_library().declarations().catalog();
+    let mut builder = ModuleBuilder::new("game", catalog).unwrap();
     let mut player = builder.define_type("Player").unwrap();
     player
         .external(HostTypePolicy {
@@ -191,7 +189,8 @@ fn assert_source_index_path(field_prefix: bool) {
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])

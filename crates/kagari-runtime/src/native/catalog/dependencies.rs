@@ -5,17 +5,19 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionId},
+    identity::{DefinitionKind, scoped::DefinitionReferences, table::DefinitionId},
 };
 use kagari_types::{
     declaration::path::HostPathSegmentDeclaration,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
+    language::Protocol,
+    range::RangeKind,
     ty::{
         GenericBound, NominalTy, Ty,
-        matching::{ImplementationPattern, match_pattern},
+        matching::{ImplementationPattern, match_header, match_pattern},
     },
 };
-use std::{collections::BTreeSet, iter};
+use std::{collections::BTreeSet, iter, sync::Arc};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
@@ -26,6 +28,8 @@ enum Reference {
     Template(DefinitionId),
     Obligation(Ty, NominalTy),
     Implementation(DefinitionId),
+    SourceImpl(DefinitionId),
+    Range(RangeKind),
 }
 
 #[derive(Default)]
@@ -92,7 +96,11 @@ impl References {
                     pending.extend(interface.associated_types.values());
                     pending.extend(arguments);
                 }
-                Ty::Array(item) | Ty::Range(item, _) => pending.push(item),
+                Ty::Array(item) => pending.push(item),
+                Ty::Range(item, kind) => {
+                    self.pending.push(Reference::Range(*kind));
+                    pending.push(item);
+                }
 
                 Ty::Tuple(items) => pending.extend(items),
                 Ty::Function { params, result } => {
@@ -191,6 +199,7 @@ impl DeclarationCatalog {
         for declaration in declarations {
             references.declaration(declaration)?;
         }
+        let catalog = Self::in_context(self.types.context().clone());
         for module in modules {
             references.pending.extend(
                 module
@@ -219,10 +228,61 @@ impl DeclarationCatalog {
         self.resolve_dependencies(
             references,
             DependencyClosure {
-                catalog: Self::in_context(self.types.context().clone()),
+                catalog,
                 seen: BTreeSet::new(),
             },
         )
+    }
+
+    /// Module-wide obligations include re-exports and Script signatures/bodies even when no
+    /// Rust entry mentions them. Keep these out of another binding's individual proof closure.
+    pub(crate) fn module_dependencies<'a>(
+        &self,
+        base: &DependencyClosure,
+        module: &ModuleDecl,
+        declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
+    ) -> Result<Self, RuntimeError> {
+        if self.authored.is_empty() {
+            return self.binding_dependencies(base, declarations);
+        }
+        let mut seed = base.clone();
+        for owner in &module.dependencies {
+            if let Some(origin) = self.authored_origin(owner) {
+                Arc::make_mut(&mut seed.catalog.authored).insert(owner.clone(), origin);
+            }
+        }
+        let definitions = self.definitions();
+        let mut references = References::default();
+        module
+            .visit_definition_ids(
+                &mut |id| {
+                    if self
+                        .authored
+                        .contains_key(definitions.resolve(*id)?.module())
+                    {
+                        // Members, variants and generic binders are covered by their declaring nominal.
+                        let mut current = Some(*id);
+                        while let Some(id) = current {
+                            if self.types.get_id(id).is_some() {
+                                references.pending.push(Reference::Type(id));
+                                break;
+                            }
+                            if self.traits.get_id(id).is_some() {
+                                references.pending.push(Reference::Trait(id));
+                                break;
+                            }
+                            current = definitions.parent(id)?;
+                        }
+                    }
+                    Ok(())
+                },
+                &CancellationToken::default(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for declaration in declarations {
+            references.declaration(declaration)?;
+        }
+        Ok(self.resolve_dependencies(references, seed)?.catalog)
     }
 
     pub(crate) fn binding_dependencies<'a>(
@@ -248,6 +308,7 @@ impl DeclarationCatalog {
         mut closure: DependencyClosure,
     ) -> Result<DependencyClosure, RuntimeError> {
         let definitions = self.definitions();
+        let mut bound_applications = 0;
         while let Some(reference) = references.pending.pop() {
             if !closure.seen.insert(reference.clone()) {
                 continue;
@@ -306,31 +367,106 @@ impl DeclarationCatalog {
                         .pending
                         .push(Reference::Type(applied.declaration));
                 }
+                Reference::Range(kind) => {
+                    let owner = Protocol::Add.module();
+                    if self.authored_origin(&owner).is_some() {
+                        let id = definitions
+                            .lookup_root(&owner)
+                            .and_then(|root| {
+                                definitions.lookup_child(
+                                    root,
+                                    DefinitionKind::AssociatedType,
+                                    kind.name(),
+                                    0,
+                                )
+                            })
+                            .ok_or_else(|| {
+                                RuntimeError::metadata_conflict(
+                                    "missing authored range constructor",
+                                )
+                            })?;
+                        references.pending.push(Reference::Type(id));
+                    }
+                }
                 Reference::Obligation(receiver, interface) => {
-                    for (id, implementation) in self.implementations.entries() {
-                        let Some(implemented) = &implementation.trait_type else {
-                            continue;
-                        };
-                        if match_pattern(
+                    let cancel = CancellationToken::default();
+                    let invalid =
+                        |_| RuntimeError::metadata_conflict("invalid implementation dependency");
+                    let native = self.implementations.entries().filter_map(|(id, imp)| {
+                        Some((
+                            Reference::Implementation(id),
                             ImplementationPattern {
-                                parameters: &implementation.generic_params,
-                                receiver: &implementation.for_type,
-                                interface: implemented,
+                                parameters: &imp.generic_params,
+                                receiver: &imp.for_type,
+                                interface: imp.trait_type.as_ref()?,
                             },
-                            &interface,
-                            &receiver,
-                            &CancellationToken::default(),
-                        )
-                        .map_err(|_| {
-                            RuntimeError::metadata_conflict(
-                                "invalid native implementation dependency",
-                            )
-                        })?
-                        .is_some()
+                        ))
+                    });
+                    for (reference, pattern) in native {
+                        if match_pattern(pattern, &interface, &receiver, &cancel)
+                            .map_err(invalid)?
+                            .is_some()
                         {
-                            references.pending.push(Reference::Implementation(id));
+                            references.pending.push(reference);
                         }
                     }
+                    for (id, imp) in self.source_impls.entries() {
+                        let Ty::Trait(implemented) = &imp.trait_type else {
+                            unreachable!("verified interface")
+                        };
+                        let pattern = ImplementationPattern {
+                            parameters: &imp.generic_params,
+                            receiver: &imp.for_type,
+                            interface: implemented,
+                        };
+                        if let Some(substitution) =
+                            match_header(pattern, &interface, &receiver, &cancel)
+                                .map_err(invalid)?
+                        {
+                            // The linked proof checks associated outputs and applicability. Retain the
+                            // instantiated prerequisites too (e.g. Into<D> needs D: From<S>).
+                            if !imp.bounds.is_empty() {
+                                bound_applications += 1;
+                                if bound_applications > 4096 {
+                                    return Err(RuntimeError::metadata_conflict(
+                                        "authored implementation dependencies exceed proof limits",
+                                    ));
+                                }
+                                references.bounds(
+                                    &substitution
+                                        .apply_bounds(&imp.bounds, &definitions, &cancel)
+                                        .map_err(invalid)?,
+                                )?;
+                            }
+                            references.pending.push(Reference::SourceImpl(id));
+                        }
+                    }
+                }
+                Reference::SourceImpl(id) => {
+                    let table = self
+                        .source_impls
+                        .get_id(id)
+                        .expect("matched authored implementation");
+                    references.bounds(&table.bounds)?;
+                    references.ty(&table.trait_type)?;
+                    references.ty(&table.for_type)?;
+                    for family in &table.associated_type_families {
+                        references.bounds(&family.bounds)?;
+                        references.ty(&family.value)?;
+                    }
+                    for constant in &table.associated_consts {
+                        references.ty(&constant.ty)?;
+                    }
+                    for method in &table.methods {
+                        references.function(method)?;
+                    }
+                    closure.catalog.retain_authored_origin(self, id)?;
+                    insert_contract(
+                        &mut closure.catalog.source_impls,
+                        id,
+                        table.clone(),
+                        "conflicting authored implementation requirements",
+                    )?;
                 }
                 Reference::Implementation(id) => {
                     let implementation = self.implementations.get_id(id).ok_or_else(|| {
@@ -355,6 +491,7 @@ impl DeclarationCatalog {
                     closure.catalog.insert_implementation(id, implementation)?;
                 }
                 Reference::Type(id) => {
+                    closure.catalog.retain_authored_origin(self, id)?;
                     let declaration = self.types.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "native storage type is absent from the declaration catalog",
@@ -369,6 +506,7 @@ impl DeclarationCatalog {
                     )?;
                 }
                 Reference::Trait(id) => {
+                    closure.catalog.retain_authored_origin(self, id)?;
                     let contract = self.traits.get_id(id).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
                             "native trait dependency is absent from the catalog",

@@ -1,8 +1,8 @@
 //! Lexical declarations and noncapturing callable boundaries.
 
+use crate::tests::standard::standard_modules;
 use crate::{analyze_source, hir::item::function::FunctionKind};
 use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog;
 use rstest::rstest;
 
 #[rstest]
@@ -36,7 +36,7 @@ use rstest::rstest;
 )]
 fn local_function_scope_and_callable_contracts(#[case] text: &str) {
     let source = SourceFile::new("locals.kgr", text);
-    let result = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    let result = analyze_source(&source, standard_modules()).unwrap();
     assert!(
         result.diagnostics().is_empty(),
         "{text}\n{:?}",

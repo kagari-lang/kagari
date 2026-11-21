@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::lower::{
@@ -25,7 +26,6 @@ use kagari_mir::{
     verify::VerifiedMirModule,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog;
 
 #[test]
 fn only_static_expressions_retain_computation_and_all_bodies_keep_authored_owners() {
@@ -43,7 +43,7 @@ static val N: i32 = ((helper() + C));
 static val CALLBACK: fn() -> i32 = || helper();
 "#.into(), SourceLayer::Base).unwrap();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let checked = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
@@ -179,7 +179,7 @@ fn initializer_program(text: &str) -> VerifiedBytecodeProgram {
         .set("lexical.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let checked = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

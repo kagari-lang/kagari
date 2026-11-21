@@ -1,4 +1,16 @@
 //! External native-wait consumer, including builds without source/native features.
+#[path = "support/standard.rs"]
+mod standard;
+#[cfg(feature = "source")]
+use standard::standard_library;
+
+#[cfg(not(feature = "source"))]
+fn standard_library() -> &'static kagari_stdlib::StandardLibrary {
+    static LIBRARY: std::sync::LazyLock<kagari_stdlib::StandardLibrary> =
+        std::sync::LazyLock::new(|| standard::from_fixture("async_tasks.kbc"));
+    &LIBRARY
+}
+
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine, builder::KagariEngineBuilder},

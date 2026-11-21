@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{AnalysisDatabase, AnalysisSnapshot},
     tests::test_analysis,
@@ -60,8 +61,7 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
             physical.source().text().as_ptr()
         );
     }
-    let isolated =
-        crate::analyze_source(child.source(), kagari_stdlib::catalog::shared().unwrap()).unwrap();
+    let isolated = crate::analyze_source(child.source(), standard_modules()).unwrap();
     assert_eq!(isolated.facts().lowered.module.functions.len(), 2);
     assert!(isolated.into_codegen().is_ok());
     assert_eq!(

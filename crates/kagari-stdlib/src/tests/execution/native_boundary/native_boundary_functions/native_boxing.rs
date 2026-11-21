@@ -1,14 +1,12 @@
 use super::fixture;
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{
-            compile_program,
-            native_boundary_interfaces::generic_identity_module,
-            support::{declaration_query, round_trip_program},
-        },
-        support::bytecode::reload_bytecode,
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{
+        compile_program,
+        native_boundary_interfaces::generic_identity_module,
+        support::{declaration_query, round_trip_program},
     },
+    support::bytecode::reload_bytecode,
 };
 use kagari_runtime::{
     Runtime,
@@ -49,11 +47,8 @@ type Callback = Function<(), i32>;
 fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     let calls = Arc::new(AtomicUsize::new(0));
     let text_calls = Arc::new(AtomicUsize::new(0));
-    let mut module = ModuleBuilder::new(
-        "example::boxed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::boxed", test_library::standard().catalog()).unwrap();
     let observed = calls.clone();
     let add = {
         let registered_function = module
@@ -392,11 +387,8 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
 
 #[test]
 fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
-    let mut module = ModuleBuilder::new(
-        "example::boxed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::boxed", test_library::standard().catalog()).unwrap();
     let add = {
         let registered_function = module
             .define_function(
@@ -421,7 +413,7 @@ fn a_boxed_named_native_entry_does_not_retain_its_obsolete_program() {
     );
     let program = round_trip_program(program);
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "cycle", program.clone()).unwrap();
     let _old_program = old;

@@ -2,14 +2,11 @@
 
 use crate::{
     Runtime,
-    executor::Executor,
-    interpreter_tests::common::compile_with_provider,
     native::{
         assembly::{ModuleDefinition, ModuleSetBuilder, draft::TraitImplementation},
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        conversion::arguments::ArgumentValues,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         types::Type,
@@ -32,7 +29,7 @@ use kagari_types::{
 };
 
 #[test]
-fn installed_blanket_admits_closed_forward_calls_and_rejects_missing_evidence() {
+fn installed_blanket_rejects_missing_implementation_evidence() {
     let mut set = ModuleSetBuilder::new(&Default::default()).unwrap();
     set.add(ModuleDefinition::new(Protocol::From.module(), |module| {
         module.package_alias("core");
@@ -109,19 +106,6 @@ fn installed_blanket_admits_closed_forward_calls_and_rejects_missing_evidence() 
         "{error}"
     );
     assert_eq!(runtime.modules().loaded_count(), 0);
-
-    let input = compile_with_provider(
-        include_str!("../../../tests/fixtures/native/installed-conversion.kgr"),
-        Some(provider),
-    );
-    let loaded = load_bytecode(&mut runtime, "complete", input).unwrap();
-    let selected = runtime.select_program(&loaded).unwrap();
-    let (owner, entry) = selected.entry_function().unwrap();
-    let result = Executor::new(&mut runtime, &owner, entry, ArgumentValues::scalars(&[]))
-        .unwrap()
-        .run(|runtime, stack, value| stack.retain_result(runtime, value))
-        .unwrap();
-    assert_eq!(result.as_i64(), Some(42));
 }
 
 fn provider(wide: bool) -> NativeModule {

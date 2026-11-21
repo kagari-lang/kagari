@@ -6,7 +6,7 @@ use kagari_runtime::native::{
     typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, KagariSchema)]
@@ -24,7 +24,8 @@ enum DamageResult {
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::serde", builder.declarations()).unwrap();
     let request = module.register_type::<Serde<Request>>().unwrap();
     let result = module.register_type::<Serde<DamageResult>>().unwrap();

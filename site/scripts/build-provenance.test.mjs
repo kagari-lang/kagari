@@ -107,12 +107,13 @@ test('output digest covers additions, removal and bytes, excluding only the root
 
 test('Rust provenance closure tracks new/removed sources, lock/config/toolchain files without Cargo', async (t) => {
   const root = await temporary(t);
+  await put(root, 'library/core/Cargo.toml', '[package]');
   await put(root, 'crates/example/src/lib.rs', 'pub fn example() {}');
   await put(root, 'Cargo.toml', '[workspace]');
   await put(root, 'Cargo.lock', '# locked');
   const current = async () => digest(await rustInputFiles(root), root);
   const original = await current();
-  for (const name of ['crates/example/src/new.rs', 'crates/example/input.kgr', 'crates/new/Cargo.toml', '.cargo/config.toml', 'rust-toolchain.toml']) {
+  for (const name of ['crates/example/src/new.rs', 'crates/example/input.kgr', 'library/core/cmp.kgr', 'crates/new/Cargo.toml', '.cargo/config.toml', 'rust-toolchain.toml']) {
     await put(root, name, 'new input');
     assert.notEqual(await current(), original, name);
     await rm(join(root, name));
@@ -149,7 +150,7 @@ test('product orchestration retains fresh source-free graph guards, not just cac
 
   const valid = 'kagari-web v0.0.0\nkagari-runtime v0.0.0\n';
   assertSourceFreeGraph(valid);
-  for (const dependency of ['kagari-source', 'kagari-syntax', 'kagari-hir', 'kagari-package', 'kagari-compiler', 'kagari-mir', 'kagari-codegen-cranelift', 'cranelift-codegen', 'libloading']) {
+  for (const dependency of ['kagari-core-source', 'kagari-source', 'kagari-syntax', 'kagari-hir', 'kagari-package', 'kagari-compiler', 'kagari-mir', 'kagari-codegen-cranelift', 'cranelift-codegen', 'libloading']) {
     assert.throws(() => assertSourceFreeGraph(`${valid}${dependency} v0.0.0\n`), /frontend\/native tooling/u);
   }
   assert.throws(() => assertSourceFreeGraph('kagari-web v0.0.0'), /Incomplete/u);

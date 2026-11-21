@@ -1,15 +1,15 @@
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn executable_from_adapters_reject_forged_source_types_and_targets() {
     let artifact = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules().unwrap(),
+        standard_library().modules().unwrap(),
     )
     .unwrap()
     .compile_to_artifact(

@@ -7,3 +7,11 @@ pub(crate) mod execution;
 #[cfg(feature = "source")]
 #[path = "../../kagari-runtime/tests/support/bytecode.rs"]
 pub(crate) mod bytecode;
+
+#[cfg(feature = "source")]
+use crate::engine::KagariEngine;
+
+// Same immutable authoring input as the public SDK integration targets.
+#[cfg(feature = "source")]
+#[path = "../tests/support/standard.rs"]
+pub(crate) mod standard;

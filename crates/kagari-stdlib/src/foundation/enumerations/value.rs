@@ -21,7 +21,6 @@ pub(crate) type EnumRequest = (&'static str, &'static [&'static str]);
 pub(crate) const OPTION: EnumRequest = ("Option", &["Some", "None"]);
 pub(crate) const RESULT: EnumRequest = ("Result", &["Ok", "Err"]);
 
-pub(crate) const CONTROL_FLOW: EnumRequest = ("ControlFlow", &["Continue", "Break"]);
 pub(crate) const PARSE_ERROR: EnumRequest = (
     "ParseError",
     &[

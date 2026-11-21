@@ -12,6 +12,10 @@ impl From<i32> for Token {
     }
 }
 
+pub fn wrapper(value: i32) -> Token {
+    <Token as From<i32>>::from(value)
+}
+
 fn forward<S, D: From<S>>(value: S) -> D {
     value.into()
 }

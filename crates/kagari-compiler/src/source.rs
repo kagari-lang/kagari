@@ -1,3 +1,4 @@
+pub mod core_library;
 pub(crate) mod elaborate;
 
 #[cfg(test)]

@@ -29,7 +29,7 @@ use kagari_bytecode::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{map::DefinitionContext, scoped::DefinitionReferences},
+    identity::{DefinitionKind, map::DefinitionContext, scoped::DefinitionReferences},
 };
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
@@ -539,15 +539,17 @@ fn split_impl_locators_never_alias_authored_extents() {
         .load_verified_program("split", prepared(text, None))
         .unwrap();
     let old = runtime.source_snapshot(&program).unwrap();
+    let baseline = runtime.select_program(&program).unwrap();
     let blocks: Vec<_> = old
         .declarations()
         .iter()
         .filter(|declaration| {
-            declaration
-                .path()
-                .path
-                .last()
-                .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
+            let path = declaration.path();
+            path.module == baseline.bytecode.identity
+                && path
+                    .path
+                    .last()
+                    .is_some_and(|part| part.kind == DefinitionKind::Impl)
         })
         .cloned()
         .collect();
@@ -563,7 +565,6 @@ fn split_impl_locators_never_alias_authored_extents() {
             .range,
         first.range
     );
-    let baseline = runtime.select_program(&program).unwrap();
     let staged = runtime
         .stage_reload_verified_program(
             &program,

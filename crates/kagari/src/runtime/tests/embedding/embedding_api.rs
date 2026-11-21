@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -18,7 +19,6 @@ use kagari_runtime::{
     value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::declaration::logging;
 
 mod host_paths;
@@ -44,9 +44,7 @@ fn logging_module(
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &kagari_stdlib::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        standard_library().declarations().catalog(),
         Default::default(),
     )
     .unwrap();
@@ -57,8 +55,11 @@ fn logging_module(
 
 #[test]
 fn compiles_loads_executes_and_reloads_through_embedding_api() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let context = ExecutionContext::default();
     let first = engine
         .compile_to_program(
@@ -116,8 +117,11 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
 
 #[test]
 fn compile_failures_return_structured_diagnostics() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let error = engine
         .compile_source(SourceFile::new("bad.kgr", "fn main( -> i32 { 1 }"))
         .expect_err("parse failure should be structured");
@@ -145,8 +149,11 @@ fn compile_failures_return_structured_diagnostics() {
 
 #[test]
 fn analysis_failures_return_structured_diagnostics() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let error = engine
         .compile_source(SourceFile::new(
             "bad_type.kgr",
@@ -166,8 +173,11 @@ fn analysis_failures_return_structured_diagnostics() {
 
 #[test]
 fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
     let artifact = engine
         .compile_to_program(
@@ -219,8 +229,11 @@ fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
 
 #[test]
 fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let context = ExecutionContext::default();
     let artifact = engine
         .compile_to_program(
@@ -256,8 +269,11 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
 
 #[test]
 fn installed_host_and_reflection_helpers_are_available() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let print_artifact = compile_artifact(&engine, "print.kgr", r#"fn main() { print("x"); }"#);
     let type_of_artifact = engine
         .compile_to_artifact(

@@ -12,5 +12,6 @@ kagari-hir.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+kagari = { workspace = true, features = ["source"] }
 kagari-stdlib.workspace = true
 rstest.workspace = true

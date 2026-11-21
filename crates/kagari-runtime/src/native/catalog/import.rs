@@ -7,6 +7,7 @@ use kagari_common::{
         scoped::RemapDefinitions,
     },
 };
+use kagari_contract::types::InterfaceTable;
 use kagari_types::declaration::path::HostPathDeclaration;
 use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
 use std::{collections::HashMap, sync::Arc};
@@ -19,6 +20,7 @@ pub(crate) struct CatalogImports {
     traits: SharedImports<TraitDef>,
     declarations: SharedImports<NativeDeclaration>,
     implementations: SharedImports<ImplDecl>,
+    source_impls: SharedImports<InterfaceTable>,
     paths: SharedImports<Vec<HostPathDeclaration>>,
 }
 
@@ -30,6 +32,7 @@ impl CatalogImports {
             traits: HashMap::new(),
             declarations: HashMap::new(),
             implementations: HashMap::new(),
+            source_impls: HashMap::new(),
             paths: HashMap::new(),
         }
     }
@@ -40,6 +43,7 @@ impl CatalogImports {
     ) -> Result<DeclarationCatalog, RuntimeError> {
         let mut imported = DeclarationCatalog {
             module_owners: catalog.module_owners.clone(),
+            authored: catalog.authored.clone(),
             rust_types: Arc::default(),
             documentation: Default::default(),
             types: imported(&catalog.types, &self.context, &mut self.types)?,
@@ -50,6 +54,7 @@ impl CatalogImports {
                 &self.context,
                 &mut self.implementations,
             )?,
+            source_impls: imported(&catalog.source_impls, &self.context, &mut self.source_impls)?,
             paths: imported(&catalog.paths, &self.context, &mut self.paths)?,
         };
         imported.rust_types = imported.import_rust_types(catalog)?;

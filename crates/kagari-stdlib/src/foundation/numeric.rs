@@ -87,7 +87,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     &[enums::RESULT, enums::CONVERSION_ERROR],
                     conversion::try_from,
                 ),
-            )?;
+            )?.documentation("Convert a scalar to the target type, returning TryFromIntError::OutOfRange when the value is not representable.");
             module.trait_implementation_with(0, |_| {
                 Ok(TraitImplementation {
                     receiver: Type::scalar(target),

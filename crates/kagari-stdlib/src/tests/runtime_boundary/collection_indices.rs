@@ -1,4 +1,5 @@
 //! Native stdlib contracts keep wide script indices until the storage boundary.
+use crate::test_library;
 use crate::tests::runtime_boundary::support::compile_program;
 use crate::tests::support::bytecode::load_bytecode;
 use crate::tests::support::native::invoke::invoke;
@@ -13,7 +14,7 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::collections::BTreeMap;
 
 fn fixture() -> (Runtime, ExecutableModule, BTreeMap<String, usize>) {
-    let modules = crate::modules().unwrap();
+    let modules = test_library::modules().unwrap();
     let program = compile_program(
         &modules,
         "collection_indices.kgr",

@@ -37,7 +37,7 @@ After `await init(...)` from the generated ES module:
 
 | Call | Return / behavior |
 | --- | --- |
-| `new BrowserSession()` | Installs the standard library and `web::print(String)`. Construction failure throws a JSON response string. |
+| `new BrowserSession()` (source) / `new BrowserSession(coreArtifact: Uint8Array)` (artifact-only) | In artifact-only mode the host supplies a trusted, separately selected KBC containing the authored core owners (16 MiB maximum). The constructor verifies that image; later application loads cannot change the host contracts. Installs the standard library and `web::print(String)`. Construction failure throws a JSON response string. |
 | `compile(source: string): string` | Source feature only. Compile `memory://main.kgr`, validate, load; status `ready` or `error`. |
 | `load_artifact(bytes: Uint8Array): string` | Decode, validate, load; status `ready` or `error`. |
 | `start(): string` | Queue zero-argument `ProgramEntry::Main`; status `runnable` or `error`. No body executes yet. |

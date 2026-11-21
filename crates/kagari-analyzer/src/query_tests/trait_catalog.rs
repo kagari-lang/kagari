@@ -1,4 +1,5 @@
 use crate::query_tests::native_fixture as fixture;
+use crate::query_tests::{render_native, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::{
@@ -7,14 +8,12 @@ use kagari_hir::{
         traits::MethodDefault,
     },
     declarations::DeclarationId,
-    native::render::declaration_source,
     typeck::table::CallTarget,
     types::NominalType,
 };
 use kagari_hir::{analysis::*, resolver::resolved::*, types::*};
 use kagari_source::identity::*;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -31,14 +30,13 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    let providers = foundation_catalog::shared()
-        .unwrap()
+    let providers = standard_modules()
         .into_iter()
         .chain([fixture::module()])
         .collect::<Vec<_>>();
     let views = providers
         .iter()
-        .map(|provider| declaration_source(provider, &providers).unwrap())
+        .map(|provider| render_native(provider, &providers))
         .collect();
     db.set_native_sources(providers, views).unwrap();
     db.snapshot(sources.snapshot(), &Default::default())
@@ -90,9 +88,7 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
             .unwrap();
         assert_eq!(
             source.name(),
-            declaration_source(&fixture::module(), &foundation_catalog::shared().unwrap())
-                .unwrap()
-                .uri
+            render_native(&fixture::module(), &standard_modules()).uri
         );
         let native = snapshot
             .file(method.declaration.source_location().unwrap().file)

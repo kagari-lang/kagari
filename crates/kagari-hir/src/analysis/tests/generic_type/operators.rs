@@ -1,7 +1,7 @@
 use super::*;
 use crate::hir::expr::ExprKind;
+use crate::tests::standard::standard_modules;
 use kagari_source::diagnostic::DiagnosticKind;
-use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn reflective_writes_share_target_context_and_recovery_member_comparison() {
@@ -33,7 +33,7 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: [Marker<i32>] = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -171,7 +171,7 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
                 "trait View {{}} fn bad(view: View) {{ val result = {expression}; result; }} fn good() -> i32 {{ 42 }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().len(),
@@ -239,7 +239,7 @@ fn unary_negation_uses_declared_neg_bounds_and_known_recovery_shapes() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("unary-bounds.kgr", format!("use std::ops::Neg; {source}")),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -319,7 +319,7 @@ fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments()
                 "enum Token<T> {{ Empty }} impl<T> PartialEq for Token<T> {{ fn eq(self, other: Self) -> bool {{ true }} }} fn main() -> bool {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -368,7 +368,7 @@ fn preceding_array_elements_and_completing_branches_supply_constructor_context()
             "sequence-context.kgr",
             format!("enum Token<T> {{ Empty }} fn main() {{ {body} }}"),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),

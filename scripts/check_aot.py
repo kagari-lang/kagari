@@ -21,15 +21,10 @@ def run(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise
 
 
-def main() -> None:
-    if sys.platform != "win32":
-        raise SystemExit("AOT deployment acceptance currently requires Windows x64 MSVC")
-    run("cargo", "build", "--locked", "-p", "kagari-cli", "--bin", "kg", "--features", "aot")
-    output = ROOT / "target" / "aot-consumer"
-    output.mkdir(parents=True, exist_ok=True)
+def write_consumer_manifest(output: Path) -> None:
     manifest = ["[workspace]", "[package]", 'name = "kagari-aot-consumer"',
                 'version = "0.0.0"', 'edition = "2024"', "[dependencies]"]
-    for name in ["kagari", "kagari-runtime", "kagari-types"]:
+    for name in ["kagari", "kagari-common", "kagari-contract", "kagari-runtime", "kagari-stdlib", "kagari-types"]:
         options = f'path = {json.dumps(str(ROOT / "crates" / name))}'
         if name == "kagari":
             options += ', default-features = false, features = ["aot-load"]'
@@ -38,11 +33,20 @@ def main() -> None:
                  f'path = {json.dumps(str(ROOT / "crates/kagari/examples/aot_host.rs"))}',
                  "[profile.dev]", "opt-level = 1"]
     (output / "Cargo.toml").write_text("\n".join(manifest) + "\n", encoding="utf-8")
+
+
+def main() -> None:
+    if sys.platform != "win32":
+        raise SystemExit("AOT deployment acceptance currently requires Windows x64 MSVC")
+    run("cargo", "build", "--locked", "-p", "kagari-cli", "--bin", "kg", "--features", "aot")
+    output = ROOT / "target" / "aot-consumer"
+    output.mkdir(parents=True, exist_ok=True)
+    write_consumer_manifest(output)
     (output / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
     args = ["--manifest-path", str(output / "Cargo.toml")]
     graph = run("cargo", "tree", "--offline", *args, "--edges", "normal,build", "--prefix", "none", capture_output=True).stdout
     names = {line.split()[0] for line in graph.splitlines() if line}
-    forbidden = {"kagari-format", "kagari-lint", "kagari-source", "kagari-syntax", "kagari-hir", "kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
+    forbidden = {"kagari-format", "kagari-lint", "kagari-core-source", "kagari-package", "kagari-source", "kagari-syntax", "kagari-hir", "kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     assert not names & forbidden, names & forbidden
     assert not any(name.startswith("cranelift-") for name in names), names
     external = lambda path: {(p["name"], p["version"]) for p in tomllib.loads(path.read_text())["package"] if "source" in p}

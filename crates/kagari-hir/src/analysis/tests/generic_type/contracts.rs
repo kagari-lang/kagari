@@ -3,6 +3,7 @@
 
 /* stdlib test support paused (NC01-NC06).
 const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
+use crate::tests::standard::standard_modules;
 use std::hash::{Hash};
 use std::ops::Neg;
 
@@ -29,7 +30,7 @@ fn put_map<K: Eq + Hash,V>(values: HashMap<K,V>, key: K, value: V) { values.inse
 pub(super) fn analyze_contracts(source: &SourceFile) -> AnalysisResult<AnalyzedModule> {
     analyze_source(
         &SourceFile::new(source.name(), format!("{CONTRACTS}\n{}", source.text())),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .expect("installed declaration analysis")
 } */

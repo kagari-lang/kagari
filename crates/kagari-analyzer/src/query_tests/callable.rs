@@ -1,5 +1,6 @@
 use crate::query_tests::native as fixture;
 use crate::query_tests::native_fixture;
+use crate::query_tests::standard_modules;
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
 use kagari_hir::{
@@ -10,7 +11,6 @@ use kagari_hir::{
     types::TypeId,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -239,7 +239,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         .unwrap();
     let expected = host.definitions().resolve(expected).unwrap().to_path();
     let mut database = test_analysis();
-    let mut modules = foundation_catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(host);
     database.set_native_modules(modules);
     let snapshot = database

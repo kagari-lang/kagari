@@ -405,7 +405,7 @@ pub trait KagariArguments {
     fn argument_types(catalog: &DeclarationCatalog) -> NativeResult<Vec<Type>>;
 
     fn check_types(cx: &ConversionContext<'_>, expected: &[TypeArgument]) -> NativeResult<()> {
-        let types = Self::argument_types(&cx.runtime().native_entries.catalog)?;
+        let types = Self::argument_types(cx.owner().conversion_catalog())?;
         check_arity(expected, types.len())?;
         for (expected, ty) in expected.iter().zip(types) {
             cx.check_declared_type(expected, ty)?;

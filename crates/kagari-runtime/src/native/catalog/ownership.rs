@@ -102,6 +102,8 @@ impl DeclarationCatalog {
     }
 
     /// Resolve a checked nominal type by its portable declaration identity.
+    /// Enum handles support application and variant lookup before execution. For a
+    /// generic Script struct application, use `ModuleDraft::reference_type` in a recipe.
     pub fn type_reference(&self, declaration: &DefinitionPath) -> Result<TypeRef, RuntimeError> {
         let contract = self
             .types
@@ -120,9 +122,14 @@ impl DeclarationCatalog {
         })
     }
 
+    /// Reconstruct a native authoring view, including the original verified public seeds.
+    /// Unused seed records are not installation or executable admission requirements.
     pub fn from_modules(modules: &[&NativeModule]) -> Result<Self, RuntimeError> {
         let mut result = Self::default();
         for module in modules {
+            if let Some(seed) = &module.authored_seed {
+                result.merge(seed)?;
+            }
             result.merge(&module.catalog())?;
         }
         Ok(result)
@@ -142,7 +149,12 @@ impl DeclarationCatalog {
             let root = definitions
                 .lookup_root(&module.identity)
                 .expect("collected module identity");
-            Arc::make_mut(&mut result.module_owners).insert(module.identity.clone());
+            if !Arc::make_mut(&mut result.module_owners).insert(module.identity.clone()) {
+                return Err(conflict(format!(
+                    "duplicate module owner: {}",
+                    module.identity
+                )));
+            }
             Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
             for ty in &module.types {
                 let id = context
@@ -201,6 +213,9 @@ impl DeclarationCatalog {
         id: DefinitionId,
         contract: TraitDef,
     ) -> Result<(), RuntimeError> {
+        if self.is_authored_definition(id)? && self.traits.get_id(id).is_none() {
+            return Err(conflict("cannot extend verified public trait declarations"));
+        }
         check_scope(&contract, &self.definitions())?;
         insert_contract(
             &mut self.traits,
@@ -215,6 +230,9 @@ impl DeclarationCatalog {
         id: DefinitionId,
         contract: TypeDef,
     ) -> Result<(), RuntimeError> {
+        if self.is_authored_definition(id)? && self.types.get_id(id).is_none() {
+            return Err(conflict("cannot extend verified public type declarations"));
+        }
         check_scope(&contract, &self.definitions())?;
         insert_contract(
             &mut self.types,
@@ -258,10 +276,16 @@ impl DeclarationCatalog {
     }
 
     pub(crate) fn merge(&mut self, other: &Self) -> Result<(), RuntimeError> {
+        self.check_authored_origins(other)?;
+        other.check_authored_origins(self)?;
         if self
             .implementations
             .union_len(&other.implementations)
             .map_err(conflict)?
+            + self
+                .source_impls
+                .union_len(&other.source_impls)
+                .map_err(conflict)?
             > 4096
         {
             return Err(conflict(
@@ -289,6 +313,11 @@ impl DeclarationCatalog {
             "conflicting native implementation contracts",
         )?;
         merge_records(
+            &mut self.source_impls,
+            &other.source_impls,
+            "conflicting authored implementation contracts",
+        )?;
+        merge_records(
             &mut self.paths,
             &other.paths,
             "conflicting native root path contracts",
@@ -299,6 +328,10 @@ impl DeclarationCatalog {
         self.merge_rust_types(other)?;
         self.collect_implicit_definitions()?;
         Arc::make_mut(&mut self.module_owners).extend(other.module_owners.iter().cloned());
+        if !other.authored.is_empty() {
+            Arc::make_mut(&mut self.authored)
+                .extend(other.authored.iter().map(|(k, v)| (k.clone(), *v)));
+        }
         Ok(())
     }
 
@@ -346,8 +379,17 @@ impl DeclarationCatalog {
                     .map_err(conflict)?;
             }
         }
-        for (owner, implementation) in self.implementations.entries() {
-            for method in &implementation.methods {
+        let implementation_methods = self
+            .implementations
+            .entries()
+            .map(|(id, imp)| (id, &imp.methods))
+            .chain(
+                self.source_impls
+                    .entries()
+                    .map(|(id, table)| (id, &table.methods)),
+            );
+        for (owner, methods) in implementation_methods {
+            for method in methods {
                 context
                     .intern_child(owner, DefinitionKind::Method, &method.name, 0)
                     .map_err(conflict)?;
@@ -356,11 +398,17 @@ impl DeclarationCatalog {
         Ok(())
     }
 
-    pub(crate) fn satisfied_by(&self, installed: &Self) -> Result<bool, RuntimeError> {
-        Ok(subset(&self.types, &installed.types)?
+    /// Check the exact scoped contracts in this view against candidate providers.
+    /// Authored requirements need a verified owner, never an ABI-identical native declaration.
+    /// Compatible ABI may come from a different compiled product. This metadata check neither
+    /// validates a program for execution nor installs bindings or grants access to host state.
+    pub fn satisfied_by(&self, installed: &Self) -> Result<bool, RuntimeError> {
+        Ok(self.origins_satisfied_by(installed)?
+            && subset(&self.types, &installed.types)?
             && subset(&self.traits, &installed.traits)?
             && subset(&self.declarations, &installed.declarations)?
             && subset(&self.implementations, &installed.implementations)?
+            && subset(&self.source_impls, &installed.source_impls)?
             && subset(&self.paths, &installed.paths)?)
     }
 
@@ -411,12 +459,25 @@ pub(super) fn insert_contract<T: Clone + PartialEq>(
 
 fn merge_records<T: RemapDefinitions + Clone + PartialEq>(
     target: &mut Arc<DefinitionMap<T>>,
-    source: &DefinitionMap<T>,
+    source: &Arc<DefinitionMap<T>>,
     message: &str,
 ) -> Result<(), RuntimeError> {
-    let source = source
-        .import_records(target.context(), &CancellationToken::default())
-        .map_err(conflict)?;
+    if source.is_empty() || Arc::ptr_eq(target, source) {
+        return Ok(());
+    }
+    let source = if source.context().snapshot().id() == target.context().snapshot().id() {
+        source.clone()
+    } else {
+        Arc::new(
+            source
+                .import_records(target.context(), &CancellationToken::default())
+                .map_err(conflict)?,
+        )
+    };
+    if target.is_empty() {
+        *target = source;
+        return Ok(());
+    }
     if source.is_subset_of(target).map_err(conflict)? {
         return Ok(());
     }

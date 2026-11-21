@@ -1,9 +1,12 @@
 //! Scoped foundation declarations and storage admission require no source compiler.
-use crate::{catalog, declarations::StandardDeclarations, namespaces};
+use crate::test_library;
+use crate::{identity, namespaces};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext},
 };
+use kagari_compiler::source::core_library;
+use kagari_contract::types::PublicItem;
 use kagari_runtime::{
     Runtime,
     native::{builder::ModuleBuilder, module::NativeModule, storage::NativeStorage},
@@ -23,12 +26,11 @@ kagari_runtime::native_data! { struct EmptyPayload {} }
 
 #[test]
 fn declaration_storage_binding_preserves_local_contract() {
-    let language = StandardDeclarations::default();
-    let catalog = language.catalog().unwrap();
+    let language = test_library::standard();
+    let catalog = language.catalog();
     let future = catalog.future_type().unwrap();
     let declaration = language
         .declarations()
-        .unwrap()
         .iter()
         .find(|declaration| {
             declaration.records().identity
@@ -38,7 +40,7 @@ fn declaration_storage_binding_preserves_local_contract() {
         .as_ref()
         .clone();
     let builder = || {
-        ModuleBuilder::from_declaration(declaration.clone(), &catalog, Default::default()).unwrap()
+        ModuleBuilder::from_declaration(declaration.clone(), catalog, Default::default()).unwrap()
     };
     assert!(
         builder().finish().is_err(),
@@ -59,7 +61,7 @@ fn declaration_storage_binding_preserves_local_contract() {
             .is_err()
     );
     module.finish().unwrap();
-    let mut foreign = ModuleBuilder::new("example::foreign_storage", &catalog).unwrap();
+    let mut foreign = ModuleBuilder::new("example::foreign_storage", catalog).unwrap();
     assert!(
         foreign
             .bind_storage(&future, NativeStorage::future())
@@ -70,17 +72,12 @@ fn declaration_storage_binding_preserves_local_contract() {
 
 #[test]
 fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
-    let modules = catalog::declarations().unwrap();
-    let default = modules
-        .iter()
-        .find(|module| module.records().identity == namespaces::module("core", "default"))
-        .unwrap();
-    let default_id = default
-        .records()
-        .definition(DefinitionKind::Trait, "Default", default.definitions())
-        .unwrap();
+    let standard = test_library::standard();
+    let modules = standard.declarations();
+    let path = identity::trait_id("Default");
+    let default_id = standard.catalog().trait_reference(&path).unwrap().id();
     let mut inventory = BTreeSet::new();
-    for provider in &modules {
+    for provider in modules {
         let module = provider.records();
         let definitions = provider.definitions();
         for (index, implementation) in module.implementations.iter().enumerate() {
@@ -98,23 +95,10 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
                     assert!(implementation.generic_params.is_empty());
                     format!("{kind:?}")
                 }
-                Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
-                    let [parameter] = implementation.generic_params.as_slice() else {
-                        panic!("container defaults require exactly one unbounded parameter");
-                    };
-                    assert_eq!(nominal.arguments, [parameter.as_type()]);
-                    definitions
-                        .resolve(nominal.declaration)
-                        .unwrap()
-                        .last()
-                        .unwrap()
-                        .name
-                        .to_owned()
-                }
                 receiver => panic!("unexpected standard Default target {receiver:?}"),
             };
             let expected_owner = match name.as_str() {
-                "String" | "Vec" | "Option" => namespaces::type_owner(&name),
+                "String" => namespaces::type_owner(&name),
                 "Char" => namespaces::module("core", "char"),
                 _ => namespaces::module("core", "num"),
             };
@@ -155,20 +139,51 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
         inventory,
         [
             "Unit", "Bool", "I8", "I16", "I32", "I64", "U8", "U16", "U32", "U64", "F32", "F64",
-            "String", "Char", "Vec", "Option",
+            "String", "Char",
         ]
         .into_iter()
         .map(str::to_owned)
         .collect()
     );
+    // Option<T> has an unbounded Script default in core, not a native binding.
+    let core = core_library::verified().unwrap();
+    let option = core
+        .program()
+        .modules
+        .iter()
+        .find(|m| m.identity == namespaces::type_owner("Option"))
+        .unwrap();
+    let id = core.definitions().lookup(&path).unwrap();
+    let table = option.public_items.iter().find_map(|item| match item {
+        PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(tr) if tr.declaration == id) => Some(table),
+        _ => None,
+    }).unwrap();
+    let [element] = table.generic_params.as_slice() else {
+        panic!("one element parameter")
+    };
+    assert!(table.bounds.is_empty());
+    let Ty::Enum(receiver) = &table.for_type else {
+        panic!("enum default")
+    };
+    assert_eq!(
+        receiver.declaration,
+        core.definitions()
+            .lookup(&identity::type_id("Option", DefinitionKind::Enum))
+            .unwrap()
+    );
+    assert_eq!(receiver.arguments, [element.as_type()]);
+    let [method] = table.methods.as_slice() else {
+        panic!("one default method")
+    };
+    assert_eq!(method.implementation, CallableImplementation::Script);
+    assert_eq!(method.return_type, table.for_type);
 }
 
 #[test]
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
-    let first = catalog::declarations().unwrap();
-    let second = catalog::declarations().unwrap();
-    // Collection detachment removed the Vec owner and facade; 9G removed the reference owner and facade.
-    assert_eq!(first.len(), 34);
+    let first = test_library::standard().declarations().to_vec();
+    let second = test_library::standard().declarations().to_vec();
+    assert_eq!(first.len(), 28); // Authored owners are not native providers.
     for retired in [
         namespaces::module("core", "host"),
         namespaces::module("std", "host"),
@@ -201,30 +216,30 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        // Four concrete collection/cursor types were already gone before 9G removed Ref and RefMut.
-        28
+        // Six enums and six range constructors belong to authored core.
+        16
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().traits.len())
             .sum::<usize>(),
-        41
+        15
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Includes the two core::convert Script blanket implementations.
-        182
+        // Range, propagation, conversion blankets and Option default are authored.
+        167
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().exports.len())
             .sum::<usize>(),
-        // Collection detachment removed three exports; 9G removed four facade/prelude re-exports.
+        // Native facades and prelude retain their re-exports.
         87
     );
     assert_eq!(
@@ -237,8 +252,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
                 .filter(|requirements| !requirements.is_empty())
                 .count())
             .sum::<usize>(),
-        // The retired collection implementations and defaults carried selected-call obligations.
-        42
+        // Result residual conversion now calls From in authored Script.
+        41
     );
     for module in &first {
         // Concrete result metadata for the retired collection defaults is no longer published.
@@ -297,17 +312,18 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             right.native_declarations(&comparison.snapshot()).unwrap()
         );
     }
-    let default = first
+    let core = core_library::verified().unwrap();
+    let path = identity::trait_id("Default");
+    let owner = core
+        .program()
+        .modules
         .iter()
-        .find(|module| module.records().identity == namespaces::module("core", "default"))
+        .find(|m| m.identity == path.module)
         .unwrap();
-    let owner = default.records();
-    let id = owner
-        .definition(DefinitionKind::Trait, "Default", default.definitions())
-        .unwrap();
-    let [contract] = owner.traits.as_slice() else {
-        panic!("core::default must own exactly the Default declaration");
+    let [PublicItem::Trait(contract)] = owner.public_items.as_slice() else {
+        panic!("one authored Default trait")
     };
+    let id = core.definitions().lookup(&path).unwrap();
     assert_eq!(contract.name, "Default");
     assert!(contract.conversion_adapter.is_none());
     assert!(contract.supertraits.is_empty());
@@ -331,8 +347,13 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .flat_map(|module| &module.records().traits)
             .filter(|contract| contract.name == "Default")
             .count(),
-        1
+        0
     );
+    let id = test_library::standard()
+        .catalog()
+        .trait_reference(&path)
+        .unwrap()
+        .id();
     for facade in [namespaces::module("std", "default"), namespaces::prelude()] {
         let facade = first
             .iter()
@@ -344,7 +365,7 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
         );
         assert!(facade.records().dependencies.contains(&owner.identity));
     }
-    let modules = crate::modules().unwrap();
+    let modules = test_library::modules().unwrap();
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     NativeModule::install_all(&modules, &mut first).unwrap();

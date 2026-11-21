@@ -5,7 +5,7 @@
 use kagari::program::native::NativeCompiler;
 use kagari_abi::native::NativeLinkDescription;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 mod memory;
 
 use kagari::{
@@ -60,9 +60,11 @@ fn context() -> ExecutionContext {
     ExecutionContext::default()
 }
 
-fn sharing(bytes: &[u8], count: usize, shared: bool) {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+fn sharing(library: &StandardLibrary, bytes: &[u8], count: usize, shared: bool) {
+    let mut builder = KagariEngine::builder().unwrap();
+
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let mut runtimes = Vec::with_capacity(count);
     let mut programs = Vec::with_capacity(count);
     let before = live_bytes();
@@ -96,12 +98,14 @@ fn sharing(bytes: &[u8], count: usize, shared: bool) {
 }
 
 fn main() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     sample(
         || {
             black_box(
-                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
+                KagariEngine::with_native_modules(Default::default(), library.modules().unwrap())
                     .unwrap()
                     .compile_to_artifact(
                         SourceFile::new("baseline.kgr", SOURCE),
@@ -286,7 +290,7 @@ fn main() {
         assert_eq!(checksum, 42 * 10_002);
     }
     for count in [1, 8, 32] {
-        sharing(&bytes, count, true);
-        sharing(&bytes, count, false);
+        sharing(&library, &bytes, count, true);
+        sharing(&library, &bytes, count, false);
     }
 }

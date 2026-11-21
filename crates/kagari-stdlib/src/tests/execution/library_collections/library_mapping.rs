@@ -1,6 +1,9 @@
 use super::{Probe, program, run};
 use super::{after_failure_source, array_i32, inspect_retained};
+use crate::test_library;
 use kagari_analyzer::AnalyzerQueries;
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_runtime::{
     Runtime, RuntimeConfig, module::entry::ProgramEntry,
     native::conversion::context::ConversionContext,
@@ -8,10 +11,9 @@ use kagari_runtime::{
 
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{catalog as foundation_catalog, tests::support::bytecode::reload_bytecode};
+use crate::tests::support::bytecode::reload_bytecode;
 
-use crate as foundation;
-use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
+use kagari_hir::native::render::declaration_source_with_external;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language::Protocol};
 use std::sync::Arc;
@@ -36,7 +38,7 @@ fn break_allows_source_writes_and_dynamic_views_preserve_shared_progress() {
 
 #[test]
 fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
@@ -45,7 +47,7 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
     let source = include_str!("../../../../tests/fixtures/collections/wrapped-source-failure.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -82,7 +84,7 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
 
 #[test]
 fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
@@ -91,7 +93,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let source = include_str!("../../../../tests/fixtures/collections/mapped-callback-failure.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -140,7 +142,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
 
 #[test]
 fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
@@ -149,7 +151,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -197,7 +199,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
 
 #[test]
 fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
@@ -205,7 +207,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
     let source = include_str!("../../../../tests/fixtures/collections/mapped-recursive-next.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -232,7 +234,7 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 
 #[test]
 fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
@@ -240,7 +242,7 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
     let source = include_str!("../../../../tests/fixtures/collections/retained-custom-zip.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -311,14 +313,15 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
 
 #[test]
 fn native_iterator_completion_navigates_to_the_generated_impl() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
         .unwrap();
-    let generated = declaration_source(
+    let generated = declaration_source_with_external(
         &library.to_declaration(),
-        &foundation_catalog::shared().unwrap(),
+        test_library::standard().declarations(),
+        packaged_modules(),
     )
     .unwrap();
     let text = " fn main() { val cursor = Vec::from([1]).map(|x| x); cursor. }";
@@ -328,8 +331,9 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
+        test_library::standard()
+            .declarations()
+            .to_vec()
             .into_iter()
             .filter(|installed| installed.records().identity != library.declaration().identity)
             .chain([Arc::new(library.to_declaration())])

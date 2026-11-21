@@ -1,12 +1,13 @@
 //! Cold nominal schemas and explicit trait contracts use common declarations and KBC.
-use crate::declarations::StandardDeclarations;
+use crate::test_library;
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -152,7 +153,7 @@ fn declarations() -> DefinitionMetadata<ModuleDecl> {
 fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, RuntimeError> {
     let mut builder = ModuleBuilder::from_declaration(
         declarations,
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
         BTreeMap::new(),
     )?;
     let method = builder.declared_method(0, "add_score")?;
@@ -176,10 +177,7 @@ fn program(
     text: &str,
 ) -> DefinitionMetadata<BytecodeProgram> {
     // Compilation sees immutable schemas only; all runtime fixtures load decoded bytes.
-    let mut modules = StandardDeclarations::default()
-        .declarations()
-        .unwrap()
-        .to_vec();
+    let mut modules = test_library::standard().declarations().to_vec();
     modules.push(Arc::new(declaration));
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(modules);
@@ -221,15 +219,14 @@ fn program(
 
 fn install(module: NativeModule) -> Runtime {
     let mut runtime = Runtime::default();
-    let mut modules = crate::modules().unwrap();
+    let mut modules = test_library::modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     runtime
 }
 
 fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
-    let mut module =
-        ModuleBuilder::new("model", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+    let mut module = ModuleBuilder::new("model", test_library::standard().catalog()).unwrap();
     let mut counter = module.define_type("Counter").unwrap();
     counter.external(policy()).unwrap();
     let counter = counter.finish().unwrap();
@@ -268,7 +265,7 @@ fn host_trait_table_requires_bound_method_callbacks_before_linking() {
     let contract = module.to_declaration();
     let unbound = ModuleBuilder::from_declaration(
         contract.clone(),
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
         BTreeMap::new(),
     )
     .unwrap();

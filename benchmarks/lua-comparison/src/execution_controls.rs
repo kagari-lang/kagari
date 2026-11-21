@@ -1,5 +1,6 @@
 //! Owned roots parked at an instruction boundary; setup and retirement stay separate.
 use crate::Options;
+use crate::standard_builder;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program, runtime::Runtime};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::execution::owned::DriveResult;
@@ -7,7 +8,6 @@ use kagari_runtime::{
     module::ExecutableModule, session::owned::OwnedExecution, value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use std::{hint::black_box, num::NonZeroUsize, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -121,8 +121,7 @@ fn release_order(population: usize, order: &str) -> Vec<usize> {
 }
 
 pub(super) fn run(options: &Options) {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = standard_builder().build().unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("execution-controls.kgr", SOURCE),

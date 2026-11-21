@@ -351,7 +351,7 @@ impl<'runtime> ConversionContext<'runtime> {
     }
 
     pub fn type_for<T: KagariType>(&self) -> NativeResult<TypeArgument> {
-        let ty = T::kagari_type(&self.runtime.native_entries.catalog)?;
+        let ty = T::kagari_type(self.owner.conversion_catalog())?;
         self.runtime.native_type_argument(self.owner, &ty)
     }
 

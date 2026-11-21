@@ -1,5 +1,8 @@
 //! Complete native declaration views derived from authoritative registrations.
-use crate::native::paths::module_path;
+use crate::{
+    analysis::external::ExternalModule,
+    native::paths::{LibraryPaths, range_declaration},
+};
 use kagari_common::{
     identity::{
         DefinitionKind, ModuleIdentity,
@@ -80,16 +83,36 @@ pub fn declaration_source(
     module: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
 ) -> Result<DeclarationSource, DeclarationError> {
+    declaration_source_with_external(module, providers, &[])
+}
+
+/// Renders a registration in the same spelling environment as analysis with these
+/// external source inputs. External owners supply aliases, never Native declarations.
+/// Returns an error for unrepresentable registered declarations or Script bodies.
+pub fn declaration_source_with_external(
+    module: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    external: &[ExternalModule],
+) -> Result<DeclarationSource, DeclarationError> {
+    render_with_paths(module, providers, &LibraryPaths::new(providers, external))
+}
+
+pub(super) fn render_with_paths(
+    module: &DefinitionMetadata<ModuleDecl>,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    paths: &LibraryPaths,
+) -> Result<DeclarationSource, DeclarationError> {
     module
         .records()
         .validate_script_bodies(module.definitions(), &Default::default())?;
-    DeclarationView::new(module, providers).render()
+    DeclarationView::new(module, providers, paths).render()
 }
 
 /// Borrowed authoritative module plus provider context used to resolve rendered identities.
 struct DeclarationView<'a> {
     module: &'a ModuleDecl,
     providers: &'a [Arc<DefinitionMetadata<ModuleDecl>>],
+    paths: &'a LibraryPaths,
     definitions: &'a DefinitionTable,
     parameter_counts: BTreeMap<DefinitionId, usize>,
 }
@@ -105,6 +128,7 @@ impl<'a> DeclarationView<'a> {
     fn new(
         metadata: &'a DefinitionMetadata<ModuleDecl>,
         providers: &'a [Arc<DefinitionMetadata<ModuleDecl>>],
+        paths: &'a LibraryPaths,
     ) -> Self {
         let module = metadata.records();
         let mut parameter_counts = BTreeMap::<DefinitionId, usize>::new();
@@ -146,6 +170,7 @@ impl<'a> DeclarationView<'a> {
         Self {
             module,
             providers,
+            paths,
             definitions: metadata.definitions(),
             parameter_counts,
         }
@@ -165,10 +190,7 @@ impl<'a> DeclarationView<'a> {
     }
 
     fn module_path(&self, identity: &ModuleIdentity) -> String {
-        module_path(
-            identity,
-            self.providers.iter().map(|provider| provider.records()),
-        )
+        self.paths.module_path(identity)
     }
 
     /// Display names use one-based numbering, omitted for a single parameter.
@@ -233,17 +255,10 @@ impl<'a> DeclarationView<'a> {
         output.text.push('\n');
         for (name, target) in &self.exports {
             let target = self.view(*target)?;
-            let path = target
-                .segments()
-                .map(|part| part.name)
-                .collect::<Vec<_>>()
-                .join("::");
-            output.text.push_str(&format!(
-                "pub use {}::{} as {};\n",
-                self.module_path(target.module()),
-                path,
-                name.name
-            ));
+            let path = self.paths.definition_path(target);
+            output
+                .text
+                .push_str(&format!("pub use {path} as {};\n", name.name));
         }
         for ty in &self.types {
             let id = self.definition(ty.kind.definition_kind(), &ty.name, self.definitions)?;
@@ -523,8 +538,8 @@ impl<'a> DeclarationView<'a> {
                 )
             }
             Ty::Range(item, kind) => {
-                let name =
-                    self.representation_name(NativeTypeConstructor::Range(*kind), kind.name())?;
+                let owner = range_declaration(*kind).module;
+                let name = format!("{}::{}", self.module_path(&owner), kind.name());
                 if NativeTypeConstructor::Range(*kind).arity() == 0 {
                     name
                 } else {

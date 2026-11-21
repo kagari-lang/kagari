@@ -3,6 +3,10 @@ use crate::{
     engine::{EngineConfig, KagariEngine},
     error::EmbeddingError,
 };
+#[cfg(feature = "source")]
+use kagari_compiler::source::core_library;
+#[cfg(feature = "source")]
+use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -33,7 +37,7 @@ impl KagariEngineBuilder {
         Ok(Self {
             config: EngineConfig::default(),
             modules: Vec::new(),
-            catalog: DeclarationCatalog::default(),
+            catalog: authoring_catalog(&[])?,
             installation: NativeInstallation::prepare(&[])?,
             #[cfg(feature = "source")]
             declaration_cache: None,
@@ -47,7 +51,8 @@ impl KagariEngineBuilder {
         self
     }
 
-    /// Author application APIs against the complete installed declaration set.
+    /// Author APIs against installed modules and, with the source frontend, verified core declarations.
+    /// A core declaration is not a Native registration.
     pub fn declarations(&self) -> &DeclarationCatalog {
         &self.catalog
     }
@@ -73,7 +78,7 @@ impl KagariEngineBuilder {
             }
         }
         let installation = NativeInstallation::prepare(&staged)?;
-        let catalog = DeclarationCatalog::from_modules(&staged.iter().collect::<Vec<_>>())?;
+        let catalog = authoring_catalog(&staged)?;
         self.modules = staged;
         self.catalog = catalog;
         self.installation = installation;
@@ -104,4 +109,16 @@ impl KagariEngineBuilder {
     pub fn build(self) -> Result<KagariEngine, EmbeddingError> {
         KagariEngine::from_builder(self)
     }
+}
+
+fn authoring_catalog(modules: &[NativeModule]) -> NativeResult<DeclarationCatalog> {
+    let catalog = DeclarationCatalog::from_modules(&modules.iter().collect::<Vec<_>>())?;
+    #[cfg(feature = "source")]
+    let catalog = catalog.with_verified_modules(
+        core_library::verified().map_err(RuntimeError::module_validation)?,
+        packaged_modules()
+            .iter()
+            .map(|module| module.source.module_identity()),
+    )?;
+    Ok(catalog)
 }

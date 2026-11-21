@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -11,7 +12,6 @@ use kagari_bytecode::artifact::{
 };
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::reload::ReloadValidationError;
-use kagari_stdlib as stdlib;
 
 use {
     kagari_common::identity::{
@@ -34,8 +34,11 @@ fn exact_compatibility(
 
 #[test]
 fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let identity = ModuleIdentity {
         package: PackageId("gameplay".into()),
         path: vec!["combat".into(), "main".into()],
@@ -132,8 +135,11 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
 
 #[test]
 fn preparation_rejects_incompatible_runtime_and_helper_abis() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("stale.kgr", "fn main() -> i32 { 1 }"),
@@ -213,8 +219,11 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
 
 #[test]
 fn embedding_conformance_reloads_standard_intrinsic_artifacts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let context = ExecutionContext::default();
     let first = engine
         .compile_to_artifact(

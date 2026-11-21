@@ -5,6 +5,7 @@ mod type_exports;
 mod update_demands;
 mod worklist;
 
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
@@ -39,7 +40,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -953,7 +953,7 @@ fn portable_inline_module_origins_keep_physical_offsets() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     database
 }
 

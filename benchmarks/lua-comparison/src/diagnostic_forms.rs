@@ -1,8 +1,8 @@
 //! Protocol scaling probes, separate from the frozen Lua parity workloads.
 use crate::diagnostics;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
+use crate::standard_builder;
+use kagari::{context::ExecutionContext, program::Program};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 const SOURCE: &str = r#"
 use std::cmp::Ordering;
@@ -125,8 +125,7 @@ fn changing_application(n: i32) -> i32 {
 "#;
 
 pub(super) fn run() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = standard_builder().build().unwrap();
     let entries = [
         "fixed_interface",
         "changing_interface",

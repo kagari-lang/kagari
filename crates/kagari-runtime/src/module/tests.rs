@@ -470,6 +470,7 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
                 LinkedProgramBindings {
                     definitions,
                     members: vec![LinkedHostBindings::default(), LinkedHostBindings::default()],
+                    conversion_catalog: Default::default(),
                     shared_traits: Default::default(),
                 },
                 admission,
@@ -596,6 +597,7 @@ fn abandoning_candidates_invalidates_access_even_after_quarantine() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             None,
@@ -649,6 +651,7 @@ fn assigns_stable_module_ids_across_epochs() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             None,
@@ -680,6 +683,7 @@ fn assigns_stable_module_ids_across_epochs() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),
@@ -717,6 +721,7 @@ fn assigns_stable_module_ids_across_epochs() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             None,
@@ -772,6 +777,7 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             None,
@@ -812,6 +818,7 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
             LinkedProgramBindings {
                 definitions,
                 members: vec![LinkedHostBindings::default()],
+                conversion_catalog: Default::default(),
                 shared_traits: Default::default(),
             },
             Some(validate_verified_reload_candidate(&first, first.verified_program()).unwrap()),

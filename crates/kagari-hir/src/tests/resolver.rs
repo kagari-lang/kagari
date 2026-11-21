@@ -1,6 +1,6 @@
+use crate::tests::standard::standard_modules;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::declaration::names::NameNamespace;
 
 use crate::{
@@ -262,7 +262,7 @@ fn same_named_user_functions_are_not_reflection_helpers() {
         "profile.kgr",
         "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
     );
-    let checked = analyze_source(&module, foundation_catalog::shared().unwrap())
+    let checked = analyze_source(&module, standard_modules())
         .expect("installed declaration analysis")
         .into_codegen()
         .expect("resolved user function does not need reflection permission");

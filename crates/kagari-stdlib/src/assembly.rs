@@ -8,6 +8,7 @@
 //!
 //! Production recipes and composition paths share one seal and this cache.
 //! Declaration-only consumers retain the immutable catalog projection, never adapters.
+mod authored;
 mod composition;
 mod initialization;
 
@@ -23,6 +24,7 @@ use kagari_runtime::{
     native::{
         assembly::{ModuleAssembly, SendModuleAssembly},
         binding::NativeResult,
+        catalog::DeclarationCatalog,
         module::NativeModule,
     },
 };
@@ -109,15 +111,11 @@ impl<F: FnOnce() -> NativeResult<ModuleAssembly>> Bundle<F> {
     }
 }
 
-static STANDARD: Bundle<fn() -> NativeResult<ModuleAssembly>> =
-    Bundle::new("standard", composition::collect);
+pub(crate) type StandardBundle = Bundle<Box<dyn FnOnce() -> NativeResult<ModuleAssembly> + Send>>;
 
-pub(crate) fn semantic() -> NativeResult<Arc<Semantic>> {
-    STANDARD.semantic()
-}
-
-pub(crate) fn modules() -> NativeResult<Vec<NativeModule>> {
-    STANDARD.modules().map(|modules| modules.to_vec())
+pub(crate) fn standard(seed: &DeclarationCatalog) -> StandardBundle {
+    let seed = seed.clone();
+    Bundle::new("standard", Box::new(move || composition::collect(&seed)))
 }
 
 fn take<T>(slot: &Mutex<Option<T>>, bundle: &str, item: &str) -> NativeResult<T> {

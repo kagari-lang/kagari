@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use crate::test_support::standard::standard_library;
 use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, builder::KagariEngineBuilder},
@@ -8,11 +9,11 @@ use crate::{
 use kagari_analyzer::AnalyzerQueries;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::declarations::DeclarationId;
-use kagari_stdlib as stdlib;
 
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
+        assembly::{ModuleDefinition, ModuleSetBuilder},
         binding::NativeResult,
         builder::ModuleBuilder,
         context::NativeCall,
@@ -25,8 +26,15 @@ use kagari_runtime::{
     },
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib::{catalog as standard_catalog, namespaces};
-use kagari_types::{declaration::module::ModuleDecl, ty::Ty};
+use kagari_stdlib::namespaces;
+use kagari_types::{
+    declaration::{
+        module::ModuleDecl,
+        names::{ExportName, NameNamespace},
+    },
+    language::{self, Protocol},
+    ty::Ty,
+};
 use std::{
     fs,
     path::PathBuf,
@@ -40,7 +48,9 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 fn typed_registration_preserves_parameter_and_return_docs_in_materialized_navigation() {
     let cache = Cache::new();
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let mut module = ModuleBuilder::new("application::typed", builder.declarations()).unwrap();
     module.documentation("# Text tools\n\nOwned Unicode text conversions.");
     {
@@ -131,6 +141,66 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
     assert_eq!(result, ("雪".into(), "雪".into()));
 }
 
+#[test]
+fn materialized_native_reexport_navigates_to_authored_core() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let target = language::identity(Protocol::PartialEq);
+    let origin = builder
+        .declarations()
+        .authored_origin(&target.module)
+        .unwrap();
+    let mut set = ModuleSetBuilder::new(builder.declarations()).unwrap();
+    let facade = ModuleIdentity {
+        package: PackageId("application".into()),
+        path: vec!["cmp".into()],
+    };
+    set.add(ModuleDefinition::new(facade, |module| {
+        module.export_path(
+            ExportName::new(NameNamespace::Type, "Comparable"),
+            language::identity(Protocol::PartialEq),
+        )
+    }))
+    .unwrap();
+    builder
+        .install_all(set.finish().unwrap().into_modules().unwrap())
+        .unwrap();
+    assert_eq!(
+        builder.declarations().authored_origin(&target.module),
+        Some(origin)
+    );
+    let cache = Cache::new();
+    builder.declaration_cache(&cache.0);
+    let engine = builder.build().unwrap();
+    let [view] = engine.native_declaration_sources() else {
+        panic!("only the facade is Native")
+    };
+    let rendered = fs::read_to_string(physical_path(&view.uri)).unwrap();
+    assert!(
+        rendered.contains("pub use core::cmp::PartialEq as Comparable;"),
+        "{rendered}"
+    );
+    let text =
+        "use application::cmp::Comparable; fn same<T: Comparable>(a: T, b: T) -> bool { a == b }";
+    let file = engine
+        .set_source("memory://facade-client.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    snapshot.check_program(file, &Default::default()).unwrap();
+    let declaration = snapshot
+        .queries()
+        .definition_at(file, text.rfind("Comparable").unwrap())
+        .unwrap();
+    let location = declaration.source_location().unwrap();
+    let source = snapshot.source(location.file).unwrap();
+    assert_eq!(source.name(), "kagari-core:///cmp.kgr");
+    assert_eq!(
+        &source.text()[location.range.start..location.range.end],
+        "PartialEq"
+    );
+}
+
 struct Cache(PathBuf);
 
 impl Cache {
@@ -185,7 +255,9 @@ fn application(builder: &KagariEngineBuilder, doc: &str) -> NativeModule {
 
 fn engine(cache: Option<&PathBuf>, doc: &str) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let module = application(&builder, doc);
     builder.install(module).unwrap();
     if let Some(cache) = cache {
@@ -314,8 +386,11 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
 
 #[test]
 fn task_navigation_uses_canonical_authored_members_and_docs() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let text = "fn stop(task: std::task::Task<i32>) { task.cancel(); } fn submit(scope: TaskScope) -> Result<Task<i32>, SpawnError> { scope.spawn(async || 42) } fn retain(future: Future<i32>) -> Future<i32> { future }";
     let file = engine
         .set_source("memory://tasks.kgr", text.into(), SourceLayer::Base)
@@ -324,7 +399,7 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
         .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     snapshot.check_program(file, &Default::default()).unwrap();
-    let declarations = standard_catalog::declarations().unwrap();
+    let declarations = standard_library().declarations().declarations();
     for (receiver_name, member) in [("Task", "cancel"), ("TaskScope", "spawn")] {
         let owner = declarations
             .iter()
@@ -507,7 +582,9 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
 #[test]
 fn failed_registration_is_atomic_and_default_embedding_uses_memory() {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let one = application(&builder, DOC);
     let two = application(&builder, DOC);
     assert!(builder.install_all([one.clone(), two]).is_err());
@@ -536,7 +613,9 @@ fn cache_failure_preserves_io_error_and_rejects_engine_publication() {
     let blocked = cache.0.join("file");
     fs::write(&blocked, "cannot be a directory").unwrap();
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     builder.declaration_cache(&blocked);
     match builder.build().unwrap_err() {
         EmbeddingError::DeclarationCache { path, error } => {
@@ -563,7 +642,9 @@ fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
     let path = physical_path(source.name());
     fs::write(&path, "edited cache").unwrap();
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let module = application(&builder, DOC);
     builder.install(module).unwrap();
     builder.declaration_cache(&cache.0);

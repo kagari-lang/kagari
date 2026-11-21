@@ -5,6 +5,8 @@ mod lower;
 mod patterns;
 mod recovery;
 mod resolver;
+#[path = "../tests/support/standard.rs"]
+pub(crate) mod standard;
 mod text_literals;
 mod typeck;
 mod ui;
@@ -17,11 +19,11 @@ mod ui_diagnostics;
 pub(crate) mod native;
 
 use crate::analysis::AnalysisDatabase;
-use kagari_stdlib::catalog;
+use crate::tests::standard::standard_modules;
 
 pub(crate) fn test_analysis() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     database
 }
 

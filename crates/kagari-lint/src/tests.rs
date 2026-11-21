@@ -1,12 +1,13 @@
 use super::*;
 use crate::{policy::Level, usage::binding_usage};
+use kagari::engine::KagariEngine;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::analysis::{AnalysisDatabase, AnalysisSnapshot};
 use kagari_source::{
     diagnostic::Severity,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog;
+use kagari_stdlib::StandardLibrary;
 use rstest::rstest;
 use std::sync::Arc;
 
@@ -38,7 +39,9 @@ fn analyze(
         root.get_or_insert(id);
     }
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    let builder = KagariEngine::builder().unwrap();
+    let standard = StandardLibrary::new(builder.declarations()).unwrap();
+    database.set_native_modules(standard.declarations().declarations().to_vec());
     database.set_max_semantic_diagnostics(limit);
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())

@@ -1,26 +1,89 @@
 //! The production recipe publishes complete task contracts without preparing adapters.
-use crate::{
-    assembly::{Bundle, composition},
-    catalog,
-    declarations::StandardDeclarations,
-    namespaces,
-};
+use crate::{StandardLibrary, namespaces, test_library};
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
-use kagari_runtime::native::types::Type;
+use kagari_runtime::{
+    Runtime,
+    native::{catalog::DeclarationCatalog, module::NativeModule, types::Type},
+};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
+    declaration::{
+        TypeDefKind,
+        module::ModuleDecl,
+        names::{ExportName, NameNamespace},
+        native::NativeStorageLayout,
+    },
     ty::Ty,
 };
 
 #[test]
 fn production_semantic_projection_retains_unprepared_task_owners() {
-    // An isolated instance avoids races with other tests preparing the global bundle.
-    let bundle = Bundle::new("standard projection", composition::collect);
-    let semantic = bundle.semantic().unwrap();
+    let missing = StandardLibrary::new(&DeclarationCatalog::default())
+        .err()
+        .unwrap();
+    assert!(
+        missing
+            .to_string()
+            .contains("missing verified standard owner")
+    );
+    let seed = test_library::seed();
+    let library = StandardLibrary::new(&seed).unwrap();
+    let standard = library.declarations();
+    let bundle = &library.bundle;
+    for path in ["cmp", "convert", "default", "ops", "option", "result"] {
+        let owner = namespaces::module("core", path);
+        assert!(seed.authored_origin(&owner).is_some());
+        assert_eq!(
+            standard.catalog().authored_origin(&owner),
+            seed.authored_origin(&owner)
+        );
+        assert!(
+            !standard
+                .declarations()
+                .iter()
+                .any(|record| record.records().identity == owner)
+        );
+    }
+    let option = standard.enumeration("Option").unwrap();
+    for (owner, name, target) in [
+        (
+            namespaces::module("std", "option"),
+            ExportName::new(NameNamespace::Type, "Option"),
+            option.id(),
+        ),
+        (
+            namespaces::prelude(),
+            ExportName::new(NameNamespace::Value, "Some"),
+            option.variant("Some").unwrap().id(),
+        ),
+    ] {
+        let facade = standard
+            .declarations()
+            .iter()
+            .find(|m| m.records().identity == owner)
+            .unwrap();
+        assert_eq!(facade.records().exports[&name], target);
+        assert!(
+            facade
+                .records()
+                .dependencies
+                .contains(&namespaces::module("core", "option"))
+        );
+    }
+    standard.ordering().unwrap();
+    standard.ord().method("cmp").unwrap();
     assert!(bundle.prepared.get().is_none());
     assert!(bundle.collect().unwrap().pending.lock().unwrap().is_some());
-    let providers = semantic.snapshot().modules();
+    let snapshot = bundle
+        .collect()
+        .unwrap()
+        .pending
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .declarations();
+    let providers = snapshot.modules();
     let task = providers
         .iter()
         .find(|module| module.records().identity == namespaces::module("core", "task"))
@@ -173,8 +236,6 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
         }
     }
     // Both public declaration consumers are projections, not independent producers.
-    let public = catalog::declarations().unwrap();
-    let standard = StandardDeclarations::default();
     let context = DefinitionContext::new().unwrap();
     for owner in [
         namespaces::module("core", "task"),
@@ -186,40 +247,32 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
             .find(|module| module.records().identity == owner)
             .unwrap();
         let local = local.import_into(&context, &Default::default()).unwrap();
-        for other in [
-            public
-                .iter()
-                .find(|module| module.records().identity == owner)
+        let other = standard
+            .declarations()
+            .iter()
+            .find(|module| module.records().identity == owner)
+            .unwrap();
+        let other = other.import_into(&context, &Default::default()).unwrap();
+        assert_eq!(
+            local
+                .records()
+                .compiler_input_bytes(local.definitions(), &Default::default())
                 .unwrap(),
-            standard
-                .declarations()
+            other
+                .records()
+                .compiler_input_bytes(other.definitions(), &Default::default())
                 .unwrap()
-                .iter()
-                .find(|module| module.records().identity == owner)
-                .unwrap()
-                .as_ref(),
-        ] {
-            let other = other.import_into(&context, &Default::default()).unwrap();
-            assert_eq!(
-                local
-                    .records()
-                    .compiler_input_bytes(local.definitions(), &Default::default())
-                    .unwrap(),
-                other
-                    .records()
-                    .compiler_input_bytes(other.definitions(), &Default::default())
-                    .unwrap()
-            );
-            assert_eq!(local.records().documentation, other.records().documentation);
-            assert_eq!(
-                local.records().module_documentation,
-                other.records().module_documentation
-            );
-        }
+        );
+        assert_eq!(local.records().documentation, other.records().documentation);
+        assert_eq!(
+            local.records().module_documentation,
+            other.records().module_documentation
+        );
     }
     assert!(bundle.prepared.get().is_none());
     assert!(bundle.collect().unwrap().pending.lock().unwrap().is_some());
-    let modules = bundle.modules().unwrap();
+    let modules = library.modules().unwrap();
+    NativeModule::install_all(&modules, &mut Runtime::default()).unwrap();
     assert!(bundle.collect().unwrap().pending.lock().unwrap().is_none());
     for declaration in [task, future] {
         let prepared = modules

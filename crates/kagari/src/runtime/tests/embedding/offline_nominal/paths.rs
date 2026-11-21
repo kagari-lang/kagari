@@ -2,6 +2,7 @@ use super::schema::NominalSchema;
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_runtime::{
@@ -9,7 +10,6 @@ use kagari_runtime::{
     native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::carriers::RootedValue};
-use kagari_stdlib as stdlib;
 
 use kagari_types::ty::Ty;
 use kagari_types::{
@@ -96,7 +96,8 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         trace.lock().unwrap().clear();
         let unbound_engine = KagariEngine::with_native_modules(
             Default::default(),
-            stdlib::modules()
+            standard_library()
+                .modules()
                 .unwrap()
                 .into_iter()
                 .chain(vec![
@@ -167,10 +168,8 @@ fn source_host_field_index_paths_skip_intermediate_reads() {
 
 #[test]
 fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
-    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("game::objects", &catalog).unwrap();
+    let catalog = standard_library().declarations().catalog();
+    let mut builder = ModuleBuilder::new("game::objects", catalog).unwrap();
     let policy = HostTypePolicy {
         ownership: HostTypeOwnership::HostRoot,
         reflection: HostReflectionPolicy::Metadata,
@@ -329,7 +328,8 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
     let module = builder.finish().unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module])

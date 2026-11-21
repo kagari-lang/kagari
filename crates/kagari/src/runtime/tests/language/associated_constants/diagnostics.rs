@@ -1,6 +1,6 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_constant_contracts_fail_before_execution() {
@@ -18,10 +18,13 @@ fn invalid_constant_contracts_fail_before_execution() {
         "trait Left { const VALUE: i32 = 1; } trait Right { const VALUE: i32 = 2; } fn f<T: Left + Right>(x: T) -> i32 { T::VALUE }",
     ] {
         assert!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
-                .is_err(),
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
+            .is_err(),
             "accepted {source}"
         );
     }

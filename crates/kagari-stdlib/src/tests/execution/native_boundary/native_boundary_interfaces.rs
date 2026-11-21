@@ -1,10 +1,8 @@
 use super::{compile, compile_program};
+use crate::test_library;
+use crate::tests::execution::native_boundary::support::round_trip_program;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{
-    declarations::StandardDeclarations,
-    tests::execution::native_boundary::support::round_trip_program,
-};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -34,9 +32,7 @@ use std::sync::{
 fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let mut module = ModuleBuilder::new(
         "example::generic_defaults",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut declaration = module.define_trait("Identity").unwrap();
@@ -102,7 +98,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -145,13 +141,8 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
 
 #[test]
 fn registered_default_calls_the_selected_receiver_operation() {
-    let mut module = ModuleBuilder::new(
-        "example::defaults",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::defaults", test_library::standard().catalog()).unwrap();
     let mut declaration = module.define_trait("Read").unwrap();
     let read = declaration
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
@@ -221,7 +212,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
     let decoded = round_trip_program(program.clone());
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -276,13 +267,8 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
 
 #[test]
 fn dynamic_iteration_preserves_gc_roots_and_detects_invalidation() {
-    let mut builder = ModuleBuilder::new(
-        "example::collection_gc",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::collection_gc", test_library::standard().catalog()).unwrap();
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::unit()))
         .unwrap();
@@ -363,12 +349,8 @@ fn default_map_and_set_iterate_through_readonly_parent_views() {
 
 #[test]
 fn generic_native_default_uses_the_callers_ordering_operation() {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::comparison",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::comparison", language.catalog()).unwrap();
     let mut declaration = module.define_trait("Compare").unwrap();
     let compare = declaration
         .define_method(MethodDecl::instance("compare").returns(language.ordering().unwrap()))
@@ -408,7 +390,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
     let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -436,7 +418,7 @@ fn a_shared_method_calls_an_ordinary_generic_native_function() {
     let decoded = round_trip_program(program);
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -455,12 +437,8 @@ fn a_shared_method_calls_an_ordinary_generic_native_function() {
 }
 
 pub(super) fn generic_identity_module() -> NativeModule {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::generic_helper",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::generic_helper", language.catalog()).unwrap();
     let identity = module
         .define_function(FunctionDecl::new("identity"))
         .unwrap();
@@ -506,7 +484,7 @@ fn shared_native_returns_preserve_the_callers_layout_generation() {
     let source = include_str!("../../../../tests/fixtures/native/shared-native-layout.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -592,13 +570,8 @@ fn shared_native_returns_preserve_the_callers_layout_generation() {
 
 #[test]
 fn generic_native_default_calls_the_selected_receiver_operation() {
-    let mut module = ModuleBuilder::new(
-        "example::receiver",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::receiver", test_library::standard().catalog()).unwrap();
     let mut declaration = module.define_trait("Read").unwrap();
     let read = declaration
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
@@ -651,9 +624,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
 fn a_shared_native_helper_calls_a_generic_constraint_member() {
     let mut module = ModuleBuilder::new(
         "example::generic_operation",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut declaration = module.define_trait("Identity").unwrap();

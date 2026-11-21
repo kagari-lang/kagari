@@ -1,0 +1,56 @@
+//! Success and failure values with separate payload types.
+use core::convert::{ From, Infallible };
+
+use core::ops::{ ControlFlow, FromResidual, Try };
+/// Returns either the requested value or an error explaining why it is unavailable.
+/// Choose `Result<T, E>` instead of `Option<T>` when a caller needs the reason.
+/// Match both variants to handle a failure as data rather than a trap:
+///
+/// ```kagari
+/// use core::result::{Result, Ok, Err};
+/// fn answer(found: bool) -> Result<i32, bool> {
+///     if found { Ok(42) } else { Err(false) }
+/// }
+/// fn handled(found: bool) -> i32 {
+///     match answer(found) { Ok(n) => n, Err(_) => 0 }
+/// }
+/// ```
+///
+/// `handled(true)` returns `42` and `handled(false)` returns `0`.
+pub enum Result<T, E> {
+    /// Contains the successful value of type `T`.
+    Ok(T),
+    /// Contains the error of type `E`, not a successful value.
+    Err(E),
+}
+
+pub use self::Result::{ Ok, Err };
+
+impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
+    fn from_residual(residual: Result<Infallible, E>) -> Self {
+        match residual {
+            Ok(never) => match never {},
+            Err(error) => {
+                val converted: Result<T, F> = Err(<F as From<E>>::from(error));
+                __forward_err_origin(residual, converted)
+            }
+        }
+    }
+}
+
+impl<T, E> Try for Result<T, E> {
+    type Output = T;
+    type Residual = Result<Infallible, E>;
+    fn from_output(output: T) -> Self {
+        Ok(output)
+    }
+    fn branch(self) -> ControlFlow<Self::Residual, T> {
+        match self {
+            Ok(value) => ControlFlow::Continue(value),
+            Err(error) => {
+                val residual: Result<Infallible, E> = Err(error);
+                ControlFlow::Break(__forward_err_origin(self, residual))
+            }
+        }
+    }
+}

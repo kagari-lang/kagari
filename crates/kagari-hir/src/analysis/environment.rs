@@ -7,12 +7,12 @@ use crate::{
         environment::{ImportEnvironment, ModuleScope},
     },
     lower::LoweredModule,
-    native::api,
+    native::{api, paths::LibraryPaths},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_source::package::PackageEnvironment;
 use kagari_types::declaration::module::DeclarationError;
-use std::{collections::BTreeSet, iter};
+use std::collections::BTreeSet;
 
 impl AnalysisDatabase {
     /// Replaces explicit module import scopes. Inputs contain no implementation authority.
@@ -30,6 +30,7 @@ impl AnalysisDatabase {
         &self,
         modules: impl IntoIterator<Item = &'a LoweredModule>,
         packages: &PackageEnvironment,
+        paths: &LibraryPaths,
         cancel: &CancellationToken,
     ) -> Result<ImportEnvironment, AnalysisError> {
         let modules = modules.into_iter().collect::<Vec<_>>();
@@ -49,15 +50,13 @@ impl AnalysisDatabase {
             };
             libraries.push((
                 input.identity.clone(),
-                input.package_alias.clone(),
                 input.prelude,
-                api::dependencies(metadata, &self.native_modules, lowered, cancel)?,
+                api::dependencies(metadata, &self.native_modules, paths, lowered, cancel)?,
             ));
         }
-        for input in &self.external_modules {
+        for input in self.libraries.all() {
             libraries.push((
                 input.source.module_identity().clone(),
-                input.package_alias.clone(),
                 input.prelude,
                 input.dependencies.clone(),
             ));
@@ -88,32 +87,27 @@ impl AnalysisDatabase {
                     .unwrap_or_default(),
                 ..Default::default()
             };
-            for (owner, alias, prelude, _) in &libraries {
-                for alias in alias
-                    .iter()
-                    .chain(iter::once(&owner.package.0))
-                    .filter(|alias| LocalName::new(alias).is_some())
+            for (alias, package) in paths.bindings() {
+                if let Some(previous) = scope
+                    .packages
+                    .dependencies
+                    .insert(alias.clone(), package.clone())
+                    && &previous != package
                 {
-                    if let Some(previous) = scope
-                        .packages
-                        .dependencies
-                        .insert(alias.clone(), owner.package.clone())
-                        && previous != owner.package
-                    {
-                        return Err(DeclarationError(format!(
-                            "conflicting package binding {alias}"
-                        ))
-                        .into());
-                    }
+                    return Err(
+                        DeclarationError(format!("conflicting package binding {alias}")).into(),
+                    );
                 }
-                if producer.is_none() {
+            }
+            if producer.is_none() {
+                for (owner, prelude, _) in &libraries {
                     scope.dependencies.insert(owner.clone());
                     if *prelude {
                         scope.preludes.insert(owner.clone());
                     }
                 }
             }
-            if let Some((_, _, _, dependencies)) = producer {
+            if let Some((_, _, dependencies)) = producer {
                 scope.dependencies.extend(dependencies.iter().cloned());
             }
             environment.modules.insert(identity.clone(), scope);

@@ -1,11 +1,9 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{compile_program, native_boundary_functions::fixture},
-        support::bytecode::reload_bytecode,
-    },
+use crate::tests::{
+    execution::native_boundary::{compile_program, native_boundary_functions::fixture},
+    support::bytecode::reload_bytecode,
 };
 mod managed;
 mod methods;
@@ -73,11 +71,8 @@ unsafe impl GcObject for PlayerState {
 
 #[test]
 fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure() {
-    let mut module = ModuleBuilder::new(
-        "example::data",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::data", test_library::standard().catalog()).unwrap();
     let mut declaration = module.define_type("Player").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
@@ -342,11 +337,8 @@ unsafe impl GcObject for Edge {
 }
 
 fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef) {
-    let mut module = ModuleBuilder::new(
-        "example::payload",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::payload", test_library::standard().catalog()).unwrap();
     let mut declaration = module.define_type("Counter").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<Counter>())

@@ -1,5 +1,5 @@
+use crate::tests::standard::standard_modules;
 use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog;
 
 const INTERFACES: &str = r#"
 trait X { fn x(self) -> i32; }
@@ -31,7 +31,7 @@ fn choose(tag: i32, a: A, b: B, c: C) -> i32 {{
 }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{first}/{second}/{third}: {:?}",
@@ -112,7 +112,7 @@ fn branch_interfaces_require_supplied_targets() {
                 "{INTERFACES} fn choose(tag: i32, a: A, b: B, c: C, d: D, e: E) -> i32 {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert_eq!(
             analysis.diagnostics().is_empty(),
             accepted,
@@ -152,7 +152,7 @@ fn choose(flag: bool, left: Left, right: Right) -> i32 {{
 "#
             ),
         );
-        let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert_eq!(
             analysis.diagnostics().is_empty(),
             accepted,
@@ -205,7 +205,7 @@ impl<T: Eq> Read<T> for Right<T> { fn read(self) -> T { self.item } }
                 "{declarations} {signature} {{ val joined: Read<{target}> = if flag {{ left }} else {{ right }}; joined.read() }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert_eq!(
             analysis.diagnostics().is_empty(),
             accepted,
@@ -244,7 +244,7 @@ fn accept(view: X) -> X {{ view }}
 fn choose(flag: bool, a: A, c: C) -> X {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{body}: {:?}",
@@ -275,7 +275,7 @@ fn sibling_interfaces_do_not_authorize_nested_boxing() {
 fn choose(flag: bool, view: Iterable<Item = i32>) {{ val joined = {branch}; }}"
                     ),
                 );
-                let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+                let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
                 assert!(
                     analysis.diagnostics().iter().any(|diagnostic| matches!(
                         diagnostic.kind,

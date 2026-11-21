@@ -1,5 +1,6 @@
 //! Source factories, nested awaits and owned iteration across real native waits.
 use super::native_program;
+use crate::test_support::standard::standard_library;
 use crate::{
     engine::{KagariEngine, builder::KagariEngineBuilder},
     program::Compilation,

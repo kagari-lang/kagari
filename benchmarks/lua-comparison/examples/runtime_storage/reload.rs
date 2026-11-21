@@ -1,17 +1,16 @@
 //! Separate preparation, publication and execution with old work absent/alive/collected.
 use super::sample;
-use kagari::{context::ExecutionContext, engine::KagariEngine};
+use crate::standard_engine;
+use kagari::context::ExecutionContext;
 use kagari_runtime::native::function_handle::Function;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use std::time::Instant;
 
 const SOURCE: &str = include_str!("reload.kgr");
 const ITERATIONS: i32 = 5_000;
 
 pub(super) fn run() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = standard_engine(Default::default());
     let context = ExecutionContext::default();
     let start = Instant::now();
     let original = engine

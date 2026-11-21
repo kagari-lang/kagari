@@ -1,3 +1,4 @@
+use crate::standard_library;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -23,8 +24,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
 
@@ -43,12 +42,8 @@ fn store_value(
 }
 
 fn engine() -> KagariEngine {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::results",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = standard_library().declarations();
+    let mut module = ModuleBuilder::new("example::results", language.catalog()).unwrap();
     let mut item = module.define_trait("Item").unwrap();
     let parameter = item.type_parameter("T").unwrap().ty();
     item.define_method(MethodDecl::instance("value").returns(parameter))
@@ -144,7 +139,9 @@ fn engine() -> KagariEngine {
     config.default_runtime.gc.collection_threshold = Some(1);
     {
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         builder.config(config);
         builder.install(module).unwrap();
         builder.build().unwrap()
@@ -336,12 +333,8 @@ fn native_result_conversion_validates_the_rust_body_value() {
 
 #[test]
 fn native_registration_rejects_an_unimplemented_result_interface() {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::bad_result",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = standard_library().declarations();
+    let mut module = ModuleBuilder::new("example::bad_result", language.catalog()).unwrap();
     let function = module
         .define_function(
             FunctionDecl::new("wrong").returns(language.list().apply([Type::i32()]).unwrap().ty()),

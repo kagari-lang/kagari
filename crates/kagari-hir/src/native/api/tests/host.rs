@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{analyze_source, native::render::declaration_source, types::TypeId};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -71,7 +72,7 @@ fn shared_host_declarations_keep_external_identity_without_rust_reference_admiss
     let module = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
     );
-    let mut providers = kagari_stdlib::catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(module.clone());
     let view = declaration_source(&module, &providers).unwrap();
     assert!(view.text.contains("pub native type Player;"));

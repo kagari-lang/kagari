@@ -1,4 +1,5 @@
 use super::fixture;
+use crate::test_library;
 use kagari_runtime::{
     Runtime,
     error::{
@@ -21,7 +22,6 @@ use kagari_runtime::{
     session::{ExecutionEvent, ExecutionObserver},
 };
 
-use crate::declarations::StandardDeclarations;
 use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicUsize, Ordering},
@@ -85,11 +85,8 @@ impl ExecutionObserver for TrapObserver {
 fn conversion_reentry(failure: Failure, observer_error: Option<RuntimeErrorKind>) {
     let observed = Arc::new(Mutex::new(None));
     let effects = Arc::new(AtomicUsize::new(0));
-    let mut module = ModuleBuilder::new(
-        "example::functions",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::functions", test_library::standard().catalog()).unwrap();
     let fail = module
         .define_function(
             FunctionDecl::new("fail").returns(String::kagari_type(module.declarations()).unwrap()),

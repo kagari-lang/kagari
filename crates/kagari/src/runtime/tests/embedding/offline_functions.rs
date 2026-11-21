@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
@@ -17,15 +18,13 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
 
 fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
     let returns_bool = result.abi() == Type::bool().abi();
     let mut builder =
-        ModuleBuilder::new("demo", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+        ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
     let echo = builder
         .define_function(
             FunctionDecl::new("echo")
@@ -62,7 +61,8 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     let module = echo_module(Type::i32(), calls.clone());
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module.clone()])
@@ -159,7 +159,8 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         let wrong_calls = Arc::new(Mutex::new(Vec::new()));
         let incompatible_engine = KagariEngine::with_native_modules(
             Default::default(),
-            stdlib::modules()
+            standard_library()
+                .modules()
                 .unwrap()
                 .into_iter()
                 .chain(vec![echo_module(Type::bool(), wrong_calls.clone())])
@@ -182,10 +183,12 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 .is_err()
         );
         assert!(wrong_calls.lock().unwrap().is_empty());
-        let mut missing =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .runtime(context.clone());
+        let mut missing = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap()
+        .runtime(context.clone());
         assert!(
             missing
                 .load_program(
@@ -238,7 +241,8 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let module = echo_module(Type::i32(), calls.clone());
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module.clone()])
@@ -269,10 +273,12 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
     let context = ExecutionContext {
         ..Default::default()
     };
-    let mut missing =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-            .unwrap()
-            .runtime(context.clone());
+    let mut missing = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap()
+    .runtime(context.clone());
     assert!(
         missing
             .load_program(
@@ -311,7 +317,8 @@ fn declared_host_calls_compile_but_cannot_run_in_scalar_constants() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![echo_module(Type::i32(), calls.clone())])

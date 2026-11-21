@@ -1,3 +1,4 @@
+use crate::query_tests::standard_modules;
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::*;
 use kagari_hir::imports::*;
@@ -5,12 +6,11 @@ use kagari_source::identity::*;
 use std::sync::*;
 
 use kagari_common::identity::PackageId;
-use kagari_hir::analysis::AnalysisSnapshot;
+use kagari_hir::analysis::{AnalysisSnapshot, core_source::packaged_modules};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::declaration::names::NameNamespace;
 
 fn identity(name: &str) -> ModuleIdentity {
@@ -35,10 +35,14 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
     expected.extend(
-        foundation_catalog::shared()
-            .unwrap()
+        standard_modules()
             .into_iter()
             .map(|module| module.records().identity.clone()),
+    );
+    expected.extend(
+        packaged_modules()
+            .iter()
+            .map(|module| module.source.module_identity().clone()),
     );
     expected.sort();
     expected

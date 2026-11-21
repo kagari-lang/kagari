@@ -1,6 +1,7 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{catalog as foundation_catalog, tests::support::bytecode::reload_bytecode};
+use crate::tests::support::bytecode::reload_bytecode;
 use kagari_runtime::module::retention::RetentionOrigin;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -66,7 +67,7 @@ fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Runtime, InstalledPr
         },
         ..Default::default()
     });
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "test", bytecode).unwrap();
     (runtime, loaded)
 }
@@ -358,6 +359,6 @@ fn preparation_from_an_old_version_cannot_execute_as_a_new_version() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(test_library::standard().declarations().to_vec());
     database
 }

@@ -1,16 +1,19 @@
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{context::JitPolicy, program::Compilation};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn public_source_glob_reexports_members_through_artifacts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "model",
@@ -81,8 +84,11 @@ fn public_source_glob_reexports_members_through_artifacts() {
 
 #[test]
 fn parent_module_can_execute_pub_super_child_function() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let root = insert(
         &engine,
         "root",
@@ -109,8 +115,11 @@ fn parent_module_can_execute_pub_super_child_function() {
 
 #[test]
 fn imported_public_inherent_method_executes_from_source_and_artifact() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "model",
@@ -171,8 +180,11 @@ fn imported_public_inherent_method_executes_from_source_and_artifact() {
 
 #[test]
 fn parent_module_can_call_pub_super_inherent_method() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let root = insert(
         &engine,
         "root",
@@ -199,8 +211,11 @@ fn parent_module_can_call_pub_super_inherent_method() {
 
 #[test]
 fn qualified_public_module_alias_does_not_expose_private_members() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "model",
@@ -243,8 +258,11 @@ fn qualified_public_module_alias_does_not_expose_private_members() {
 
 #[test]
 fn wildcard_import_can_expose_a_public_inline_child_module() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "library",
@@ -276,8 +294,11 @@ fn wildcard_import_can_expose_a_public_inline_child_module() {
 
 #[test]
 fn wildcard_import_follows_a_public_module_alias() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "library",
@@ -342,8 +363,11 @@ fn wildcard_import_follows_a_public_native_module_alias() {
 
 #[test]
 fn declared_external_child_module_resolves_qualified_calls() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     engine
         .bind_module(
             "mem://child",
@@ -386,8 +410,11 @@ fn declared_external_child_module_resolves_qualified_calls() {
 
 #[test]
 fn duplicate_inline_and_external_module_identity_is_rejected() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     engine
         .bind_module(
             "mem://child",
@@ -417,8 +444,11 @@ fn duplicate_inline_and_external_module_identity_is_rejected() {
 
 #[test]
 fn reachable_cycles_compile_without_initialization() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let root = insert(&engine, "root", "use pkg::a; fn main() -> i32 { 7 }");
     insert(&engine, "a", "use pkg::b;");
     insert(&engine, "b", "use pkg::a;");

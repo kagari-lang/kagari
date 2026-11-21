@@ -1,9 +1,9 @@
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::{AssociatedTypeDef, AssociatedTypeFamily},
     scalar::BuiltinType,
@@ -12,8 +12,11 @@ use kagari_types::{
 
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Extra {} pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact
@@ -136,8 +139,11 @@ fn unused_family_metadata_is_verified_before_loading() {
 
 #[test]
 fn complete_family_metadata_cannot_make_a_dynamic_interface() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self)->i32; } struct N {} impl Read for N { fn read(self)->i32 { 42 } } fn main()->i32 { val x: Read = N {}; x.read() }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact

@@ -7,7 +7,7 @@ use crate::{
         item::behavior::{GenericParam, TraitBound, TraitRef},
         ty::{TypeBuffer, TypeKind},
     },
-    native::paths::module_path,
+    native::paths::range_declaration,
 };
 use kagari_common::{
     identity::{DefinitionKind, table::DefinitionId},
@@ -109,21 +109,13 @@ impl StructuredLowerer<'_> {
             .definitions
             .resolve(id)
             .map_err(|error| DeclarationError(error.to_string()))?;
-        let path = view
-            .segments()
-            .map(|part| part.name)
-            .collect::<Vec<_>>()
-            .join("::");
         Ok(if view.module() == &self.declaration.identity {
-            path
+            view.segments()
+                .map(|part| part.name)
+                .collect::<Vec<_>>()
+                .join("::")
         } else {
-            format!(
-                "{}::{path}",
-                module_path(
-                    view.module(),
-                    self.providers.iter().map(|provider| provider.records())
-                )
-            )
+            self.paths.definition_path(view)
         })
     }
 
@@ -349,7 +341,12 @@ impl StructuredLowerer<'_> {
             | Ty::Trait(nominal) => return self.nominal(nominal),
             Ty::Range(element, range) => {
                 let constructor = NativeTypeConstructor::Range(*range);
-                let declaration = self.representation(constructor, range.name())?;
+                let declaration = self
+                    .definitions
+                    .lookup(&range_declaration(*range))
+                    .ok_or_else(|| {
+                        DeclarationError("missing scoped range constructor reference".into())
+                    })?;
                 let args = if constructor.arity() == 0 {
                     &[][..]
                 } else {

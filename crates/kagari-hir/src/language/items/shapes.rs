@@ -1,5 +1,6 @@
 //! Independent language-required shapes, checked against actual semantic declarations.
 
+use super::projection;
 use crate::{
     aggregates::{AggregateCatalog, traits::TraitSignature},
     types::semantic::{lower_nominal_type, lower_type},
@@ -9,7 +10,7 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    language::{Protocol, binding},
+    language::{Protocol, binding, comparison, requirements},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -93,6 +94,18 @@ pub(super) fn valid(
     kind: Protocol,
     definitions: &DefinitionTable,
 ) -> bool {
+    if kind.comparison() {
+        return kind.definition(definitions) == Some(actual.id)
+            && projection::simple_trait(actual, definitions).is_some_and(|record| {
+                comparison::trait_shape_valid(actual.id, &record, definitions)
+            });
+    }
+    if kind.source_operation() {
+        return kind.definition(definitions) == Some(actual.id)
+            && projection::simple_trait(actual, definitions).is_some_and(|record| {
+                requirements::trait_shape_valid(actual.id, &record, definitions)
+            });
+    }
     valid_inner(actual, kind, definitions).unwrap_or(false)
 }
 
@@ -101,14 +114,7 @@ fn valid_inner(
     kind: Protocol,
     definitions: &DefinitionTable,
 ) -> Option<bool> {
-    let arity = usize::from(
-        kind.binary_operator()
-            || matches!(
-                kind,
-                Protocol::Index | Protocol::Fn | Protocol::From | Protocol::FromResidual
-            ),
-    );
-    if actual.generic_params.len() != arity
+    if !actual.generic_params.is_empty()
         || !actual.bounds.values().all(Vec::is_empty)
         || !actual.associated_consts.is_empty()
         || !actual.associated_type_parameters.is_empty()
@@ -134,12 +140,11 @@ fn valid_inner(
         interface,
     };
     let this = Ty::SelfType(actual.id);
-    let parameter = || shape.interface.arguments[0].clone();
+
     let member_names: &[&str] = match kind {
         Protocol::Iterator => &["Item"],
         Protocol::Iterable => &["Item", "Iter"],
-        Protocol::Try => &["Output", "Residual"],
-        kind if kind.operator() => &["Output"],
+
         _ => &[],
     };
     if actual.associated_types.len() != member_names.len() {
@@ -163,39 +168,9 @@ fn valid_inner(
             return Some(false);
         }
     }
-    let parents: &[Protocol] = match kind {
-        Protocol::Eq | Protocol::PartialOrd => &[Protocol::PartialEq],
-        Protocol::Ord => &[Protocol::Eq, Protocol::PartialOrd],
-        Protocol::Try => &[Protocol::FromResidual],
-        _ => &[],
-    };
-    let mut expected_parents = Vec::new();
-    for parent in parents {
-        expected_parents.push(NominalTy {
-            declaration: parent.definition(definitions)?,
-            arguments: if kind == Protocol::Try {
-                vec![shape.projection("Residual")?]
-            } else {
-                vec![]
-            },
-            associated_types: BTreeMap::new(),
-        });
+    if !actual.supertraits.is_empty() {
+        return None;
     }
-    if actual
-        .supertraits
-        .iter()
-        .map(lower_nominal_type)
-        .collect::<Vec<_>>()
-        != expected_parents
-    {
-        return Some(false);
-    }
-    let ordering = || {
-        Some(shape.enumeration(
-            definitions.lookup(&binding::ordering_declaration())?,
-            vec![],
-        ))
-    };
     let option = |ty| {
         Some(shape.enumeration(
             definitions.lookup(&binding::option_declaration())?,
@@ -203,22 +178,6 @@ fn valid_inner(
         ))
     };
     let (name, params, result) = match kind {
-        Protocol::Eq => return Some(actual.methods.is_empty()),
-        Protocol::PartialEq => (
-            "eq",
-            vec![("self", this.clone()), ("arg1", this)],
-            Ty::Builtin(BuiltinType::Bool),
-        ),
-        Protocol::PartialOrd => (
-            "partial_cmp",
-            vec![("self", this.clone()), ("arg1", this)],
-            option(ordering()?)?,
-        ),
-        Protocol::Ord => (
-            "cmp",
-            vec![("self", this.clone()), ("arg1", this)],
-            ordering()?,
-        ),
         Protocol::Hash => ("hash", vec![("self", this)], Ty::Builtin(BuiltinType::I64)),
         Protocol::Debug => (
             "debug",
@@ -236,45 +195,7 @@ fn valid_inner(
             option(shape.projection("Item")?)?,
         ),
         Protocol::Iterable => ("iter", vec![("self", this)], shape.projection("Iter")?),
-        Protocol::From => ("from", vec![("value", parameter())], this),
-        Protocol::FromResidual => ("from_residual", vec![("residual", parameter())], this),
-        Protocol::Try => {
-            let output = shape.projection("Output")?;
-            let residual = shape.projection("Residual")?;
-            let branch = shape.enumeration(
-                definitions.lookup(&binding::control_flow_declaration())?,
-                vec![residual, output.clone()],
-            );
-            return Some(
-                actual.methods.len() == 2
-                    && shape.method("from_output", &[("output", output)], &this)
-                    && shape.method("branch", &[("self", this)], &branch),
-            );
-        }
-        _ => {
-            let name = match kind {
-                Protocol::Add => "add",
-                Protocol::Sub => "sub",
-                Protocol::Mul => "mul",
-                Protocol::Div => "div",
-                Protocol::Rem => "rem",
-                Protocol::BitAnd => "bitand",
-                Protocol::BitOr => "bitor",
-                Protocol::BitXor => "bitxor",
-                Protocol::Shl => "shl",
-                Protocol::Shr => "shr",
-                Protocol::Neg => "neg",
-                Protocol::Not => "not",
-                Protocol::Index => "index",
-                Protocol::Fn => "call",
-                _ => return None,
-            };
-            let mut params = vec![("self", this)];
-            if arity == 1 {
-                params.push(("arg1", parameter()));
-            }
-            (name, params, shape.projection("Output")?)
-        }
+        _ => return None,
     };
     let member_count_valid = if kind == Protocol::Iterable {
         actual

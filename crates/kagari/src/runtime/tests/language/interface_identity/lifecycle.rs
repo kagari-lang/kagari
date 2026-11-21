@@ -1,4 +1,5 @@
 use crate::test_support::bytecode::load_bytecode;
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, engine::EngineConfig, test_support::execution};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
@@ -69,7 +70,7 @@ fn alias(state: State, kind: i32) -> bool {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "interface-identity", program).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();

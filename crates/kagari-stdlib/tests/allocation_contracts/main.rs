@@ -1,5 +1,8 @@
 //! Allocation windows require one isolated, thread-local counting allocator.
 // Shared preparation keeps verifier and linker failures observable.
+#[path = "../standard_library.rs"]
+mod standard_library;
+use kagari_stdlib::StandardLibrary;
 #[path = "../../../kagari-runtime/tests/support/bytecode.rs"]
 mod bytecode_fixture;
 #[path = "../../../kagari-runtime/tests/native_allocations_counter.rs"]

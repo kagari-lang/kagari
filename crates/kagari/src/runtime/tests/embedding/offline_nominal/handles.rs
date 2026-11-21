@@ -1,6 +1,7 @@
 use super::{adopt_artifact, schema::NominalSchema};
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
@@ -26,7 +27,6 @@ use kagari_runtime::{
     value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as stdlib;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -235,11 +235,14 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
         let program =
             Compilation::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
         assert!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .runtime(context.clone())
-                .load_program(program.program(), Default::default())
-                .is_err()
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .runtime(context.clone())
+            .load_program(program.program(), Default::default())
+            .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
         let mut runtime = engine.runtime(context.clone());
@@ -411,11 +414,14 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
         Compilation::from_artifact(artifact.clone(), &Default::default(), &Default::default())
             .unwrap();
     assert!(
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-            .unwrap()
-            .runtime(Default::default())
-            .load_program(program.program(), Default::default())
-            .is_err()
+        KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap()
+        )
+        .unwrap()
+        .runtime(Default::default())
+        .load_program(program.program(), Default::default())
+        .is_err()
     );
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime

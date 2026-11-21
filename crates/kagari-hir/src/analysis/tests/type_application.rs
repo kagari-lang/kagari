@@ -126,7 +126,7 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
         ] {
             let text = format!("{declaration} fn bad(x: {name}<{args}>) {{}}");
             let source = SourceFile::new("shadow.kgr", &text);
-            let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+            let analysis = crate::analyze_source(&source, standard_modules())
                 .expect("installed declaration analysis");
             let facts = analysis.facts();
             let function = facts
@@ -158,7 +158,7 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
                 format!("use {module}::{name}; {declaration} fn accept(x: {name}<{args}>) {{}}");
             let analysis = crate::analyze_source(
                 &SourceFile::new("independent.kgr", &text),
-                foundation_catalog::shared().unwrap(),
+                standard_modules(),
             )
             .expect("installed declaration analysis");
             assert!(

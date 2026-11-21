@@ -1,10 +1,11 @@
+use crate::test_library;
 use crate::tests::execution::native_boundary::support::round_trip_program;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{Runtime, module::entry::ProgramEntry, native::module::NativeModule};
 
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 
-use crate as foundation;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, CallTarget, NativeImportId, Slot},
@@ -15,7 +16,7 @@ use kagari_common::identity::{
     table::DefinitionId,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use rstest::rstest;
@@ -45,7 +46,7 @@ fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
     }
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation::modules()
+        test_library::modules()
             .unwrap()
             .iter()
             .map(|module| Arc::new(module.to_declaration()))
@@ -112,7 +113,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         decoded,
     ] {
         let mut runtime = Runtime::default();
-        NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
         let loaded = load_bytecode(&mut runtime, "native-imports", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -232,7 +233,7 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations(#[case] corr
         "artifact accepted corruption {corrupt}"
     );
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime.collect_garbage().unwrap();
     let baseline = runtime.gc_stats();
     assert!(
@@ -283,7 +284,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
         decoded,
     ] {
         let mut runtime = Runtime::default();
-        NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
         let loaded = load_bytecode(&mut runtime, "native-collections", program).unwrap();
         let _loaded_program = loaded;
         let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -368,7 +369,7 @@ fn native_storage_writes_reject_element_type_forgery() {
         .is_err()
     );
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime.collect_garbage().unwrap();
     let baseline = runtime.gc_stats();
     assert!(

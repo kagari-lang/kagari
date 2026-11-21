@@ -1,6 +1,7 @@
 use super::fixture;
 use super::{compile_without_foundation, fixture_without_foundation};
-use crate::{declarations::StandardDeclarations, tests::support::bytecode::reload_bytecode};
+use crate::test_library;
+use crate::tests::support::bytecode::reload_bytecode;
 
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl, objects::Object,
@@ -122,11 +123,8 @@ fn prepared_methods_and_associated_functions_enforce_receiver_and_access() {
 fn object_method_reentry_collects_and_retains_returned_aliases() {
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
-    let mut builder = ModuleBuilder::new(
-        "example::methods",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::methods", test_library::standard().catalog()).unwrap();
     {
         let registered_function = builder
             .define_function(FunctionDecl::new("collect"))

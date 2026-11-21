@@ -1,4 +1,5 @@
 //! Retained control-boundary behavior using ordinary synchronous application natives.
+use crate::test_library;
 use crate::tests::{
     execution::{
         common::{compile_native_test_bytecode, logging_module, round_trip_bytecode},
@@ -76,7 +77,7 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
         limits,
         ..Default::default()
     });
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     module().install(&mut runtime).unwrap();
     runtime
 }
@@ -495,14 +496,12 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
         "../../../../tests/fixtures/native/native-control-observed-cancellation.kgr"
     ));
     let decoded = round_trip_bytecode(program.clone());
-    let mut modules = crate::modules().unwrap();
+    let mut modules = test_library::modules().unwrap();
     modules.push(module());
     let installation = NativeInstallation::prepare(&modules).unwrap();
     let logging_template = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &crate::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        test_library::standard().catalog(),
         Default::default(),
     )
     .unwrap();

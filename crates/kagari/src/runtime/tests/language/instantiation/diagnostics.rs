@@ -1,6 +1,6 @@
+use crate::test_support::standard::standard_library;
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn generic_trait_method_bounds_reject_invalid_arguments() {
@@ -8,13 +8,16 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
         .replace("fn echo<U>(", "fn echo<U: Eq + Hash>(")
         .replace("fn echo<V>(", "fn echo<V: Eq + Hash>(")
         .replace("value.echo(42)", "value.echo(1.5); 42");
-    let error = KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-        .unwrap()
-        .compile_to_artifact(
-            SourceFile::new("generic-method-bound.kgr", source),
-            Default::default(),
-        )
-        .unwrap_err();
+    let error = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap()
+    .compile_to_artifact(
+        SourceFile::new("generic-method-bound.kgr", source),
+        Default::default(),
+    )
+    .unwrap_err();
     let EmbeddingError::Diagnostics { diagnostics } = error else {
         panic!("expected source diagnostics")
     };

@@ -4,8 +4,10 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
 use kagari_types::{
+    callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, AssociatedTypeFamily, module::ImplDecl, ownership::ReceiverOwners,
+        AssociatedTypeDef, AssociatedTypeFamily, FnDecl, Param, module::ImplDecl,
+        ownership::ReceiverOwners,
     },
     language::{self, Protocol, binding},
     scalar::BuiltinType,
@@ -317,10 +319,50 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
             arguments: vec![],
         },
     );
+    context
+        .intern_child(blanket.declaration, DefinitionKind::Method, "try_into", 0)
+        .unwrap();
+    context.intern(&binding::result_declaration()).unwrap();
+    blanket.methods.push(FnDecl {
+        name: "try_into".into(),
+        implementation: CallableImplementation::Script,
+        method_policy: Default::default(),
+        host_policy: None,
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![Param {
+            name: "self".into(),
+            mutable: false,
+            ty: s.as_type(),
+        }],
+        return_type: binding::result(
+            &context.snapshot(),
+            d.as_type(),
+            implemented.associated_types[&output].clone(),
+        )
+        .unwrap(),
+    });
     blanket.bounds.push(bound(d.as_type(), required));
     blanket.trait_type = Ty::Trait(implemented);
     blanket.for_type = s.as_type();
     blanket.generic_params = vec![s, d];
+
+    let admitted = |table: &InterfaceTable| {
+        ProofCatalog::new(vec![table.into()], [], [], [], &context.snapshot(), &cancel)
+            .unwrap()
+            .overrides_valid(&Default::default(), &cancel)
+            .unwrap()
+    };
+    assert!(admitted(&blanket));
+    let mut forged = blanket.clone();
+    forged.bounds.clear();
+    assert!(!admitted(&forged));
+    let mut forged = blanket.clone();
+    let Ty::Trait(applied) = &mut forged.trait_type else {
+        unreachable!()
+    };
+    applied.associated_types.insert(output, scalar());
+    assert!(!admitted(&forged));
 
     // Only the trait argument binds T in `impl<T> TryFrom<T> for bool`.
     let dest = Ty::Builtin(BuiltinType::Bool);

@@ -1,9 +1,9 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_contract::types::PublicItem;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
@@ -81,8 +81,11 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
 
 #[test]
 fn boxed_interface_dispatch_requires_an_interface_value_without_collection_markers() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(

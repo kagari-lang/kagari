@@ -559,7 +559,7 @@ impl<'a> BodyChecker<'a> {
                 {
                     method_ty
                 } else if let Some(helper_ty) =
-                    self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
+                    self.infer_runtime_helper_call_type(expr_id, *callee, args, env, expected)
                 {
                     helper_ty
                 } else if let Some(method_ty) =

@@ -1,4 +1,5 @@
 use super::source_free_vm;
+use crate::test_library;
 use crate::tests::execution::native_boundary::{compile_program, support::round_trip_program};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -44,10 +45,8 @@ use std::sync::{
 
 #[test]
 fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
-    let catalog = crate::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("example::services", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("example::services", catalog).unwrap();
     let echo = builder
         .define_function(
             FunctionDecl::new("echo")
@@ -240,10 +239,8 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
 
 #[test]
 fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free() {
-    let catalog = crate::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("example::roots", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("example::roots", catalog).unwrap();
     let mut player = builder.define_type("Player").unwrap();
     player
         .external(HostTypePolicy {
@@ -409,7 +406,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let module = builder.finish().unwrap();
     let source = include_str!("../../../../../tests/fixtures/native/host-root-methods.kgr");
     let program = round_trip_program(compile_program(source, Some(&module)));
-    let mut modules = crate::modules().unwrap();
+    let mut modules = test_library::modules().unwrap();
     modules.push(module.clone());
     let installation = NativeInstallation::prepare(&modules).unwrap();
     let mut runtime = installation.runtime(RuntimeConfig {
@@ -549,10 +546,8 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
 
 #[test]
 fn host_argument_pack_rolls_back_partial_loans_without_rolling_back_callback_writes() {
-    let catalog = crate::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("example::host_pairs", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("example::host_pairs", catalog).unwrap();
     let mut account = builder.define_type("Account").unwrap();
     account
         .external(HostTypePolicy {

@@ -1,5 +1,6 @@
 #![cfg(feature = "source")]
 use crate::test_support::bytecode::{load_bytecode, reload_bytecode};
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     engine::{
@@ -19,7 +20,6 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::declaration::module::ModuleDecl;
 use rstest::rstest;
 use std::slice;
@@ -66,8 +66,11 @@ static var STATE: u32 = 97u32;
 pub fn read() -> u32 { u32::from(STATE) }
 pub fn write() { STATE = 128578u32; }
 "#;
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let first = prepare_static_program(&engine, source, decoded);
     let changed_initializer =
         prepare_static_program(&engine, &source.replace("'a'", "'z'"), decoded);
@@ -405,7 +408,7 @@ fn assert_cold_reclamation(
     current: DefinitionMetadata<BytecodeProgram>,
 ) {
     let mut cold = CoreRuntime::default();
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut cold).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut cold).unwrap();
     let _cold = load_bytecode(&mut cold, "cold-reload-reference", current.clone()).unwrap();
     cold.collect_garbage().unwrap();
     let baseline = cold.gc_stats();
@@ -518,15 +521,18 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
     #[case] source: &str,
     #[case] replacement: &str,
 ) {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(&engine, replacement);
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = {
         let mut registered = CoreRuntime::new(config);
-        NativeModule::install_all(&stdlib::modules().unwrap(), &mut registered).unwrap();
+        NativeModule::install_all(&standard_library().modules().unwrap(), &mut registered).unwrap();
         registered
     };
     let old = load_bytecode(&mut runtime, "generic-reload", program).unwrap();
@@ -631,8 +637,11 @@ fn retained_generic_default_and_override_closures_use_current_operations_after_r
 #[test]
 fn retained_generic_try_calls_use_current_carrier_operations() {
     let source = include_str!("../../../../tests/fixtures/embedding/reload/try-carrier-v1.kgr");
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, source);
     let replacement = prepare(
         &engine,
@@ -641,7 +650,7 @@ fn retained_generic_try_calls_use_current_carrier_operations() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "try-reload", program).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
@@ -819,13 +828,16 @@ fn shared_collection_comparison_selects_current_operations(
     #[case] replacement_source: &str,
     #[case] preparation: ReloadPreparation,
 ) {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let original = prepare(&engine, source);
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = CoreRuntime::new(config);
-    NativeModule::install_all(&stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&standard_library().modules().unwrap(), &mut runtime).unwrap();
     let old = load_bytecode(&mut runtime, "shared-comparison-reload", original).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();

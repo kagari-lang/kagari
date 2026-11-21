@@ -1,5 +1,6 @@
 //! Protocol-independent immutable source analysis. Queries never execute code.
 
+pub mod core_source;
 mod environment;
 pub mod external;
 mod input_fingerprint;
@@ -19,7 +20,7 @@ use crate::{
         body::BodyCacheEntry,
         declarations::DeclarationSnapshot,
         error::AnalysisError,
-        inputs::AnalysisInputs,
+        inputs::{AnalysisInputs, LibrarySources},
         records::{DeclarationCache, SignatureCache},
         signatures::SignatureSnapshot,
         source_preparation::{ParsedModule, SourceParseCache},
@@ -173,7 +174,7 @@ pub struct AnalysisDatabase {
     import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
-    external_modules: Vec<external::ExternalModule>,
+    libraries: LibrarySources,
     /// Owned prepared registrations/syntax with weak handles to live graphs.
     /// Invalidated by registration/source/parser-limit changes, not user revisions.
     native_files: OnceCell<NativeFiles>,
@@ -188,7 +189,8 @@ impl Default for AnalysisDatabase {
 }
 
 impl AnalysisDatabase {
-    /// Create analysis with an explicit absolute root for native declaration origins.
+    /// Create analysis with packaged core and an explicit absolute root for native origins.
+    /// Core resources are shared; parsing and semantic checking start only on query.
     ///
     /// No filesystem access or working-directory lookup is performed. Relative
     /// declaration names use this captured root; virtual URI identities are preserved.
@@ -215,7 +217,7 @@ impl AnalysisDatabase {
             import_environment: Default::default(),
             native_modules: vec![],
             native_sources: None,
-            external_modules: vec![],
+            libraries: LibrarySources::default(),
             native_files: OnceCell::new(),
             environment_fingerprint: OnceCell::new(),
         })

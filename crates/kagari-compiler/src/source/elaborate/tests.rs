@@ -9,6 +9,7 @@ use crate::source::{
     program::lower_program_to_mir,
 };
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use kagari_abi::representation::ValueType;
 use kagari_contract::representation::semantic_representation;
 use kagari_hir::{
@@ -29,7 +30,7 @@ fn checked(text: &str) -> CheckedProgram {
         .set("elaborate.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
+    analysis.set_native_modules(standard_modules());
     analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

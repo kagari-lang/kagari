@@ -1,7 +1,8 @@
 use crate::{
     function::{MirFunction, MirModule},
     instruction::{
-        CallTarget, Constant, ConstructionTarget as MirConstruction, Instruction, RuntimeHelper,
+        CallTarget, Constant, ConstructionTarget as MirConstruction, Instruction, MirValue,
+        RuntimeHelper,
     },
     verify::{
         Context, MirVerificationError, MirVerificationErrorKind as Error, suspension::ephemeral,
@@ -16,6 +17,7 @@ use kagari_contract::{
     operations,
     operations::range_operands_valid,
     representation::semantic_representation,
+    standard::RuntimePrimitive,
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
@@ -406,12 +408,29 @@ pub(super) fn verify(
                     context.expect(receiver.ty, ValueType::HeapObject, "interface receiver")?;
                 }
             }
-            CallTarget::RuntimePrimitive(intrinsic) => contracts::verify_intrinsic(
-                dst.map(|v| v.ty),
-                *intrinsic,
-                &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
-            )
-            .map_err(contract)?,
+            CallTarget::RuntimePrimitive(intrinsic) => {
+                contracts::verify_intrinsic(
+                    dst.map(|v| v.ty),
+                    *intrinsic,
+                    &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
+                )
+                .map_err(contract)?;
+                if *intrinsic == RuntimePrimitive::ForwardErrOrigin {
+                    let semantic =
+                        |value: &MirValue| function.semantic.registers.get(&value.temp.index());
+                    if !operations::result_origin_call_valid(
+                        &module.identity,
+                        &module.abi.public_items,
+                        [semantic(&args[0]), semantic(&args[1])],
+                        dst.as_ref().and_then(semantic),
+                        context.definitions,
+                    ) {
+                        return Err(contract(ContractError::InvalidOperation {
+                            reason: "invalid Result origin transfer",
+                        }));
+                    }
+                }
+            }
             CallTarget::Native(import) => {
                 contracts::verify_native_call(
                     dst.map(|v| v.ty),

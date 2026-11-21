@@ -1,10 +1,8 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::support::round_trip_program, support::bytecode::reload_bytecode,
-    },
+use crate::tests::{
+    execution::native_boundary::support::round_trip_program, support::bytecode::reload_bytecode,
 };
 mod applications;
 mod interface_applications;
@@ -59,7 +57,7 @@ use std::{
 type ScalarCallback = Function<(i32,), i32>;
 
 pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Runtime, InstalledProgram) {
-    let mut modules = crate::modules().unwrap();
+    let mut modules = test_library::modules().unwrap();
     modules.extend(module.cloned());
     fixture_program(compile_program(source, module), modules.iter())
 }
@@ -92,11 +90,8 @@ fn fixture_program<'a>(
 #[test]
 fn bound_entries_check_visibility_signature_and_return_retained_objects() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut module = ModuleBuilder::new(
-        "example::functions",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::functions", test_library::standard().catalog()).unwrap();
     let observed = calls.clone();
     {
         let registered_function = module.define_function(FunctionDecl::new("tick")).unwrap();
@@ -156,9 +151,9 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
 
 #[test]
 fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let catalog = test_library::standard().catalog();
     let remembered: Arc<Mutex<Option<ScalarCallback>>> = Arc::default();
-    let mut module = ModuleBuilder::new("example::functions", &catalog).unwrap();
+    let mut module = ModuleBuilder::new("example::functions", catalog).unwrap();
     let saved = remembered.clone();
     {
         let registered_function = module
@@ -361,11 +356,8 @@ fn public_script_function_handles_can_be_passed_back_as_callable_values() {
 
 #[test]
 fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state() {
-    let mut module = ModuleBuilder::new(
-        "example::functions",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::functions", test_library::standard().catalog()).unwrap();
     {
         let registered_function = module
             .define_function(
@@ -506,11 +498,8 @@ impl FromKagari for MappedScalar {
 
 #[test]
 fn native_declaration_handles_bind_checked_installed_entries_directly() {
-    let mut module = ModuleBuilder::new(
-        "example::functions",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::functions", test_library::standard().catalog()).unwrap();
     let add = {
         let registered_function = module
             .define_function(

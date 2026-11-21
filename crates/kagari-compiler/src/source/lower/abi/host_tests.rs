@@ -1,5 +1,6 @@
 use super::collect_module_abi;
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -95,7 +96,7 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
     let metadata = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
     );
-    let mut providers = kagari_stdlib::catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(metadata.clone());
     let mut database = AnalysisDatabase::default();
     database.set_native_modules(providers);

@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use crate::{
-    modules,
+    test_library::modules,
     tests::{
         execution::native_boundary::{compile_program, support::round_trip_program},
         support::{bytecode::reload_bytecode, invoke},

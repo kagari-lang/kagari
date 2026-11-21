@@ -1,6 +1,8 @@
-use crate::{catalog as foundation_catalog, declarations::StandardDeclarations, namespaces};
+use crate::namespaces;
+use crate::test_library;
 use kagari_common::identity::{ModuleIdentity, map::DefinitionContext};
-use kagari_hir::native::render::declaration_source;
+use kagari_hir::analysis::core_source::packaged_modules;
+use kagari_hir::native::render::declaration_source_with_external;
 use kagari_runtime::{
     Runtime,
     native::{
@@ -23,12 +25,8 @@ fn add(_cx: &mut NativeCall<'_>, left: i32, right: i32) -> NativeResult<i32> {
 
 #[test]
 fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::math",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::math", language.catalog()).unwrap();
     let function = module
         .define_function(
             FunctionDecl::new("add")
@@ -40,9 +38,10 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
     module.bind(function, add).unwrap();
     let module = module.finish().unwrap();
     module.install(&mut Runtime::default()).unwrap();
-    let text = declaration_source(
+    let text = declaration_source_with_external(
         &module.to_declaration(),
-        &foundation_catalog::shared().unwrap(),
+        test_library::standard().declarations(),
+        packaged_modules(),
     )
     .unwrap()
     .text;
@@ -94,13 +93,8 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
             .is_err()
     );
 
-    let mut foreign = ModuleBuilder::new(
-        "example::foreign",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut foreign =
+        ModuleBuilder::new("example::foreign", test_library::standard().catalog()).unwrap();
     let error = foreign
         .implement(Type::scalar(BuiltinType::String), |group| {
             group.inherent_impl(|_| Ok(()))
@@ -111,12 +105,8 @@ fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations
 
 #[test]
 fn trait_groups_bind_declared_members_and_associated_outputs() {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "example::traits",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::traits", language.catalog()).unwrap();
     let mut trait_builder = module.define_trait("Measure").unwrap();
     let output = trait_builder.associated_type("Output", []).unwrap();
     trait_builder
@@ -142,9 +132,10 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
     module.install(&mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
     assert!(
-        declaration_source(
+        declaration_source_with_external(
             &module.to_declaration(),
-            &foundation_catalog::shared().unwrap()
+            test_library::standard().declarations(),
+            packaged_modules(),
         )
         .unwrap()
         .text

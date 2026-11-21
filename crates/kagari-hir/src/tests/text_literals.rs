@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     analyze_source,
     hir::expr::{ExprKind, literal::LiteralKind},
@@ -5,7 +6,6 @@ use crate::{
     typeck::scalar::ScalarValue,
 };
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
-use kagari_stdlib::catalog;
 
 #[test]
 fn string_literals_lower_decoded_content_without_synthetic_quoting() {
@@ -20,7 +20,7 @@ fn string_literals_lower_decoded_content_without_synthetic_quoting() {
             "literal.kgr",
             format!("fn main() -> String {{ {literal} }}"),
         );
-        let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{literal}: {:?}",
@@ -97,7 +97,7 @@ fn interpolation_checks_name_resolution_and_each_format_protocol() {
         }
     "#,
     );
-    let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -108,11 +108,11 @@ fn interpolation_checks_name_resolution_and_each_format_protocol() {
             "protocol.kgr",
             format!("fn render<T>(value: T) -> String {{ \"{hole}\" }}"),
         );
-        let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(analysis.diagnostics().iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidCallTarget { type_name } if type_name.contains(&format!("interpolation requires {protocol}")))), "{:?}", analysis.diagnostics());
     }
     let source = SourceFile::new("missing.kgr", r#"fn render() -> String { "{missing}" }"#);
-    let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(!analysis.diagnostics().is_empty());
 }
 
@@ -127,7 +127,7 @@ fn string_literals_keep_const_and_pattern_policy_without_runtime_holes() {
         }
     "##,
     );
-    let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -142,6 +142,6 @@ fn string_literals_keep_const_and_pattern_policy_without_runtime_holes() {
         "constant-hole.kgr",
         r#"const N: i32 = 1; const TEXT: bool = "{N}" == "1";"#,
     );
-    let analysis = analyze_source(&source, catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(analysis.diagnostics().iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason } if const_name == "TEXT" && reason == "unsupported const initializer expression")), "{:?}", analysis.diagnostics());
 }

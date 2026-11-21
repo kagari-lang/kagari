@@ -16,7 +16,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::{catalog as foundation_catalog, namespaces};
+use kagari_stdlib::namespaces;
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
     scalar::BuiltinType,
@@ -64,13 +64,7 @@ fn main() {
         .unwrap();
     let storage = DefinitionMetadata::checked(definitions, storage, &Default::default()).unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        foundation_catalog::shared()
-            .expect("foundation declarations")
-            .into_iter()
-            .chain([Arc::new(storage)])
-            .collect(),
-    );
+    analysis.set_native_modules(vec![Arc::new(storage)]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

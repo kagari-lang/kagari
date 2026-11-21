@@ -3,7 +3,7 @@ use crate::{
     callable::Signature,
     conversion::lossless_from,
     declaration::requirement::NativeCallableRequirement,
-    language::{Protocol, binding},
+    language::{Protocol, binding, comparison},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -158,29 +158,14 @@ pub fn adapter_contract(
             ),
             1,
         ),
-        Protocol::PartialEq => ("eq", Ty::Builtin(BuiltinType::Bool), 2),
+        Protocol::PartialEq | Protocol::PartialOrd | Protocol::Ord => {
+            let (name, result) = comparison::operation(kind, definitions)?;
+            (name, result, 2)
+        }
         Protocol::Hash => ("hash", Ty::Builtin(BuiltinType::I64), 1),
         Protocol::Debug => ("debug", Ty::Builtin(BuiltinType::String), 1),
         Protocol::Display => ("display", Ty::Builtin(BuiltinType::String), 1),
-        Protocol::Ord => (
-            "cmp",
-            enum_type(
-                definitions.lookup(&binding::ordering_declaration())?,
-                vec![],
-            ),
-            2,
-        ),
-        Protocol::PartialOrd => (
-            "partial_cmp",
-            enum_type(
-                definitions.lookup(&binding::option_declaration())?,
-                vec![enum_type(
-                    definitions.lookup(&binding::ordering_declaration())?,
-                    vec![],
-                )],
-            ),
-            2,
-        ),
+
         _ => return None,
     };
     let method = definitions.resolve(required.member).ok()?.last()?;

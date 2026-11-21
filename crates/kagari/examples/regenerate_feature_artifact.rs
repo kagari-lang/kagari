@@ -1,7 +1,7 @@
 //! Emit the SDK feature fixtures, or `<source.kgr> <output.kbc>` using stdlib only.
 use kagari::engine::KagariEngine;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -48,13 +48,16 @@ fn emit(source_path: PathBuf, output: PathBuf, install_fixture_providers: bool) 
         fs::read_to_string(&source_path).expect("read artifact source"),
     );
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
     if install_fixture_providers {
         builder
-            .install(provider::module(Default::default()))
+            .install(provider::module(builder.declarations(), Default::default()))
             .unwrap();
         builder.install(native_enums::module().unwrap()).unwrap();
-        builder.install(try_carrier::module().unwrap()).unwrap();
+        builder
+            .install(try_carrier::module(library.declarations()).unwrap())
+            .unwrap();
     }
     let artifact = builder
         .build()

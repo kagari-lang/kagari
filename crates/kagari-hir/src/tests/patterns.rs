@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{analysis::FileAnalysis, tests::test_analysis};
 use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -7,7 +8,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog;
 use kagari_types::declaration::{
     TypeDef, TypeDefKind,
     host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
@@ -286,7 +286,7 @@ fn declaration_pattern_host_values_bind_without_decomposing() {
         variants: vec![],
     });
     module.collect_definitions(&context).unwrap();
-    let mut modules = catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(Arc::new(
         DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
     ));

@@ -1,10 +1,8 @@
 use super::fixture;
 use super::{compile_without_foundation, fixture_without_foundation};
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::publish_unused_version, support::bytecode::reload_bytecode,
-    },
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::publish_unused_version, support::bytecode::reload_bytecode,
 };
 
 use kagari_runtime::native::{
@@ -124,7 +122,7 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
     let observed = calls.clone();
     let mut builder = ModuleBuilder::new(
         "example::interface_applications",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     {

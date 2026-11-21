@@ -1,4 +1,5 @@
 use crate::query_tests::native_fixture::function_module;
+use crate::query_tests::standard_modules;
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use std::sync::*;
 // Native facade queries retain common declaration identity and immutable snapshots.
@@ -10,7 +11,6 @@ use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType, ty::Ty};
 
 fn install_echo(
@@ -40,7 +40,7 @@ fn install_echo(
     );
     let module =
         Arc::new(DefinitionMetadata::checked(definitions, records, &Default::default()).unwrap());
-    let mut modules = foundation_catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(module.clone());
     db.set_native_modules(modules);
     module

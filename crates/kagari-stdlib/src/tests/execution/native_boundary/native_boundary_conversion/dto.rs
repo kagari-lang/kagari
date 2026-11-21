@@ -1,4 +1,5 @@
 use super::source_free_vm;
+use crate::test_library;
 use kagari_runtime::{
     frame::types::arguments::TypeArgument,
     native::{
@@ -14,8 +15,6 @@ use kagari_runtime::{
     },
     value::view::ValueView,
 };
-
-use crate::declarations::StandardDeclarations;
 
 kagari_runtime::native_data! { struct Shared { len: u64 } }
 
@@ -68,8 +67,8 @@ impl FromKagari for Packet {
 
 #[test]
 fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::dto", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::dto", catalog).unwrap();
     let packet = module.register_type::<Packet>().unwrap();
     let shared = Opaque::<Shared>::kagari_type(module.declarations()).unwrap();
     let make = module

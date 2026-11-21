@@ -1,4 +1,4 @@
-use crate::declarations::StandardDeclarations;
+use crate::test_library;
 use kagari_derive::KagariValue;
 use kagari_hir::analyze_source;
 use kagari_runtime::native::{
@@ -15,8 +15,8 @@ struct Player {
 
 #[test]
 fn ordinary_gc_structs_cannot_call_rust_receiver_loans() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::dto_loans", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::dto_loans", catalog).unwrap();
     let player = module.register_type::<Player>().unwrap();
     module
         .implement(player, |implementation| {
@@ -44,7 +44,7 @@ fn ordinary_gc_structs_cannot_call_rust_receiver_loans() {
             })
         })
         .unwrap();
-    let mut providers = crate::catalog::shared().unwrap();
+    let mut providers = test_library::standard().declarations().to_vec();
     providers.push(Arc::new(module.finish().unwrap().to_declaration()));
     for member in ["inspect", "damage"] {
         let source = format!(

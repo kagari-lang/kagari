@@ -1,8 +1,8 @@
 //! Hash results are compared across independently compiled variant layouts.
+use crate::test_support::standard::standard_library;
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn explicit_enum_hash_is_stable_across_variant_reordering() {
@@ -11,9 +11,11 @@ fn explicit_enum_hash_is_stable_across_variant_reordering() {
         let source = format!(
             "use std::hash::{{Hash}};\nstruct Key {{val id:i32}} impl PartialEq for Key {{fn eq(self,other:Self)->bool {{self.id==other.id}}}} impl Eq for Key {{}} impl Hash for Key {{fn hash(self)->i64 {{self.id.hash()}}}} enum Envelope {{{variants}}} impl PartialEq for Envelope {{fn eq(self,other:Self)->bool {{as_option(self)==as_option(other)}}}} impl Eq for Envelope {{}} impl Hash for Envelope {{fn hash(self)->i64 {{as_option(self).hash()}}}} fn as_option(value:Envelope)->Option<Key> {{match value {{Envelope::Empty=>None,Envelope::Present(key)=>Some(key)}}}} fn main()->i64 {{Envelope::Present(Key{{id:1}}).hash()}}"
         );
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new("stable-variant.kgr", source),

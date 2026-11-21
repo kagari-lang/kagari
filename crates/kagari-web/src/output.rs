@@ -1,16 +1,26 @@
 //! Explicit script output, copied only up to the remaining transport budget.
 use crate::protocol::prefix;
+#[cfg(not(feature = "source"))]
+use kagari::BytecodeArtifact;
 use kagari::{engine::KagariEngine, error::EmbeddingError};
+#[cfg(not(feature = "source"))]
+use kagari_common::identity::map::DefinitionContext;
+#[cfg(not(feature = "source"))]
+use kagari_runtime::{error::RuntimeError, native::catalog::DeclarationCatalog};
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
     value::view::ValueView,
 };
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
+#[cfg(not(feature = "source"))]
+use kagari_stdlib::namespaces;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
 };
+#[cfg(not(feature = "source"))]
+use std::error::Error;
 use std::{
     mem,
     sync::{Arc, Mutex},
@@ -45,11 +55,39 @@ impl Output {
     }
 }
 
-pub(crate) fn engine(output: Arc<Mutex<Output>>) -> Result<KagariEngine, EmbeddingError> {
+#[cfg(not(feature = "source"))]
+fn portable_library(bytes: &[u8]) -> Result<StandardLibrary, Box<dyn Error>> {
+    let artifact = BytecodeArtifact::from_bytes(bytes)?;
+    let cancel = Default::default();
+    artifact
+        .records()
+        .validate_resource_limits(artifact.definitions(), &cancel)?;
+    let context = DefinitionContext::new()?;
+    let verified = artifact
+        .import_into(&context, &cancel)?
+        .into_records()
+        .into_verified(&Default::default(), &context, &cancel)?;
+    // Select only the authored owners used by the native standard bundle, never an
+    // application module, Native requirement or public re-export from this image.
+    let owners = ["cmp", "convert", "default", "ops", "option", "result"]
+        .map(|name| namespaces::module("core", name));
+    let seed = DeclarationCatalog::default().with_verified_modules(verified.bytecode(), &owners)?;
+    Ok(StandardLibrary::new(&seed)?)
+}
+
+pub(crate) fn engine(
+    output: Arc<Mutex<Output>>,
+    #[cfg(not(feature = "source"))] seed: &[u8],
+) -> Result<KagariEngine, EmbeddingError> {
     let registration = |error| EmbeddingError::Registration { error };
     let mut builder = KagariEngine::builder().map_err(registration)?;
+    #[cfg(feature = "source")]
+    let standard = StandardLibrary::new(builder.declarations()).map_err(registration)?;
+    #[cfg(not(feature = "source"))]
+    let standard = portable_library(seed)
+        .map_err(|error| registration(RuntimeError::module_validation(error.to_string())))?;
     builder
-        .install_all(stdlib::modules().map_err(registration)?)
+        .install_all(standard.modules().map_err(registration)?)
         .map_err(registration)?;
     // The adapter owns this lexical root; memory:// inputs never access a filesystem.
     #[cfg(feature = "source")]

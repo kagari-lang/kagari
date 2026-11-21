@@ -112,6 +112,7 @@ fn detached_copy(loaded: &ExecutableModule) -> ExecutableModule {
     ExecutableModule {
         slot: loaded.slot,
         program: Arc::new(ProgramDescriptor {
+            conversion_catalog: loaded.program.conversion_catalog.clone(),
             definitions: loaded.program.definitions.clone(),
             source: loaded.program.source.clone(),
             installation: loaded.program.installation,

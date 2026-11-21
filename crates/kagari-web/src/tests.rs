@@ -18,6 +18,12 @@ fn response(text: String) -> Value {
 
 #[test]
 fn artifact_validation_and_idle_state_are_real_without_source() {
+    #[cfg(not(feature = "source"))]
+    let mut session = {
+        assert!(BrowserSession::new(b"not a verified seed").is_err());
+        BrowserSession::new(include_bytes!("../../kagari-hir/tests/support/core.kbc")).unwrap()
+    };
+    #[cfg(feature = "source")]
     let mut session = BrowserSession::new().unwrap();
     assert_eq!(response(session.start())["error"]["code"], "WEB_NO_PROGRAM");
     assert_eq!(

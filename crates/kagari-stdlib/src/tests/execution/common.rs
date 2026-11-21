@@ -1,5 +1,7 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
@@ -8,7 +10,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 
-use crate as foundation;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
@@ -18,7 +19,7 @@ use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
 };
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::declaration::logging;
 use std::sync::Arc;
@@ -85,9 +86,7 @@ pub fn logging_module(
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &foundation::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        test_library::standard().catalog(),
         Default::default(),
     )
     .unwrap();
@@ -127,11 +126,7 @@ fn compile_native_test_bytecode_with_options(
         .set("test.kgr", source_text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    let mut declarations = foundation::modules()
-        .unwrap()
-        .iter()
-        .map(|module| Arc::new(module.to_declaration()))
-        .collect::<Vec<_>>();
+    let mut declarations = test_library::standard().declarations().to_vec();
     declarations.extend(
         modules
             .iter()
@@ -156,7 +151,7 @@ fn compile_native_test_bytecode_with_options(
 /// Explicit standard installation for script fixtures and their source-free products.
 pub fn standard_runtime(config: RuntimeConfig) -> Runtime {
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&foundation::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }
 

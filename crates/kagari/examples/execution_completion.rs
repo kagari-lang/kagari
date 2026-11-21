@@ -11,7 +11,7 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use std::{
     env,
     hint::black_box,
@@ -77,9 +77,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let mut builder = KagariEngine::builder().unwrap();
+        let library = StandardLibrary::new(builder.declarations()).unwrap();
+        builder.install_all(library.modules().unwrap()).unwrap();
+        let engine = builder.build().unwrap();
         let program = engine
             .compile_to_program(
                 SourceFile::new("completion.kgr", SOURCE),

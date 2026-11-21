@@ -6,6 +6,7 @@ use crate::{
     declarations::{Declaration, DeclarationId, Declarations},
     hir::item::function::NativeContract,
     hir::writeability::Writeability,
+    language::items::conversion,
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
@@ -93,7 +94,7 @@ impl MethodSignature {
 /// An applied-trait declaration surface, including parents and associated members.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
-    /// Registered conversion adapter policy, if this trait has one.
+    /// Scoped forward method, error member and result constructor, if applicable.
     pub conversion_adapter: Option<ConversionAdapter>,
     /// Associated family identity to its own binders and constraints.
     pub associated_type_parameters: BTreeMap<DefinitionId, AssociatedTypeParameters>,
@@ -182,6 +183,7 @@ impl AggregateCatalog {
             cancel.check()?;
             functions.insert(function.id, function);
         }
+        let try_from = conversion::try_from(declarations.definitions());
         for item in &lowered.module.traits {
             cancel.check()?;
             let declaration = declarations
@@ -257,7 +259,11 @@ impl AggregateCatalog {
             self.traits.insert(
                 *id,
                 Arc::new(TraitSignature {
-                    conversion_adapter: item.conversion_adapter.clone(),
+                    conversion_adapter: if Some(*id) == try_from {
+                        conversion::relationship(*id, &methods, declarations.definitions())
+                    } else {
+                        item.conversion_adapter.clone()
+                    },
                     associated_type_parameters: item
                         .associated_types
                         .iter()

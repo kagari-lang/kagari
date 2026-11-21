@@ -1,7 +1,7 @@
 use crate::aggregates::implementations::*;
+use crate::tests::standard::standard_modules;
 use crate::{tests::common, types::TypeId};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
@@ -17,7 +17,7 @@ fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> 
 #[test]
 fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
     let source = common::lower_ok("trait Marker<A> { type Output; fn get(self); }");
-    let checked = crate::analyze_source(&source.source, foundation_catalog::shared().unwrap())
+    let checked = crate::analyze_source(&source.source, standard_modules())
         .unwrap()
         .into_checked()
         .unwrap();

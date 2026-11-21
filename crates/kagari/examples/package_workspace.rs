@@ -6,10 +6,12 @@ use kagari_package::{
     filesystem::FilesystemSources,
     project::{ProjectInputs, ProjectOptions},
 };
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use std::path::PathBuf;
 
 fn main() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     let directory =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/package-workspace");
     let sources = FilesystemSources::new(&directory).expect("approved source directory");
@@ -25,8 +27,8 @@ fn main() {
         &cancel,
     )
     .expect("package project");
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let checked = engine
         .compile_package(&project.programs()["gameplay"], &cancel)
         .expect("checked package");

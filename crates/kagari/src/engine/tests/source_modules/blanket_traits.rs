@@ -1,4 +1,5 @@
 use super::{compile, insert};
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
@@ -8,7 +9,6 @@ use kagari_bytecode::{
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::types::named::NamedContract;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn direct_callee<'a>(
@@ -45,8 +45,11 @@ fn direct_callee<'a>(
 
 #[test]
 fn conditional_blanket_methods_execute_for_concrete_and_open_callers() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "provider",

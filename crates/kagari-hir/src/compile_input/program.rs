@@ -21,11 +21,14 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        map::DefinitionContext, mapping::DefinitionMappingError, table::module::ModuleHandle,
+        map::DefinitionContext,
+        mapping::DefinitionMappingError,
+        table::{DefinitionId, module::ModuleHandle},
     },
     span::Span,
 };
 use kagari_source::source::SourceFile;
+use kagari_types::declaration::TraitDef;
 
 /// Failure to admit a checked source closure for elaboration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -280,6 +283,12 @@ impl<'a> CheckedModule<'a> {
     /// Borrows declaration metadata without exposing the shared body node tables.
     pub fn headers(&self) -> DeclarationHeaders<'a> {
         DeclarationHeaders::new(&self.lowered.module)
+    }
+
+    /// Returns this importer's registered expectations, not the defining modules' current ABIs.
+    /// Identities belong to the checked environment; these entries do not declare traits.
+    pub fn trait_references(&self) -> &'a [(DefinitionId, TraitDef)] {
+        &self.lowered.trait_references
     }
 
     /// Borrows authored ownership and checked static initializer evidence.

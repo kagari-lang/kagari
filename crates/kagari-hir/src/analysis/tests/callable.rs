@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     hir::expr::ExprKind,
     resolver::resolved::ResolvedName,
@@ -11,7 +12,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 #[test]
@@ -22,7 +22,7 @@ fn call_type_arguments_reject_top_level_associated_bindings() {
         "struct Relay {} impl Relay { fn identity<T>(self, value: T) -> T { value } } fn main() -> i32 { Relay {}.identity::<i32, Item = i32>(42) }",
     ] {
         let source = SourceFile::new("named-call-arguments.kgr", text);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         let diagnostic = analysis
             .diagnostics()
@@ -56,7 +56,7 @@ fn sum<I: Iterator<Item = i32>>(iter: I) -> i32 { iter.sum() }
 fn main() -> i32 { sum([20, 22].iter()) }
 "#,
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let analysis = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis");
     assert!(
         analysis.diagnostics().is_empty(),
@@ -278,7 +278,7 @@ async fn block_boundaries() -> i32 {
         variants: vec![],
     });
     host.collect_definitions(&context).unwrap();
-    let mut modules = foundation_catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(Arc::new(
         DefinitionMetadata::checked(context.snapshot(), host, &Default::default()).unwrap(),
     ));
@@ -611,7 +611,7 @@ fn lexical_values_preserve_associated_native_and_script_type_owners() {
         );
         let analysis = crate::analyze_source(
             &SourceFile::new("shadow-owners.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert!(

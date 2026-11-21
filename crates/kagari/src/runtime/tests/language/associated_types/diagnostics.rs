@@ -1,11 +1,14 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_associated_type_contracts_are_rejected_before_execution() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "trait Read { type Item; } struct N {} impl Read for N {}",
         "trait Read { type Item; type Item; }",
@@ -48,8 +51,11 @@ fn invalid_associated_type_contracts_are_rejected_before_execution() {
 
 #[test]
 fn generic_interface_conversion_checks_implementation_bounds() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "use std::hash::{Hash};\ntrait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn main() { val reader: Read = Holder { value: 1.5 }; }",
         "use std::hash::{Hash};\ntrait Read {} struct Holder<T> { val value: T } impl<T: Eq + Hash> Read for Holder<T> {} fn boxed<T>(value: Holder<T>) -> Read { value } fn main() {}",

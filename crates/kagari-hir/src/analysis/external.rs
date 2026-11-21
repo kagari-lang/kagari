@@ -42,7 +42,7 @@ mod members;
 #[cfg(test)]
 mod equivalence;
 #[cfg(test)]
-mod foundation;
+pub(crate) mod foundation;
 #[cfg(test)]
 mod host;
 #[cfg(test)]
@@ -253,14 +253,20 @@ impl ExternalFunction {
 }
 
 impl AnalysisDatabase {
-    /// Replaces offline library inputs, independently of installed registrations.
+    /// Replaces only caller-supplied offline inputs, retaining packaged core and registrations.
     ///
     /// Text is parsed/lowered and checked with the same pipeline as project source.
     /// Metadata must name actual declarations with the declared constructor arity.
     /// Conflicting modules/files are rejected during preparation, not silently merged.
     /// These inputs can never authorize compiler admission or Runtime installation.
     pub fn set_external_modules(&mut self, modules: Vec<ExternalModule>) {
-        self.external_modules = modules;
+        self.libraries.set_external(modules);
+        self.invalidate_library_queries();
+    }
+
+    pub(super) fn invalidate_library_queries(&mut self) {
+        // Prepared registration imports and materialized views retain package spellings.
+        self.native_files.take();
         self.environment_fingerprint.take();
         self.declaration_cache = None;
         self.signature_cache = None;
@@ -274,13 +280,13 @@ impl AnalysisDatabase {
     ) -> Result<BTreeMap<FileId, (ParsedModule, Arc<LoweredModule>)>, AnalysisError> {
         let mut files = BTreeMap::new();
         let mut identities = HashSet::default();
-        for input in &self.external_modules {
+        for (input, limits) in self.libraries.parse_inputs(self.parse_limits) {
             cancel.check()?;
             let mut cache = SourceParseCache::default();
             let preparer = SourcePreparer {
                 cache: &mut cache,
                 inline_ids: &mut self.inline_ids,
-                limits: self.parse_limits,
+                limits,
             };
             for (id, mut prepared) in source_preparation::prepare(
                 preparer,

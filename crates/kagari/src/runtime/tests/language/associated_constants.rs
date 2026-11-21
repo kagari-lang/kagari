@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -9,7 +10,6 @@ use crate::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{fs, path::PathBuf};
 
@@ -29,8 +29,11 @@ fn ordinary_execution(
             path.display()
         )
     });
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("constants.kgr", &source),

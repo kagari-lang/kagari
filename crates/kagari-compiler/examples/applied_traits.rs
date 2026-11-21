@@ -11,7 +11,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn main() {
@@ -23,7 +22,7 @@ fn main() {
     let root = sources
         .set(source.name(), source.text().into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analysis_database()
+    let snapshot = AnalysisDatabase::default()
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot");
     let checked = snapshot
@@ -99,10 +98,4 @@ fn main() {
             &Default::default(),
         )
         .expect("loadable artifact");
-}
-
-fn analysis_database() -> AnalysisDatabase {
-    let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().expect("foundation declarations"));
-    database
 }

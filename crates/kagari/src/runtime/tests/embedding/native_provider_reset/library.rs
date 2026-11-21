@@ -1,5 +1,5 @@
 use crate::engine::KagariEngine;
-use kagari_stdlib as foundation;
+use crate::test_support::standard::standard_library;
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
@@ -85,7 +85,8 @@ fn explicit_library_composition_keeps_collection_algorithms() {
 
 #[test]
 fn application_installation_rejects_duplicate_explicit_providers() {
-    let module = foundation::modules()
+    let module = standard_library()
+        .modules()
         .unwrap()
         .into_iter()
         .find(|module| {
@@ -93,6 +94,8 @@ fn application_installation_rejects_duplicate_explicit_providers() {
         })
         .unwrap();
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(foundation::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     assert!(builder.install(module).is_err());
 }

@@ -24,7 +24,7 @@ use crate::{
             cells::{CellId, StaticBinding},
         },
     },
-    native::binding::LinkedNativeFunction,
+    native::{binding::LinkedNativeFunction, catalog::DeclarationCatalog},
     program::Program,
     reload::{
         ModuleEpoch, ModuleEpochAllocator, ReloadValidationError,
@@ -423,6 +423,10 @@ impl VerifiedProgram {
         self
     }
 
+    pub(crate) fn product_identity(&self) -> VerifiedProductIdentity {
+        self.product_identity
+    }
+
     pub(crate) fn product(&self) -> Option<&Program> {
         self.product.as_ref()
     }
@@ -434,6 +438,7 @@ impl VerifiedProgram {
 
 #[derive(Debug)]
 struct ProgramDescriptor {
+    conversion_catalog: DeclarationCatalog,
     definitions: Arc<DefinitionAdmission>,
     source: ProgramSourceSnapshot,
     installation: InstallationId,
@@ -463,6 +468,7 @@ pub struct LinkedModule {
 /// Runtime-linked capabilities and immutable native nominal authority for a publication.
 #[derive(Debug)]
 pub(crate) struct LinkedProgramBindings {
+    pub conversion_catalog: DeclarationCatalog,
     pub definitions: Arc<DefinitionAdmission>,
     pub members: Vec<LinkedHostBindings>,
     pub shared_traits: HashSet<DefinitionId>,
@@ -484,6 +490,10 @@ impl Deref for ExecutableModule {
 }
 
 impl ExecutableModule {
+    pub(crate) fn conversion_catalog(&self) -> &DeclarationCatalog {
+        &self.program.conversion_catalog
+    }
+
     pub(crate) fn identity_admission(&self) -> &Arc<DefinitionAdmission> {
         &self.program.definitions
     }
@@ -852,6 +862,7 @@ impl ModuleStore {
     ) -> Result<PreparedProgramMetadata, RuntimeError> {
         self.validate_installation(&installation, installation.registry_owner)?;
         let LinkedProgramBindings {
+            conversion_catalog,
             definitions,
             members: host_bindings,
             shared_traits,
@@ -964,6 +975,7 @@ impl ModuleStore {
         dispatch.bind_members(&modules)?;
         let dispatch = Arc::new(dispatch);
         let program = Arc::new(ProgramDescriptor {
+            conversion_catalog,
             definitions,
             source,
             installation: installation.id,

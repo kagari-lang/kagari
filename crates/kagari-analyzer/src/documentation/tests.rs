@@ -1,25 +1,26 @@
 use crate::query_tests::native_fixture::function_module;
+use crate::query_tests::{render_native, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, metadata::DefinitionMetadata,
 };
+use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_hir::{
     declarations::{DeclarationId, DeclarationOrigin},
     native::render::declaration_source,
     semantic::signatures::FunctionImplementation,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
-use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::{collections::HashSet, sync::Arc};
 
 #[test]
 fn installed_declaration_inventory_preserves_every_named_source_site() {
     let sources = SourceDatabase::default();
-    let installed_modules = catalog::shared().unwrap();
+    let installed_modules = standard_modules();
     let views = installed_modules
         .iter()
-        .map(|provider| declaration_source(provider, &installed_modules).unwrap())
+        .map(|provider| render_native(provider, &installed_modules))
         .collect::<Vec<_>>();
     let mut database = test_analysis();
     database
@@ -30,18 +31,19 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
         .unwrap();
     let mut independent = test_analysis();
     independent
-        .set_native_sources(installed_modules.clone(), views)
+        .set_native_sources(installed_modules.clone(), views.clone())
         .unwrap();
     let independent = independent
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
     drop(database);
-    assert_eq!(snapshot.files().count(), installed_modules.len());
+    assert_eq!(
+        snapshot.files().count(),
+        installed_modules.len() + packaged_modules().len()
+    );
     let mut identities = HashSet::new();
     let mut count = 0;
-    for installed in &installed_modules {
-        let generated =
-            declaration_source(installed, &foundation_catalog::shared().unwrap()).unwrap();
+    for (installed, generated) in installed_modules.iter().zip(&views) {
         let file = snapshot
             .files()
             .find(|file| file.source().name() == generated.uri)
@@ -140,19 +142,27 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
     }
     assert!(count > 0);
     for kind in Protocol::ALL {
-        assert!(
-            identities.contains(&DeclarationId::Definition(
-                snapshot
-                    .files()
-                    .find(|file| *file.source().module_identity()
-                        == standard_traits::identity(kind).module)
-                    .unwrap()
-                    .declarations()
-                    .definitions()
-                    .lookup(&standard_traits::identity(kind))
-                    .unwrap()
-            ))
-        );
+        let path = standard_traits::identity(kind);
+        let owner = snapshot
+            .files()
+            .find(|file| file.source().module_identity() == &path.module)
+            .unwrap();
+        let id =
+            DeclarationId::Definition(owner.declarations().definitions().lookup(&path).unwrap());
+        if let Some(authored) = packaged_modules()
+            .iter()
+            .find(|module| module.source.module_identity() == &path.module)
+        {
+            let doc = snapshot.queries().documentation(&id).unwrap();
+            assert_eq!(
+                doc.declaration.source_location().unwrap().file,
+                authored.source.id()
+            );
+            assert!(!doc.documentation.is_empty());
+            assert!(!identities.contains(&id));
+        } else {
+            assert!(identities.contains(&id));
+        }
     }
 }
 

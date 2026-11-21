@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     CheckedAnalysis,
     analysis::AnalysisDatabase,
@@ -12,16 +13,12 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog;
 
 fn checked(text: &str) -> CheckedAnalysis {
-    analyze_source(
-        &SourceFile::new("update.kgr", text),
-        catalog::shared().unwrap(),
-    )
-    .unwrap()
-    .into_codegen()
-    .unwrap()
+    analyze_source(&SourceFile::new("update.kgr", text), standard_modules())
+        .unwrap()
+        .into_codegen()
+        .unwrap()
 }
 
 fn evidence(module: &CheckedAnalysis) -> SourceEvidence {
@@ -84,7 +81,7 @@ fn static_evidence_ignores_trivia_and_callee_contents_but_not_its_expression() {
     let source = "const C: i32 = 2; fn helper() -> i32 { C + 1 } fn unused<T>(x: T) -> i32 { 1 } static val N: i32 = ((helper() + C));";
     let mut sources = SourceDatabase::default();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let mut revision = |text: &str| {
         let root = sources
             .set("update.kgr", text.into(), SourceLayer::Overlay)
@@ -208,7 +205,7 @@ fn identical_initializer_tokens_retain_direct_import_identity() {
         SourceLayer::Base,
     ).unwrap();
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let before = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

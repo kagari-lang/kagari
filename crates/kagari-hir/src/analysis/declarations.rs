@@ -13,7 +13,7 @@ use crate::{
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
     lower::LoweredModule,
-    native::{adoption, api::preparation::NativeFiles},
+    native::{adoption, api::preparation::NativeFiles, paths::LibraryPaths},
     resolver::resolved::DeclarationNames,
 };
 use kagari_types::declaration::native::NativeTypeConstructor;
@@ -235,6 +235,10 @@ impl AnalysisDatabase {
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
         let mut lowered_files = self.prepare_external(cancel)?;
+        let paths = Arc::new(LibraryPaths::new(
+            &self.native_modules,
+            self.libraries.all(),
+        ));
         let previous = self.declaration_cache.as_ref();
         let native_files = match self.native_files.get_mut() {
             Some(files) => {
@@ -246,6 +250,7 @@ impl AnalysisDatabase {
                 let modules = adoption::adopt(&self.native_modules, &self.definitions, cancel)?;
                 let prepared = NativeFiles::new(
                     modules,
+                    paths.clone(),
                     self.native_sources.as_deref(),
                     &self.source_root,
                     self.parse_limits,
@@ -339,6 +344,7 @@ impl AnalysisDatabase {
         let environment = self.import_scopes(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             source.packages(),
+            &paths,
             cancel,
         )?;
         let graph = Arc::new(ModuleGraph::build_with_environment(

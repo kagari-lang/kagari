@@ -1,6 +1,6 @@
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::types::*;
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
 
 #[test]
@@ -15,8 +15,8 @@ fn make<T: Family>(x: T) -> T::Item<i32> { x.make(42) }
 fn main() -> i32 { make(Number {}) }
 "#,
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let result =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",

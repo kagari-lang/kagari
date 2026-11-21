@@ -1,8 +1,10 @@
+use crate::test_library;
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeError,
@@ -35,7 +37,7 @@ const SOURCE: &str = include_str!("../../../tests/fixtures/runtime_boundary/host
 fn program(source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let context = DefinitionContext::new().unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(crate::catalog::shared().unwrap());
+    analysis.set_native_modules(test_library::standard().declarations().to_vec());
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("objects.kgr", source.into(), SourceLayer::Base)
@@ -78,7 +80,7 @@ fn runtime() -> Runtime {
         },
         ..Default::default()
     });
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }
 

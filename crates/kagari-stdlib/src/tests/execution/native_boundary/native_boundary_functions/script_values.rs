@@ -1,7 +1,6 @@
 use super::fixture;
-use crate::{
-    declarations::StandardDeclarations, tests::execution::native_boundary::publish_unused_version,
-};
+use crate::test_library;
+use crate::tests::execution::native_boundary::publish_unused_version;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     frame::types::arguments::TypeArgument,
@@ -49,11 +48,8 @@ impl FromKagari for ObservedString {
 
 #[test]
 fn generic_value_handles_forward_selected_results_without_erasing_type_access_or_roots() {
-    let mut module = ModuleBuilder::new(
-        "example::script_values",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::script_values", test_library::standard().catalog()).unwrap();
     let mut contract = module.define_trait("Identity").unwrap();
     let member = contract
         .define_method(MethodDecl::instance("identity"))
@@ -198,7 +194,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
 fn selected_associated_tuple_results_keep_their_supplying_scope() {
     let mut module = ModuleBuilder::new(
         "example::associated_values",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut contract = module.define_trait("Producer").unwrap();

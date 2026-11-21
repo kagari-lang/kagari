@@ -31,7 +31,10 @@ own collection library without registering the bundled stdlib. Compiled programs
 source-free. CS01 reproduced core-only HIR checking. The planned iteration API keeps
 `iter()` on `Iterable`, moves adapters and terminals to `Iterator`, and preserves direct
 `for` on both containers and iterators. Core adapters use ordinary `.kgr` implementations;
-reentry policy belongs to the concrete iterator. CS02–CS04 are not implemented.
+reentry policy belongs to the concrete iterator. CS02 delivered six authored modules,
+including comparisons, ordinary conversion, `Option`/`Result` propagation and ranges.
+The zero-provider SDK executes script-defined equality. CS03 owns the remaining groups
+and iterator API; CS04 owns final packaging and tooling acceptance.
 
 ## Strongly typed syntax CI acceptance
 

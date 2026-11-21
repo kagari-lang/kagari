@@ -1,10 +1,9 @@
+use crate::query_tests::{render_native, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 // Source query regressions, including native implementations and protocol views.
 use kagari_hir::{
-    declarations::DeclarationId, language::semantics::ProtocolSemantics,
-    native::render::declaration_source, types::TypeId,
+    declarations::DeclarationId, language::semantics::ProtocolSemantics, types::TypeId,
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::language::Protocol;
 
 /* stdlib test support paused (NC01-NC06).
@@ -63,14 +62,13 @@ mod trait_tests {
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
     fn source_database() -> AnalysisDatabase {
-        let providers = foundation_catalog::shared()
-            .unwrap()
+        let providers = standard_modules()
             .into_iter()
             .chain([crate::query_tests::native_fixture::module()])
             .collect::<Vec<_>>();
         let views = providers
             .iter()
-            .map(|provider| declaration_source(provider, &providers).unwrap())
+            .map(|provider| render_native(provider, &providers))
             .collect();
         let mut database = test_analysis();
         database.set_native_sources(providers, views).unwrap();
@@ -103,11 +101,10 @@ mod trait_tests {
                     .source(api.declaration.source_location().unwrap().file)
                     .unwrap()
                     .name(),
-                declaration_source(
+                render_native(
                     &crate::query_tests::native_fixture::module(),
-                    &foundation_catalog::shared().unwrap()
+                    &standard_modules()
                 )
-                .unwrap()
                 .uri
             );
             let signature = analysis.queries().call_signature_at(offset).unwrap();
@@ -143,14 +140,11 @@ mod trait_tests {
                 .documentation_at(file, text.find(needle).unwrap())
                 .unwrap();
             assert_eq!(item.declaration.name, name);
-            let declaration = item.declaration;
-            assert!(
-                snapshot
-                    .source(declaration.source_location().unwrap().file)
-                    .unwrap()
-                    .text()
-                    .contains("///")
-            );
+            let source = snapshot
+                .source(item.declaration.source_location().unwrap().file)
+                .unwrap();
+            assert_eq!(source.name(), "kagari-core:///cmp.kgr");
+            assert!(!item.documentation.is_empty());
         }
         let user = snapshot
             .queries()

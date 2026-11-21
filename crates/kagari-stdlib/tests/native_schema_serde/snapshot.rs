@@ -1,6 +1,7 @@
 //! Serde visitors preserve immediate-child snapshots through reentry and unwind.
 use super::{module, program_for_source};
 use crate::bytecode_fixture::load_bytecode;
+use crate::standard_library::STANDARD;
 use kagari_derive::KagariSchema;
 use kagari_runtime::{
     Runtime,
@@ -130,7 +131,7 @@ fn fixture() -> (Runtime, ExecutableModule) {
     let module = module();
     let program = program_for_source(&module, include_str!("../fixtures/native/serde_graph.kgr"));
     let mut runtime = Runtime::default();
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "serde", program).unwrap();

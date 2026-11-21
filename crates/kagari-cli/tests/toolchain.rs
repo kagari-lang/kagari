@@ -15,7 +15,7 @@ use kagari_package::{
     workspace::MemberSelection,
 };
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use serde_json::{Value as JsonValue, from_slice};
 use std::{fs, process::Output};
 
@@ -153,8 +153,10 @@ fn workspace_tools_preserve_semantics_and_agree_with_direct_sdk_checking() {
         ..Default::default()
     };
     let before = ProjectInputs::load(&input, "", &options, &Default::default()).unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let standard = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(standard.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     assert_eq!(execute(&engine, &before.programs()["app"]), 43);
     assert_eq!(
         project

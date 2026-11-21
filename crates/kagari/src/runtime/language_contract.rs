@@ -1,6 +1,7 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::source::PreparationOptions,
@@ -38,7 +39,6 @@ use kagari_runtime::{
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
@@ -196,9 +196,7 @@ fn logging_module(
 ) -> NativeModule {
     let mut builder = ModuleBuilder::from_declaration(
         logging::declaration().unwrap(),
-        &kagari_stdlib::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
+        standard_library().declarations().catalog(),
         Default::default(),
     )
     .unwrap();
@@ -479,7 +477,7 @@ fn run(
         let capture_host = host.clone();
         let mut builder = ModuleBuilder::from_declaration(
             observe,
-            &StandardDeclarations::default().catalog().unwrap(),
+            standard_library().declarations().catalog(),
             Default::default(),
         )
         .unwrap();

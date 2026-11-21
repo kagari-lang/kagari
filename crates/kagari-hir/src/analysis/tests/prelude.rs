@@ -1,4 +1,5 @@
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::types::*;
 use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
@@ -9,7 +10,6 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
@@ -113,6 +113,40 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
 }
 
 #[test]
+fn range_projection_helpers_are_private_to_the_core_ops_owner() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .bind_module(
+            "ops.kgr",
+            ModuleIdentity {
+                package: PackageId("client".into()),
+                path: vec!["ops".into()],
+            },
+        )
+        .unwrap();
+    let name = "__range_start_bound";
+    let file = sources
+        .set(
+            "ops.kgr",
+            format!("use core::ops::Bound; fn lower() -> Bound<i32> {{ {name}(1..2) }}"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut db = AnalysisDatabase::default();
+
+    let snapshot = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
+    assert!(
+        diagnostics.iter().any(
+            |d| matches!(&d.kind, DiagnosticKind::UnknownName { name: actual } if actual == name)
+        ),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
 fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
     for (name, _) in HELPERS {
         let mut sources = SourceDatabase::default();
@@ -133,7 +167,7 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
             .definition(DefinitionKind::Function, name, module.definitions())
             .unwrap();
         let expected = module.definitions().resolve(expected).unwrap().to_path();
-        let mut modules = foundation_catalog::shared().unwrap();
+        let mut modules = standard_modules();
         modules.push(module);
         db.set_native_modules(modules);
         let snapshot = db
@@ -189,7 +223,7 @@ fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() 
                 "struct Point {{ var x: i32 }} fn main() {{ val point = Point {{ x: 1 }}; {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert!(
             analysis
@@ -213,7 +247,7 @@ fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("recovery-reflection.kgr", format!("fn main() {{ {body} }}")),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -257,7 +291,7 @@ fn reflective_field_writes_check_declared_writeability_and_keep_rhs_context() {
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ {binding} value: Marker<i32> }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }} }}; {expression} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis
@@ -332,7 +366,7 @@ fn invalid_reflection_names_keep_helper_targets_and_precise_argument_diagnostics
                     "struct Point {{ var x: i32 }} fn bad(name: String) {{ val point = Point {{ x: 1 }}; {expression}; }}"
                 ),
             ),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         ).expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().len(),
@@ -372,7 +406,7 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
                 "partial-index.kgr",
                 format!("fn bad(values: Vec<i32>) {{ {body} }} fn good() -> i32 {{ 42 }}"),
             ),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -414,7 +448,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                         "struct Box {{ var value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                     ),
                 ),
-                foundation_catalog::shared().unwrap(),
+                standard_modules(),
             ).expect("installed declaration analysis");
             assert_eq!(
                 analysis.diagnostics().is_empty(),
@@ -437,7 +471,7 @@ fn reflective_assignment_values_obey_normal_completion_without_hiding_target_err
                     "struct Box {{ val value: i32 }} fn run(box: Box, array: [i32]) -> i32 {{ {body}; 0 }}"
                 ),
             ),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         ).expect("installed declaration analysis");
         assert!(!analysis.diagnostics().is_empty(), "{body}");
         assert!(analysis.into_codegen().is_err());
@@ -458,7 +492,7 @@ fn reflection_receivers_must_produce_values_before_target_checks() {
         let source = format!("fn main() -> i32 {{ {call}; 0 }}");
         let analysis = crate::analyze_source(
             &SourceFile::new("reflection-receiver-completion.kgr", source.clone()),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert_eq!(

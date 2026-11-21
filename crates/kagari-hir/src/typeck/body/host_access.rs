@@ -3,7 +3,7 @@
 //! does not borrow host state or invoke the registered Rust implementation.
 
 use crate::{
-    builtin::BuiltinFunction,
+    builtin::{BuiltinFunction, projected_bound},
     hir::{
         expr::ExprKind,
         ids::{ExprId, PlaceId},
@@ -18,15 +18,20 @@ use crate::{
         table::{CallTarget, ResolvedHostPath, ResolvedHostPlacePath},
         ty::display_type_id,
     },
-    types::{TypeId, semantic::raise_type},
+    types::{
+        TypeId,
+        semantic::{lower_type, raise_type},
+    },
 };
 use kagari_common::{
     cancellation::Cancelled,
     identity::{DefinitionKind, table::DefinitionId},
 };
+
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     declaration::{FnDecl, host::PathAccess, logging, path::HostPathSegmentDeclaration},
+    language::binding::result_origin_carriers_valid,
     scalar::BuiltinType,
 };
 
@@ -71,6 +76,7 @@ impl<'a> BodyChecker<'a> {
         callee: ExprId,
         args: &[ExprId],
         env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
     ) -> Option<TypeId> {
         let ResolvedName::RuntimeHelper(builtin) = self.names.expr_resolution(callee)? else {
             return None;
@@ -78,14 +84,14 @@ impl<'a> BodyChecker<'a> {
         self.type_table
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
-            BuiltinFunction::TypeOf => 1,
+            BuiltinFunction::TypeOf | BuiltinFunction::RangeBound { .. } => 1,
             BuiltinFunction::Print => logging::declaration()
                 .expect("log contract initialized during declaration collection")
                 .records()
                 .functions[0]
                 .params
                 .len(),
-            BuiltinFunction::GetField => 2,
+            BuiltinFunction::GetField | BuiltinFunction::ForwardErrOrigin => 2,
             BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
         };
         if args.len() != arity {
@@ -94,6 +100,50 @@ impl<'a> BodyChecker<'a> {
             return Some(TypeId::Error);
         }
         match builtin {
+            BuiltinFunction::ForwardErrOrigin => {
+                let original = self.infer_expr_type(args[0], env);
+                let destination = self.infer_expr_with_coercion(args[1], env, expected);
+                let definitions = self.declarations.definitions();
+                if result_origin_carriers_valid(
+                    &lower_type(&original),
+                    &lower_type(&destination),
+                    definitions,
+                ) {
+                    Some(destination)
+                } else {
+                    let kind = DiagnosticKind::StandardConstraintNotSatisfied {
+                        type_name: destination.display_name(definitions),
+                        constraint: "Result origin transfer".into(),
+                        reason: "requires a canonical Result and a compatible Result residual"
+                            .into(),
+                    };
+                    self.diagnostics.push(
+                        Diagnostic::error(kind).with_span(
+                            self.lowered.module.expr(call_expr).origin.diagnostic_span(),
+                        ),
+                    );
+                    Some(TypeId::Error)
+                }
+            }
+            BuiltinFunction::RangeBound { .. } => {
+                let receiver = self.infer_expr_type(args[0], env);
+                let definitions = self.declarations.definitions();
+                Some(
+                    projected_bound(&receiver, expected, definitions).unwrap_or_else(|| {
+                        let kind = DiagnosticKind::StandardConstraintNotSatisfied {
+                            type_name: receiver.display_name(definitions),
+                            constraint: "range bound projection".into(),
+                            reason:
+                                "requires a builtin range and a known core::ops::Bound result type"
+                                    .into(),
+                        };
+                        self.diagnostics.push(Diagnostic::error(kind).with_span(
+                            self.lowered.module.expr(call_expr).origin.diagnostic_span(),
+                        ));
+                        TypeId::Error
+                    }),
+                )
+            }
             BuiltinFunction::TypeOf => {
                 let _ = self.infer_call_args(args, env);
                 Some(TypeId::Builtin(BuiltinType::String))

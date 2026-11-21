@@ -1,5 +1,6 @@
 //! Transparent aliases share runtime types while retaining source declaration identity.
 
+use crate::tests::standard::standard_modules;
 use crate::{
     analyze_source,
     declarations::DeclarationId,
@@ -21,7 +22,6 @@ use kagari_common::{
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::scalar::BuiltinType;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ fn type_alias_review_projection_predicates_survive_erasure() {
     ] {
         let result = analyze_source(
             &SourceFile::new("alias-predicates.kgr", format!("{declarations} {usage}")),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         if valid {
@@ -82,7 +82,7 @@ fn type_alias_review_obligation_expansion_is_bounded_before_substitution() {
     );
     let result = analyze_source(
         &SourceFile::new("alias-obligation-limit.kgr", text),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -103,7 +103,7 @@ fn type_alias_review_where_clause_owns_projection_context() {
         );
         let result = analyze_source(
             &SourceFile::new("alias-where.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(
@@ -151,7 +151,7 @@ fn type_alias_local_supertrait_forward_arguments_are_order_independent() {
                 "alias-local-parents.kgr",
                 format!("trait Parent<X> {{ type Item; }} trait Child: Parent<Arg> {{}} {aliases}"),
             ),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(
@@ -175,7 +175,7 @@ fn type_alias_composite_retention_is_bounded_across_siblings() {
                 "alias-composite-budget.kgr",
                 format!("type Big = {big}; type TooLarge = {target};"),
             ),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(result.diagnostics().iter().any(|diagnostic| matches!(
@@ -221,7 +221,7 @@ fn type_alias_review_associated_member_binders_supply_alias_bounds() {
         );
         let result = analyze_source(
             &SourceFile::new("alias-family.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(
@@ -248,7 +248,7 @@ fn type_alias_review_dependency_depth_is_declaration_order_independent() {
             };
             let result = analyze_source(
                 &SourceFile::new("alias-depth.kgr", text),
-                foundation_catalog::shared().unwrap(),
+                standard_modules(),
             )
             .unwrap();
             accepted.push(result.diagnostics().is_empty());
@@ -265,7 +265,7 @@ fn type_alias_review_final_size_does_not_count_replaced_placeholders() {
             "alias-final-size.kgr",
             format!("type Wide<T> = {wide}; fn pass(x: Wide<i32>) {{}}"),
         ),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -285,7 +285,7 @@ fn type_alias_review_final_size_does_not_sum_intermediate_expansions() {
                 "type Big = {big}; type Identity<T> = T; fn pass(x: Identity<Big>) -> Big {{ x }}"
             ),
         ),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -337,11 +337,7 @@ fn type_alias_rejects_native_only_attributes() {
 #[test]
 fn type_alias_transparency_substitution_and_nominal_construction() {
     let text = "type Number = Later; type Later = i32; struct Pair<A, B> { val first: A, val second: B } type Swapped<X, Y> = Pair<Y, X>; type Concrete = Swapped<bool, Number>; enum ResultBox<T> { Value(T) } type IntResult = ResultBox<Number>; type Values<T> = [T]; type Callback<T> = fn(T) -> T; fn identity<T>(value: Values<T>) -> [T] { value } fn make() -> Pair<i32, bool> { Concrete { first: 42, second: true } } fn generic() -> Pair<i32, bool> { Swapped<bool, i32> { first: 7, second: false } } fn variant() -> ResultBox<i32> { IntResult::Value(42) } fn apply(f: Callback<Number>, x: Number) -> i32 { f(x) }";
-    let result = analyze_source(
-        &SourceFile::new("aliases.kgr", text),
-        foundation_catalog::shared().unwrap(),
-    )
-    .unwrap();
+    let result = analyze_source(&SourceFile::new("aliases.kgr", text), standard_modules()).unwrap();
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -379,7 +375,7 @@ fn type_alias_member_paths_preserve_fixed_owner_arguments() {
     let valid = format!("{prefix} fn main() -> i32 {{ IntCell::make(42).value }}");
     let result = analyze_source(
         &SourceFile::new("alias-members.kgr", valid),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -390,7 +386,7 @@ fn type_alias_member_paths_preserve_fixed_owner_arguments() {
     let invalid = format!("{prefix} fn main() {{ IntCell::make(true); }}");
     let result = analyze_source(
         &SourceFile::new("alias-members.kgr", invalid),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -412,7 +408,7 @@ fn type_alias_patterns_preserve_fixed_owner_arguments() {
     );
     let result = analyze_source(
         &SourceFile::new("alias-patterns.kgr", valid),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -427,7 +423,7 @@ fn type_alias_patterns_preserve_fixed_owner_arguments() {
     ] {
         let result = analyze_source(
             &SourceFile::new("alias-patterns.kgr", format!("{prefix} {body}")),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(
@@ -450,7 +446,7 @@ fn type_alias_generic_constructors_preserve_owner_substitution_and_bounds() {
     );
     let result = analyze_source(
         &SourceFile::new("alias-constructors.kgr", valid),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -468,7 +464,7 @@ fn type_alias_generic_constructors_preserve_owner_substitution_and_bounds() {
         let text = format!("{prefix} fn bad() {{ {expression}; }}");
         let result = analyze_source(
             &SourceFile::new("alias-constructors.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(!result.diagnostics().is_empty(), "accepted {expression}");
@@ -477,7 +473,7 @@ fn type_alias_generic_constructors_preserve_owner_substitution_and_bounds() {
     let erased = "trait Marker {} struct Plain {} enum Unit { Value } type StructAlias<T: Marker> = Plain; type EnumAlias<T: Marker> = Unit; fn bad() { StructAlias<i32> {}; EnumAlias<i32>::Value; }";
     let result = analyze_source(
         &SourceFile::new("alias-constructors.kgr", erased),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert_eq!(
@@ -504,7 +500,7 @@ fn type_alias_expansion_limits_and_cancellation_do_not_expand_unbounded_targets(
     }
     let result = analyze_source(
         &SourceFile::new("alias-expansion.kgr", source),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(result.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidTypeAlias { reason, .. } if reason.contains("expansion"))), "{:?}", result.diagnostics());
@@ -536,7 +532,7 @@ fn type_alias_cycles_invalid_targets_and_bounds_are_checked_when_unused() {
     ] {
         let result = analyze_source(
             &SourceFile::new("invalid-alias.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(!result.diagnostics().is_empty(), "accepted {text}");
@@ -576,7 +572,7 @@ fn type_alias_visibility_cannot_publish_private_targets_or_import_private_aliase
     ] {
         let result = analyze_source(
             &SourceFile::new("private-alias.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(result.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidTypeAlias { reason, .. } if reason.contains("less visible"))), "{text}: {:?}", result.diagnostics());
@@ -610,7 +606,7 @@ fn type_alias_input_bounds_survive_erasure_and_declaration_contexts() {
     ] {
         let result = analyze_source(
             &SourceFile::new("alias-bounds.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(
@@ -626,7 +622,7 @@ fn type_alias_input_bounds_survive_erasure_and_declaration_contexts() {
     let text = "struct Box<T: Eq> { val value: T } type Checked<T: Eq> = Box<T>; type Erased<T> where T: Eq = i32; type Forward<T: Eq> = Erased<T>; fn good<T: Eq>(value: Checked<T>, erased: Forward<T>) -> Box<T> { val n: Erased<T> = erased; value }";
     let result = analyze_source(
         &SourceFile::new("valid-alias-bounds.kgr", text),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -642,7 +638,7 @@ fn type_alias_interface_values_are_not_trait_bound_aliases() {
         "trait Read { fn read(self) -> i32; } type Reader = Read; fn pass(x: Reader) -> Read { x }";
     let result = analyze_source(
         &SourceFile::new("alias-interface.kgr", valid),
-        foundation_catalog::shared().unwrap(),
+        standard_modules(),
     )
     .unwrap();
     assert!(
@@ -656,7 +652,7 @@ fn type_alias_interface_values_are_not_trait_bound_aliases() {
     ] {
         let result = analyze_source(
             &SourceFile::new("alias-interface.kgr", text),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert!(

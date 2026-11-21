@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     AnalysisResult, AnalyzedModule,
     analysis::eligibility::BodyEligibility,
@@ -21,11 +22,7 @@ use kagari_source::{
 };
 
 fn analyze(text: &str) -> AnalysisResult<AnalyzedModule> {
-    analyze_source(
-        &SourceFile::new("static.kgr", text),
-        kagari_stdlib::catalog::shared().unwrap(),
-    )
-    .unwrap()
+    analyze_source(&SourceFile::new("static.kgr", text), standard_modules()).unwrap()
 }
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {

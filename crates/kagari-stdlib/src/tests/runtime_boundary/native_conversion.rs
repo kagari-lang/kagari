@@ -1,3 +1,4 @@
+use crate::test_library;
 use crate::tests::runtime_boundary::support::compile_program;
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_common::identity::{
@@ -39,7 +40,7 @@ fn fixture() -> (Runtime, ExecutableModule) {
 }
 
 fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, ExecutableModule) {
-    let mut modules = crate::modules().unwrap();
+    let mut modules = test_library::modules().unwrap();
     modules.extend(extra);
     let program = compile_program(&modules, "conversion.kgr", source);
     let mut runtime = Runtime::new(RuntimeConfig {
@@ -626,9 +627,10 @@ impl FromKagari for Node {
 
 #[test]
 fn owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children() {
-    let catalog =
-        DeclarationCatalog::from_modules(&crate::modules().unwrap().iter().collect::<Vec<_>>())
-            .unwrap();
+    let catalog = DeclarationCatalog::from_modules(
+        &test_library::modules().unwrap().iter().collect::<Vec<_>>(),
+    )
+    .unwrap();
     let mut builder = ModuleBuilder::new("fixture::conversion", &catalog).unwrap();
     let mut node = builder.define_enum("Node").unwrap();
     let children = Type::array(node.self_type().unwrap()).unwrap();

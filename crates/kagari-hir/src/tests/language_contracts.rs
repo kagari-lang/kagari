@@ -1,15 +1,18 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     aggregates::AggregateCatalog,
     analysis::AnalysisDatabase,
     language::semantics::{ProtocolSemantics, intrinsic_holds},
     types::TypeId,
 };
+use crate::{native::adoption::adopt, tests::standard::verified_core};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId},
 };
+use kagari_contract::types::trait_contract;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::{catalog as language, identity as library};
+use kagari_stdlib::identity as library;
 use kagari_types::{
     language::Protocol,
     scalar::BuiltinType,
@@ -19,7 +22,7 @@ use kagari_types::{
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn portable_language_catalog_has_complete_contracts() {
-    let modules = language::declarations().unwrap();
+    let modules = standard_modules();
     for metadata in &modules {
         let module = metadata.records();
         let definitions = metadata.definitions();
@@ -106,7 +109,7 @@ fn portable_language_catalog_has_complete_contracts() {
     let generated = modules
         .iter()
         .map(|module| {
-            declaration_source(module, &foundation_catalog::shared().unwrap())
+            declaration_source(module, &standard_modules())
                 .unwrap()
                 .text
         })
@@ -132,7 +135,7 @@ fn explicitly_installed_language_records_are_available() {
         )
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared().unwrap());
+    analysis.set_native_modules(standard_modules());
     let snapshot = analysis
         .declarations(sources.snapshot(), &CancellationToken::default())
         .unwrap();
@@ -152,8 +155,7 @@ fn explicitly_installed_language_records_are_available() {
             ))
             .is_some()
     );
-    let array = language::declarations()
-        .unwrap()
+    let array = standard_modules()
         .into_iter()
         .flat_map(|module| module.into_parts().1.types)
         .find(|t| t.name == "Vec")
@@ -167,10 +169,20 @@ fn explicitly_installed_language_records_are_available() {
 
 #[test]
 fn portable_collection_view_preserves_concrete_iterator_proofs() {
-    let modules = language::declarations().unwrap();
-    let definitions = modules[0].definitions();
+    let context = DefinitionContext::new().unwrap();
+    let core = verified_core(&context);
+    let modules = adopt(&standard_modules(), &context, &Default::default()).unwrap();
+    let definitions = &context.snapshot();
     let lookup = |id: &DefinitionId| {
         let view = definitions.resolve(*id).ok()?;
+        if let Some(module) = core
+            .program()
+            .modules
+            .iter()
+            .find(|m| &m.identity == view.module())
+        {
+            return trait_contract(&module.identity, &module.public_items, &[], id, definitions);
+        }
         modules
             .iter()
             .find(|module| &module.records().identity == view.module())
@@ -231,7 +243,7 @@ fn diagnostics(text: &str) -> Vec<String> {
         .set("contracts.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(language::shared().unwrap());
+    analysis.set_native_modules(standard_modules());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &CancellationToken::default())
         .unwrap();

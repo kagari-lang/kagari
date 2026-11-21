@@ -17,7 +17,7 @@ use crate::{
     lower::{LoweredModule, lower_module_controlled},
     native::{
         api::preparation::PreparedRegistration,
-        paths::module_path,
+        paths::LibraryPaths,
         render::DeclarationSource,
         structured::{self, RegistrationMap},
     },
@@ -64,22 +64,21 @@ fn attach(
         let correspondence = correspondence::supplied(definition, definitions, &lowered)?;
         (lowered, correspondence)
     } else {
-        structured::lower(metadata, providers, prepared.source.clone(), cancel)?
+        structured::lower(
+            metadata,
+            providers,
+            &prepared.paths,
+            prepared.source.clone(),
+            cancel,
+        )?
     };
     if prepared.parsed().is_some() {
         for (name, target) in &definition.exports {
             let target = definitions
                 .resolve(*target)
                 .map_err(|error| DeclarationError(error.to_string()))?;
-            let mut segments = module_path(
-                target.module(),
-                providers.iter().map(|provider| provider.records()),
-            )
-            .split("::")
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-            segments.extend(target.segments().map(|part| part.name.to_owned()));
-            let mut matching = lowered.module.imports.iter_mut().filter(|import| import.segments == segments && matches!(&import.kind, ImportLeaf::Named { alias: Some(alias) } if alias == &name.name));
+            let path = prepared.paths.definition_path(target);
+            let mut matching = lowered.module.imports.iter_mut().filter(|import| import.segments.iter().map(String::as_str).eq(path.split("::")) && matches!(&import.kind, ImportLeaf::Named { alias: Some(alias) } if alias == &name.name));
             let import = matching
                 .next()
                 .ok_or_else(|| DeclarationError(format!("missing export {}", name.name)))?;
@@ -97,6 +96,16 @@ fn attach(
         &mut lowered,
     )?;
     attach_functions(definition, definitions, &correspondence, &mut lowered)?;
+    lowered.trait_references = definition
+        .trait_references
+        .iter()
+        .map(|(id, abi)| (*id, abi.clone()))
+        .collect();
+    lowered.trait_references.sort_by(|(left, _), (right, _)| {
+        definitions
+            .compare(*left, *right)
+            .expect("adopted trait identities")
+    });
     Ok(lowered)
 }
 
@@ -388,6 +397,7 @@ fn attach_contract(
 pub(crate) fn dependencies(
     metadata: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    paths: &LibraryPaths,
     lowered: &LoweredModule,
     cancel: &CancellationToken,
 ) -> Result<BTreeSet<ModuleIdentity>, DeclarationError> {
@@ -412,14 +422,7 @@ pub(crate) fn dependencies(
         .filter(|provider| provider.identity != definition.identity)
     {
         for ty in &provider.types {
-            let alias = format!(
-                "{}::{}",
-                module_path(
-                    &provider.identity,
-                    providers.iter().map(|provider| provider.records())
-                ),
-                ty.name
-            );
+            let alias = format!("{}::{}", paths.module_path(&provider.identity), ty.name);
             if !referenced.contains(alias.as_str()) {
                 continue;
             }

@@ -145,6 +145,7 @@ async function inputs(identity) {
     }
   }
   await visit(join(repositoryRoot, 'crates'), 'crates');
+  await visit(join(repositoryRoot, 'library'), 'library');
   for (const name of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml', '.cargo/config', '.cargo/config.toml', 'site/scripts/wasm-products.mjs']) {
     const bytes = await optionalFile(join(repositoryRoot, name));
     files[name] = bytes === null ? null : sha256(bytes);
@@ -173,7 +174,7 @@ async function readProducts() {
 const productHashes = (files) => Object.fromEntries([...files].map(([name, bytes]) => [name, { sha256: sha256(bytes), bytes: bytes.length }]));
 
 export function assertSourceFreeGraph(tree) {
-  const forbidden = /^(?:kagari-(?:source|syntax|hir|package|compiler|mir|codegen(?:-cranelift)?|analyzer|format|lint|cli)|cranelift(?:-.*)?|libloading)$/u;
+  const forbidden = /^(?:kagari-(?:core-source|source|syntax|hir|package|compiler|mir|codegen(?:-cranelift)?|analyzer|format|lint|cli)|cranelift(?:-.*)?|libloading)$/u;
   const names = tree.trim().split(/\r?\n/u).map((line) => line.trim().split(/\s/u)[0]);
   assert(names.includes('kagari-web') && names.includes('kagari-runtime'), 'Incomplete source-free cargo tree');
   assert.deepEqual(names.filter((name) => forbidden.test(name)), [], 'Source-free production graph contains frontend/native tooling');

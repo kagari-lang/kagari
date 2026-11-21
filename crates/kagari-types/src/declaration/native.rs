@@ -67,15 +67,8 @@ impl NativeTypeConstructor {
         if language_type(id, definitions, "kagari-alloc", "string", "String") {
             return Some(Self::String);
         }
-        for (name, kind) in [
-            ("Range", RangeKind::Exclusive),
-            ("RangeInclusive", RangeKind::Inclusive),
-            ("RangeFrom", RangeKind::From),
-            ("RangeTo", RangeKind::To),
-            ("RangeToInclusive", RangeKind::ToInclusive),
-            ("RangeFull", RangeKind::Full),
-        ] {
-            if language_type(id, definitions, "kagari-core", "ops", name) {
+        for kind in RangeKind::ALL {
+            if language_type(id, definitions, "kagari-core", "ops", kind.name()) {
                 return Some(Self::Range(kind));
             }
         }

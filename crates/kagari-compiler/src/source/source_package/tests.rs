@@ -1,5 +1,6 @@
 use super::*;
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
@@ -11,7 +12,9 @@ use kagari_common::{
 };
 use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
 use kagari_hir::{
-    analysis::AnalysisDatabase, hir::origin::NodeOrigin, native::render::declaration_source,
+    analysis::AnalysisDatabase,
+    hir::origin::NodeOrigin,
+    native::render::{declaration_source, declaration_source_with_external},
     program::CheckedProgram,
 };
 use kagari_source::{
@@ -26,10 +29,13 @@ use std::{slice, sync::Arc};
 /// Complete-source tests explicitly retain the Native declaration documents.
 /// Default structured registration deliberately has no authored source surface.
 fn supply_complete_native_source(analysis: &mut AnalysisDatabase) {
-    let modules = kagari_stdlib::catalog::shared().unwrap();
+    let modules = standard_modules();
     let sources = modules
         .iter()
-        .map(|module| declaration_source(module, &modules).unwrap())
+        .map(|module| {
+            declaration_source_with_external(module, &modules, analysis.inputs().library_modules())
+                .unwrap()
+        })
         .collect();
     analysis.set_native_sources(modules, sources).unwrap();
 }

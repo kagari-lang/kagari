@@ -4,7 +4,7 @@ use blake3::hash as content_hash;
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_hir::{
     analysis::AnalysisDatabase,
-    native::render::{DeclarationSource, declaration_source},
+    native::render::{DeclarationSource, declaration_source_with_external},
 };
 use kagari_source::source_database::{SourceSnapshot, normalize_source_name};
 use kagari_types::declaration::module::ModuleDecl;
@@ -32,9 +32,14 @@ pub(super) fn prepare(
         .iter()
         .map(|module| Arc::new(module.to_declaration()))
         .collect::<Vec<_>>();
+    let mut analysis =
+        AnalysisDatabase::new(source_root).map_err(|message| EmbeddingError::Source { message })?;
+    let inputs = analysis.inputs();
     let mut sources = providers
         .iter()
-        .map(|module| declaration_source(module, &providers))
+        .map(|module| {
+            declaration_source_with_external(module, &providers, inputs.library_modules())
+        })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| EmbeddingError::Source {
             message: error.to_string(),
@@ -46,8 +51,7 @@ pub(super) fn prepare(
             source.uri = source_name(&cache_path(root, &source.text)?)?;
         }
     }
-    let mut analysis =
-        AnalysisDatabase::new(source_root).map_err(|message| EmbeddingError::Source { message })?;
+
     if builder.declaration_cache.is_some() {
         analysis
             .set_native_sources(providers.clone(), sources.clone())

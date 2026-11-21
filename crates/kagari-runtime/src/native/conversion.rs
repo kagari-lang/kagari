@@ -34,7 +34,7 @@ pub trait KagariType {
     /// handles use its exact nominal scope instead of inventing an `Any` type.
     /// This never replaces validation of the converted value against that scope.
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        let ty = Self::kagari_type(&cx.runtime().native_entries.catalog)?;
+        let ty = Self::kagari_type(cx.owner().conversion_catalog())?;
         cx.check_declared_type(expected, ty)
     }
 }

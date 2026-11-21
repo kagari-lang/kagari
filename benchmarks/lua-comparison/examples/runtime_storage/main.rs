@@ -1,6 +1,5 @@
 //! Storage lifecycle accounting and field throughput, measured in separate builds.
 //! Run with --release; --features diagnostics selects allocation accounting only.
-use kagari_stdlib as stdlib;
 #[cfg(feature = "diagnostics")]
 mod memory;
 #[cfg(not(feature = "diagnostics"))]
@@ -15,6 +14,7 @@ use kagari::{
     program::Program,
 };
 use kagari_source::source::SourceFile;
+use kagari_stdlib::StandardLibrary;
 use std::{env, time::Instant};
 
 #[cfg(feature = "diagnostics")]
@@ -106,6 +106,14 @@ fn lifecycle(engine: &KagariEngine, program: &Program, context: &ExecutionContex
     }
 }
 
+fn standard_engine(config: EngineConfig) -> KagariEngine {
+    let mut builder = KagariEngine::builder().unwrap();
+    builder.config(config);
+    let standard = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(standard.modules().unwrap()).unwrap();
+    builder.build().unwrap()
+}
+
 fn main() {
     #[cfg(not(feature = "diagnostics"))]
     if env::args().nth(1).as_deref() == Some("--reload") {
@@ -120,7 +128,7 @@ fn main() {
     // Explicit collections separate live storage, reserved capacity and release.
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = None;
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine = standard_engine(config);
     let start = Instant::now();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("storage.kgr", SOURCE), Default::default())

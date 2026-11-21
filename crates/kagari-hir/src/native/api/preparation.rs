@@ -2,7 +2,10 @@
 use super::{attach, validate_view};
 use crate::{
     lower::LoweredModule,
-    native::render::{DeclarationSource, declaration_source},
+    native::{
+        paths::LibraryPaths,
+        render::{DeclarationSource, render_with_paths},
+    },
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_source::{
@@ -23,16 +26,39 @@ type AttachedRegistration = (Option<Parse>, Arc<LoweredModule>);
 pub(crate) struct PreparedRegistration {
     pub(super) metadata: Arc<DefinitionMetadata<ModuleDecl>>,
     pub(super) providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
+    pub(super) paths: Arc<LibraryPaths>,
     pub(super) source: Arc<SourceFile>,
     parsed: Option<Parse>,
 }
 
 impl PreparedRegistration {
-    /// Providers must already share the analysis scope produced by Native adoption.
-    /// Supplied navigation text is checked against registration, never used as authority.
+    #[cfg(test)]
     pub(crate) fn new(
         metadata: Arc<DefinitionMetadata<ModuleDecl>>,
         providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
+        supplied: Option<&DeclarationSource>,
+        source_root: &str,
+        limits: ParseLimits,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DeclarationError> {
+        let paths = Arc::new(LibraryPaths::new(&providers, &[]));
+        Self::prepare(
+            metadata,
+            providers,
+            paths,
+            supplied,
+            source_root,
+            limits,
+            cancel,
+        )
+    }
+
+    /// Providers must already share the analysis scope produced by Native adoption.
+    /// Supplied navigation text is checked against registration, never used as authority.
+    fn prepare(
+        metadata: Arc<DefinitionMetadata<ModuleDecl>>,
+        providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
+        paths: Arc<LibraryPaths>,
         supplied: Option<&DeclarationSource>,
         source_root: &str,
         limits: ParseLimits,
@@ -86,7 +112,7 @@ impl PreparedRegistration {
                     parsed.diagnostics().first()
                 )));
             }
-            let expected = declaration_source(&metadata, &providers)?;
+            let expected = render_with_paths(&metadata, &providers, &paths)?;
             validate_view(&expected, &parsed, definition, cancel)?;
             Some(parsed)
         } else {
@@ -96,6 +122,7 @@ impl PreparedRegistration {
         Ok(Self {
             metadata,
             providers,
+            paths,
             source,
             parsed,
         })
@@ -134,6 +161,7 @@ pub(crate) struct NativeFiles {
 impl NativeFiles {
     pub(crate) fn new(
         modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
+        paths: Arc<LibraryPaths>,
         sources: Option<&[DeclarationSource]>,
         source_root: &str,
         limits: ParseLimits,
@@ -149,9 +177,10 @@ impl NativeFiles {
             .iter()
             .enumerate()
             .map(|(index, module)| {
-                PreparedRegistration::new(
+                PreparedRegistration::prepare(
                     module.clone(),
                     providers.clone(),
+                    paths.clone(),
                     sources.map(|sources| &sources[index]),
                     source_root,
                     limits,

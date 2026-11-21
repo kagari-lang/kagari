@@ -1,12 +1,15 @@
 //! Static capability rejection, separate from successful execution fixtures.
+use crate::test_support::standard::standard_library;
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn char_does_not_acquire_numeric_or_traversal_capabilities() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "fn main()->char { 'a' + 'b' }",
         "fn main()->char { 'a' & 'b' }",
@@ -51,14 +54,16 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
         "use std::collections::{HashSet};\ntrait Hash {} fn f<T: Eq + Hash>(x:T)->HashSet<T> { HashSet::new() } fn main() {}",
         "fn f<T: HashKey>(x:T) {} fn main() {}",
     ] {
-        let error =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(
-                    SourceFile::new("bad-traits.kgr", source),
-                    Default::default(),
-                )
-                .unwrap_err();
+        let error = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap()
+        .compile_to_artifact(
+            SourceFile::new("bad-traits.kgr", source),
+            Default::default(),
+        )
+        .unwrap_err();
         assert!(
             matches!(error, EmbeddingError::Diagnostics { .. }),
             "{source}: {error:?}"
@@ -71,12 +76,15 @@ fn identity_operators_reject_value_types() {
     for expression in ["true !== false", "\"a\" === \"a\"", "Some(1) === Some(1)"] {
         let source = format!("fn main()->bool {{ {expression} }}");
         assert!(matches!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(
-                    SourceFile::new("bad-identity.kgr", source),
-                    Default::default()
-                ),
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new("bad-identity.kgr", source),
+                Default::default()
+            ),
             Err(EmbeddingError::Diagnostics { .. })
         ));
     }
@@ -96,12 +104,12 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
         );
         assert!(
             matches!(
-                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                    .unwrap()
-                    .compile_to_artifact(
-                        SourceFile::new("bad-key.kgr", source),
-                        Default::default()
-                    ),
+                KagariEngine::with_native_modules(
+                    Default::default(),
+                    standard_library().modules().unwrap()
+                )
+                .unwrap()
+                .compile_to_artifact(SourceFile::new("bad-key.kgr", source), Default::default()),
                 Err(EmbeddingError::Diagnostics { .. })
             ),
             "{tail}"
@@ -111,8 +119,11 @@ fn comparison_only_types_do_not_inherit_identity_hashing() {
 
 #[test]
 fn equality_requires_an_explicit_or_conditional_static_implementation() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "struct Item {} fn main() -> bool { val a = Item {}; a == a }",
         "enum Item { One } fn main() -> bool { Item::One == Item::One }",

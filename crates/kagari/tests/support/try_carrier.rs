@@ -10,13 +10,12 @@ use kagari_runtime::{
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::language::Protocol;
 
-pub fn module() -> NativeResult<NativeModule> {
-    let standard = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("external::try_carrier", &standard.catalog()?)?;
-    let option = StandardDeclarations::enumeration("Option")?;
+pub fn module(standard: &StandardDeclarations) -> NativeResult<NativeModule> {
+    let mut module = ModuleBuilder::new("external::try_carrier", standard.catalog())?;
+    let option = standard.enumeration("Option")?;
     let none = option.variant("None")?;
-    let residual = option.apply([StandardDeclarations::enumeration("Infallible")?.apply([])?])?;
-    let flow = StandardDeclarations::enumeration("ControlFlow")?;
+    let residual = option.apply([standard.enumeration("Infallible")?.apply([])?])?;
+    let flow = standard.enumeration("ControlFlow")?;
     let continued = flow.variant("Continue")?;
     let stopped = flow.variant("Break")?;
     let mut carrier = module.define_enum("Carrier")?;

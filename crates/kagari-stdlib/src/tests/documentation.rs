@@ -1,4 +1,4 @@
-use crate::catalog;
+use crate::test_library;
 use kagari_common::identity::DefinitionKind;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
@@ -7,7 +7,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 #[test]
 fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
-    let providers = catalog::shared().unwrap();
+    let providers = test_library::standard().declarations().to_vec();
     let mut examples = BTreeSet::new();
     let mut traits = 0;
     for provider in &providers {
@@ -38,7 +38,10 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             for method in &implementation.methods {
                 let id = ModuleDecl::method_id(owner, &method.name, definitions).unwrap();
                 assert!(
-                    !module.documentation[&id].is_empty(),
+                    module
+                        .documentation
+                        .get(&id)
+                        .is_some_and(|text| !text.is_empty()),
                     "{}::{}",
                     module.identity,
                     method.name
@@ -70,7 +73,7 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             }
         }
     }
-    assert_eq!(traits, 41);
+    assert_eq!(traits, 15); // The other 26 traits carry documentation in authored core.
     let mut baseline = AnalysisDatabase::default();
     baseline.set_native_modules(providers);
     let native = baseline

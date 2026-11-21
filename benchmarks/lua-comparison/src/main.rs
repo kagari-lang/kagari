@@ -1,6 +1,5 @@
 //! Matched Lua/Kagari execution with setup separated and every checksum verified.
 use kagari::program::native::NativeCompiler;
-use kagari_stdlib as stdlib;
 #[cfg(feature = "diagnostics")]
 mod diagnostic_forms;
 #[cfg(feature = "diagnostics")]
@@ -15,7 +14,7 @@ use std::{env, hint::black_box, time::Instant};
 
 use kagari::{
     context::{ExecutionContext, JitPolicy},
-    engine::KagariEngine,
+    engine::{KagariEngine, builder::KagariEngineBuilder},
     program::Compilation,
     runtime::Runtime,
 };
@@ -23,6 +22,7 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::execution::{JitExecutionStatus, native::PreparedNativeEntry};
 use kagari_runtime::module::{InstalledProgram, entry::ProgramEntry};
 use kagari_source::source::SourceFile;
+use kagari_stdlib::StandardLibrary;
 use mlua::{Function, Lua};
 use workloads::{WORKLOADS, Workload};
 
@@ -252,7 +252,7 @@ fn run(workload: &Workload, options: &Options) {
         sample: 0,
     };
     let engine = record.setup("engine_init", "kagari_vm", || {
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap()
+        standard_builder().build().unwrap()
     });
     let source = SourceFile::new(
         format!("benchmark_{}.kgr", workload.name),
@@ -339,6 +339,13 @@ fn run(workload: &Workload, options: &Options) {
         native,
     }
     .measure(workload, options);
+}
+
+fn standard_builder() -> KagariEngineBuilder {
+    let mut builder = KagariEngine::builder().unwrap();
+    let standard = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(standard.modules().unwrap()).unwrap();
+    builder
 }
 
 fn main() {

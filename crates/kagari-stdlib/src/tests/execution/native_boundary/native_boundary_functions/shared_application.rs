@@ -1,5 +1,6 @@
 //! A portable producer may emit a closed use of a shared native template. Keep
 //! this source-free binding path covered independently of source specialization.
+use crate::test_library;
 use crate::tests::execution::native_boundary::{
     compile_program,
     native_boundary_interfaces::generic_identity_module,
@@ -117,7 +118,7 @@ fn source_free_closed_shared_application_retains_and_releases_its_environment() 
         DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
     );
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let owner = load_bytecode(&mut runtime, "shared-application", decoded).unwrap();
     let _owner_program = owner;

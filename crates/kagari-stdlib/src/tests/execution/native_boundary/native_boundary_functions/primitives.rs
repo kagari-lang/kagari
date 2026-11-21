@@ -1,8 +1,6 @@
 //! Primitive authority follows the installed implementation across shared portable code.
-use crate::{
-    declarations::StandardDeclarations,
-    tests::execution::native_boundary::{compile_program, support::round_trip_program},
-};
+use crate::test_library;
+use crate::tests::execution::native_boundary::{compile_program, support::round_trip_program};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     execution::memory::GcHeapConfig,
@@ -28,12 +26,12 @@ use std::sync::{
 
 #[test]
 fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let catalog = test_library::standard().catalog();
     let string = Type::scalar(BuiltinType::String);
     let primitive = || NativeBinding::primitive(NativePrimitive::StringByteLength);
     // String and u64 are semantic types, not merely pointer/integer layouts.
     for (argument, result) in [(Type::i32(), Type::u64()), (string.clone(), Type::i64())] {
-        let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
+        let mut builder = ModuleBuilder::new("example::primitives", catalog).unwrap();
         let function = builder
             .define_function(
                 FunctionDecl::new("count")
@@ -56,7 +54,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     );
     let mut modules = Vec::new();
     for binding in [primitive(), callback] {
-        let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
+        let mut builder = ModuleBuilder::new("example::primitives", catalog).unwrap();
         let function = builder
             .define_function(
                 FunctionDecl::new("count")
@@ -90,7 +88,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             },
             ..Default::default()
         });
-        NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
         module.install(&mut runtime).unwrap();
         let owner = runtime
             .load_verified_program("primitives", verified.clone())

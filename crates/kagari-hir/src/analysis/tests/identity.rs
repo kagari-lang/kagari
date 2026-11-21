@@ -1,4 +1,5 @@
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::{collections::HashSet, declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
     identity::{DefinitionKind, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, PackageId},
@@ -8,7 +9,6 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{declaration::names::NameNamespace, language::binding};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -29,7 +29,7 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         );
     }
     assert!(
-        crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis")
             .into_codegen()
             .is_ok()
@@ -40,8 +40,8 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         SourceFile::new("child.kgr", "").id(),
         Span::new(0, text.len()),
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let analyzed =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(analyzed.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
         DiagnosticKind::CompileLimitExceeded {
@@ -72,8 +72,8 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     sources.set("source.kgr", "use core::option::Option as Maybe; fn identity(value: Maybe<i32>) -> Maybe<i32> { value }".into(), SourceLayer::Overlay).unwrap();
     let files = sources.snapshot();
     let source = files.file(id).unwrap();
-    let result = crate::analyze_source(source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let result =
+        crate::analyze_source(source, standard_modules()).expect("installed declaration analysis");
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -161,8 +161,8 @@ fn semantic_diagnostic_budget_invalidates_cached_results_without_changing_old_sn
 fn declaration_paths_distinguish_kinds_duplicates_and_method_owners() {
     let text = "struct Same { val n: i32 } fn Same() -> i32 { 1 } fn Same() -> i32 { 2 } trait A { fn get(self) -> i32; } trait B { fn get(self) -> i32; } impl A for Same { fn get(self) -> i32 { self.n } }";
     let source = SourceFile::new("definitions.kgr", text);
-    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let result =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(!result.diagnostics().is_empty());
     let facts = result.facts();
     let declarations = facts

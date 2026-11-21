@@ -1,8 +1,9 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{AnalysisSnapshot, eligibility::BodyEligibility},
     declarations::DeclarationId,
-    native::render::declaration_source,
+    native::render::declaration_source_with_external,
     resolver::resolved::ResolvedName,
     tests::test_analysis,
 };
@@ -11,7 +12,6 @@ use kagari_source::{
     diagnostic::{DiagnosticKind, Severity},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_syntax::parser;
 use kagari_types::declaration::names::NameNamespace;
 
@@ -30,7 +30,10 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     let modules = db.native_modules.clone();
     let views = modules
         .iter()
-        .map(|module| declaration_source(module, &modules).unwrap())
+        .map(|module| {
+            declaration_source_with_external(module, &modules, db.inputs().library_modules())
+                .unwrap()
+        })
         .collect();
     db.set_native_sources(modules, views).unwrap();
     let first = query(&mut db, &sources);
@@ -200,7 +203,10 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     let modules = db.native_modules.clone();
     let views = modules
         .iter()
-        .map(|module| declaration_source(module, &modules).unwrap())
+        .map(|module| {
+            declaration_source_with_external(module, &modules, db.inputs().library_modules())
+                .unwrap()
+        })
         .collect();
     db.set_native_sources(modules, views).unwrap();
     db.set_parse_limits(parser::ParseLimits {
@@ -218,7 +224,10 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     assert!(modules.len() > 1);
     let mut views = modules
         .iter()
-        .map(|module| declaration_source(module, &modules).unwrap())
+        .map(|module| {
+            declaration_source_with_external(module, &modules, db.inputs().library_modules())
+                .unwrap()
+        })
         .collect::<Vec<_>>();
     // Fail the last source after earlier providers have prepared successfully.
     views
@@ -237,7 +246,10 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
     assert!(db.declaration_cache.is_none());
     db.set_native_modules(modules);
     let complete = query(&mut db, &sources);
-    assert_eq!(complete.files.len(), db.native_files.get().unwrap().len());
+    assert_eq!(
+        complete.files.len(),
+        db.native_files.get().unwrap().len() + db.inputs().core_modules().len()
+    );
 }
 
 #[test]
@@ -608,6 +620,12 @@ fn declaration_records_outlive_queries_without_owning_the_lowering() {
     let query_handle = Arc::downgrade(file);
     let graph_handle = Arc::downgrade(&lowered);
     let fork = db.clone();
+    // Reuse requires the reachable namespace graph, not just the local arena.
+    let library_graphs: Vec<_> = first
+        .files()
+        .filter(|other| other.source().id() != id)
+        .map(|other| other.declared.lowered.clone())
+        .collect();
     drop(first);
     assert!(query_handle.upgrade().is_none());
     assert!(graph_handle.upgrade().is_some());
@@ -623,6 +641,7 @@ fn declaration_records_outlive_queries_without_owning_the_lowering() {
     assert!(Arc::ptr_eq(&lowered, &file.declared.lowered));
     assert_eq!(second.declaration(&declaration.id), Some(&declaration));
     drop(second);
+    drop(library_graphs);
     drop(lowered);
     assert!(graph_handle.upgrade().is_none());
     assert!(
@@ -658,7 +677,9 @@ fn default_analysis_has_no_implicit_native_catalog() {
     let mut database = AnalysisDatabase::default();
     let root = sources.snapshot().files().next().unwrap().id();
     let declarations = query(&mut database, &sources);
-    assert_eq!(declarations.files().count(), 1);
+    let source_files = 1 + database.inputs().core_modules().len();
+    assert_eq!(declarations.files().count(), source_files);
+    assert!(declarations.native_modules().is_empty());
     let analyzed = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -670,7 +691,7 @@ fn default_analysis_has_no_implicit_native_catalog() {
             .diagnostics()
             .is_empty()
     );
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     let installed = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -682,5 +703,5 @@ fn default_analysis_has_no_implicit_native_catalog() {
             .diagnostics()
             .is_empty()
     );
-    assert_eq!(declarations.files().count(), 1);
+    assert_eq!(declarations.files().count(), source_files);
 }

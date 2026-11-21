@@ -1,4 +1,5 @@
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 #[cfg(feature = "native")]
@@ -12,7 +13,6 @@ use kagari_runtime::{
     native::conversion::context::ConversionContext,
     session::{ExecutionEvent, ExecutionObserver},
 };
-use kagari_stdlib as stdlib;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -187,8 +187,11 @@ fn prepare_source(engine: &KagariEngine, native: NativeInputExport, source: &str
 #[test]
 fn disabled_installation_validates_before_choosing_local_fallback() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
@@ -281,8 +284,11 @@ impl ExecutionObserver for Observer {
 #[test]
 fn execution_policy_preserves_cancellation_observers_and_native_failures() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let enabled = context();
     let mut runtime = engine.runtime(enabled.clone());
@@ -385,8 +391,11 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
 
     send_sync::<NativeCode>();
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare_source(
         &engine,
         NativeInputExport::PortableMir,
@@ -467,8 +476,11 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
 #[test]
 fn rejects_equal_but_distinct_versions_at_native_installation() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let first = prepare(&engine, NativeInputExport::PortableMir);
     let second = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
@@ -494,8 +506,11 @@ fn rejects_equal_but_distinct_versions_at_native_installation() {
 #[test]
 fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let context = context();
     let mut runtime = engine.runtime(context.clone());
     let bytecode = prepare(&engine, NativeInputExport::BytecodeOnly);
@@ -565,8 +580,11 @@ fn missing_input_and_unsupported_functions_fall_back_but_compiler_errors_do_not(
 #[test]
 fn cancellation_discards_compilation_results_and_can_be_retried() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
     let loaded = runtime
@@ -600,8 +618,11 @@ fn cancellation_discards_compilation_results_and_can_be_retried() {
 
 #[test]
 fn mismatched_artifact_native_input_is_rejected_before_loading() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("a", "fn main() {}"), Default::default())
         .unwrap();
@@ -638,8 +659,11 @@ fn mismatched_artifact_native_input_is_rejected_before_loading() {
 #[test]
 fn bounded_cache_keeps_existing_entries_usable_after_capacity_is_reached() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(context());
     let loaded = runtime
@@ -691,8 +715,11 @@ fn bounded_cache_keeps_existing_entries_usable_after_capacity_is_reached() {
 #[test]
 fn pre_cancelled_requests_do_not_compile() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let program = prepare(&engine, NativeInputExport::PortableMir);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime
@@ -714,8 +741,11 @@ fn pre_cancelled_requests_do_not_compile() {
 #[test]
 fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
     let mut compiler = NativeCompiler::default();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let old_program = prepare(&engine, NativeInputExport::PortableMir);
     let candidate = prepare(&engine, NativeInputExport::PortableMir);
     let context = context();

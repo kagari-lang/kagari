@@ -5,6 +5,7 @@ use crate::source::{
     program::{lower_program_to_mir, scheduler::Scheduler, update_requests::RequestQueue},
 };
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::updates::DemandRequests;
 use kagari_hir::{analysis::AnalysisDatabase, program::CheckedProgram};
@@ -13,7 +14,6 @@ use kagari_source::{
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -73,7 +73,7 @@ fn shared_tuple_bridge() -> CheckedProgram {
         "#,
     );
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(catalog::shared().unwrap());
+    analysis.set_native_modules(standard_modules());
     analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

@@ -1,6 +1,6 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
@@ -17,13 +17,16 @@ fn invalid_iterator_outputs_and_overrides_are_diagnostics() {
         "fn main(){[1].for_each(|x|x);}",
     ] {
         assert!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(
-                    SourceFile::new("invalid-iterator.kgr", source),
-                    Default::default()
-                )
-                .is_err(),
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new("invalid-iterator.kgr", source),
+                Default::default()
+            )
+            .is_err(),
             "{source}"
         );
     }
@@ -36,13 +39,16 @@ fn removed_iterator_apis_are_rejected() {
         "fn consume<I:IntoIterator>(values:I){}",
     ] {
         assert!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(
-                    SourceFile::new("removed-iterator-api.kgr", source),
-                    Default::default(),
-                )
-                .is_err(),
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .compile_to_artifact(
+                SourceFile::new("removed-iterator-api.kgr", source),
+                Default::default(),
+            )
+            .is_err(),
             "{source}"
         );
     }

@@ -2,6 +2,7 @@
 //! invalidation tests should build their own engine instead of using this helper.
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -11,7 +12,6 @@ use crate::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
 use std::sync::{Mutex, OnceLock};
 
 pub fn engine(config: EngineConfig) -> KagariEngine {
@@ -21,8 +21,11 @@ pub fn engine(config: EngineConfig) -> KagariEngine {
     BASELINE
         .get_or_init(|| {
             Mutex::new(
-                KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                    .unwrap(),
+                KagariEngine::with_native_modules(
+                    Default::default(),
+                    standard_library().modules().unwrap(),
+                )
+                .unwrap(),
             )
         })
         .lock()

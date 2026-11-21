@@ -1,6 +1,7 @@
 use super::*;
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{context::JitPolicy, program::Compilation};
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
@@ -11,16 +12,21 @@ use kagari_runtime::{
     value::{carriers::RootedValue, kind::ObjectKind},
 };
 use kagari_source::diagnostic::DiagnosticKind;
-use kagari_stdlib as stdlib;
-use kagari_types::declaration::{TraitDef, host::PathAccess};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{TraitDef, host::PathAccess},
+};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
     let uri = "mem://anonymous-trait.kgr";
     let source = "trait Marker {} pub trait Visible {} fn main() {}";
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let author = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let file = author
         .set_source(uri, source.into(), SourceLayer::Base)
         .unwrap();
@@ -48,13 +54,8 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
         &Default::default(),
     )
     .unwrap();
-    let mut builder = ModuleBuilder::new(
-        "native_scope",
-        &kagari_stdlib::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("native_scope", standard_library().declarations().catalog()).unwrap();
     let marker = builder.reference_trait(&path, expected).unwrap();
     let mut counter = builder.define_type("Counter").unwrap();
     counter
@@ -72,7 +73,8 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])
@@ -123,8 +125,11 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         }],
     };
     // Obtain the exact portable expectation from the trait's checked source ABI.
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let author = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let file = author
         .bind_module("mem://readable", module_identity.clone())
         .unwrap();
@@ -157,11 +162,9 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         &Default::default(),
     )
     .unwrap();
-    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
+    let catalog = standard_library().declarations().catalog();
     let build_module = |definition: DefinitionMetadata<TraitDef>, inspect_authoring| {
-        let mut builder = ModuleBuilder::new("demo::counter", &catalog).unwrap();
+        let mut builder = ModuleBuilder::new("demo::counter", catalog).unwrap();
         if inspect_authoring {
             let mut native_contract = definition.records().clone();
             let trait_id = definition.definitions().lookup(&trait_path).unwrap();
@@ -169,8 +172,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
                 .definitions()
                 .lookup_child(trait_id, DefinitionKind::Method, "get", 0)
                 .unwrap();
-            native_contract.methods[0].implementation =
-                kagari_types::callable::CallableImplementation::Native(method_id);
+            native_contract.methods[0].implementation = CallableImplementation::Native(method_id);
             assert!(
                 builder
                     .reference_trait(
@@ -276,7 +278,8 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     assert!(module.declaration().traits.is_empty());
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module])
@@ -436,7 +439,8 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     .unwrap();
     let changed_engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![build_module(definition, false)])
@@ -483,9 +487,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
 
 #[test]
 fn host_trait_table_is_checked_against_script_trait_signatures() {
-    use kagari_runtime::native::{
-        builder::ModuleBuilder, catalog::DeclarationCatalog, types::Type,
-    };
+    use kagari_runtime::native::{adapter::NativeAdapter, builder::ModuleBuilder, types::Type};
     use kagari_types::{
         declaration::host::{HostCallPolicy, HostReflectionPolicy, HostTypePolicy},
         scalar::BuiltinType,
@@ -505,8 +507,11 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             occurrence: 0,
         }],
     };
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let author = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let file = author
         .bind_module("mem://host-trait-contract", identity.clone())
         .unwrap();
@@ -532,10 +537,10 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     let expected =
         DefinitionMetadata::checked(artifact.definitions().clone(), abi, &Default::default())
             .unwrap();
-    let standard = kagari_stdlib::declarations::StandardDeclarations::default();
-    let providers = standard.catalog().unwrap();
+    let standard = standard_library().declarations();
+    let providers = standard.catalog();
     let build_module = |ty: Type| {
-        let mut builder = ModuleBuilder::new("demo", &providers).unwrap();
+        let mut builder = ModuleBuilder::new("demo", providers).unwrap();
         let readable = builder
             .reference_trait(&trait_path, expected.clone())
             .unwrap();
@@ -586,6 +591,19 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     };
     let module = build_module(Type::i32());
     let declaration = module.to_declaration();
+    // Keep the real binding and verified core evidence fixed; vary only the candidate ABI.
+    let [entry] = declaration
+        .records()
+        .native_declarations(declaration.definitions())
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let CallableImplementation::Native(id) = entry.function.implementation else {
+        unreachable!()
+    };
+    let binding = host::callback(|_, args| Ok(args[1]))
+        .prepare(&entry.function, providers)
+        .unwrap();
     let validate = |candidate| {
         let candidate = DefinitionMetadata::checked(
             declaration.definitions().clone(),
@@ -593,16 +611,10 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             &Default::default(),
         )
         .unwrap();
-        DeclarationCatalog::from_declarations(
-            standard
-                .declarations()
-                .unwrap()
-                .iter()
-                .map(AsRef::as_ref)
-                .chain([&candidate]),
-        )
+        ModuleBuilder::from_declaration(candidate, providers, [(id, binding.clone())].into())?
+            .finish()
     };
-    assert!(validate(declaration.records().clone()).is_ok());
+    validate(declaration.records().clone()).unwrap();
     let mut wrong_result = declaration.records().clone();
     wrong_result.implementations[0].methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(
@@ -644,7 +656,8 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     let install = |module| {
         let engine = KagariEngine::with_native_modules(
             Default::default(),
-            stdlib::modules()
+            standard_library()
+                .modules()
                 .unwrap()
                 .into_iter()
                 .chain(vec![module])
@@ -724,8 +737,11 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             occurrence: 0,
         }],
     };
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let author = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let file = author
         .bind_module("mem://host-trait-bound", identity.clone())
         .unwrap();
@@ -757,13 +773,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
             .unwrap();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let build_module = |implemented| {
-        let mut builder = ModuleBuilder::new(
-            "demo",
-            &kagari_stdlib::declarations::StandardDeclarations::default()
-                .catalog()
-                .unwrap(),
-        )
-        .unwrap();
+        let mut builder =
+            ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
         let readable = builder
             .reference_trait(&trait_path, expected.clone())
             .unwrap();
@@ -841,7 +852,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     let module = build_module(true);
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module])
@@ -949,7 +961,8 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     assert!(format!("{error:?}").contains("overlap"), "{error:?}");
     let unimplemented = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![build_module(false)])

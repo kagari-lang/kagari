@@ -1,4 +1,5 @@
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
@@ -15,7 +16,6 @@ use kagari_mir::{
     program as mir_program,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn script_target(target: CallableTarget) -> FunctionRef {
@@ -656,6 +656,6 @@ fn private_interface_tables_must_match_their_trait_contract() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     database
 }

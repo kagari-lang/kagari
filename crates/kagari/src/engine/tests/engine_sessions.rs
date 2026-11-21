@@ -27,7 +27,12 @@ fn constructors_do_not_install_implicit_library_providers() {
         assert!(engine.native_declaration_sources().is_empty());
         let artifact = engine
             .compile_to_artifact(
-                SourceFile::new("memory://core.kgr", "fn main() -> i32 { 42 }"),
+                SourceFile::new(
+                    "memory://point.kgr",
+                    include_str!(
+                        "../../../tests/fixtures/embedding/installation/authored-point.kgr"
+                    ),
+                ),
                 Default::default(),
             )
             .unwrap();
@@ -39,7 +44,7 @@ fn constructors_do_not_install_implicit_library_providers() {
         let result = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap();
-        assert_eq!(result.return_value.as_i32().unwrap(), 42);
+        assert_eq!(result.return_value.as_bool(), Some(true));
     }
 }
 
@@ -85,10 +90,20 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
     let declarations = first
         .declarations(Default::default(), &Default::default())
         .unwrap();
-    let registered = declarations.files().collect::<Vec<_>>();
+    let (registered, authored): (Vec<_>, Vec<_>) = declarations
+        .files()
+        .partition(|file| file.syntax().is_none());
     assert_eq!(registered.len(), 1);
-    assert!(registered[0].syntax().is_none());
     assert!(registered[0].lowered().source_surface().is_none());
+    let inputs = first.analysis.borrow().inputs();
+    assert_eq!(authored.len(), inputs.core_modules().len());
+    for core in inputs.core_modules() {
+        assert!(
+            authored
+                .iter()
+                .any(|file| file.source().id() == core.source.id())
+        );
+    }
     assert!(first.analysis.borrow().inputs().native_sources().is_none());
     for (engine, answer) in [(&first, 42), (&second, 99)] {
         let session = engine.new_session(Default::default());

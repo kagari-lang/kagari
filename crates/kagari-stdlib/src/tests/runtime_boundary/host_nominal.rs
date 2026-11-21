@@ -1,7 +1,8 @@
 //! Nominal host identity and path validation retain one shared declaration owner.
+use crate::test_library;
 use crate::tests::{runtime_boundary::support::compile_program, support::bytecode::load_bytecode};
+use kagari_hir::analysis::AnalysisDatabase;
 
-use crate::declarations::StandardDeclarations;
 use crate::tests::support::native::{invoke::invoke, program::free_function_program};
 use kagari_bytecode::{
     artifact::KbcArtifact,
@@ -11,7 +12,7 @@ use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -261,8 +262,8 @@ fn declaration_conflicts_and_invalid_identities_do_not_partially_register_metada
 #[test]
 fn nested_signature_types_must_be_bound_before_program_publication() {
     let (owner, player) = object_module("game", vec![]);
-    let standard = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("host", &standard.catalog().unwrap())
+    let standard = test_library::standard();
+    let mut module = ModuleBuilder::new("host", standard.catalog())
         .unwrap()
         .with_modules(&[&owner])
         .unwrap();
@@ -277,7 +278,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         )
         .unwrap();
     let module = module.finish().unwrap();
-    let mut declarations = standard.declarations().unwrap().to_vec();
+    let mut declarations = standard.declarations().to_vec();
     declarations.extend([
         Arc::new(owner.to_declaration()),
         Arc::new(module.to_declaration()),
@@ -320,7 +321,7 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     let program =
         DefinitionMetadata::checked(definitions, decoded.program, &Default::default()).unwrap();
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
     assert!(load_bytecode(&mut runtime, "nominal", program.clone()).is_err());
     assert_eq!(runtime.modules().loaded_count(), 0);

@@ -1,26 +1,28 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::{catalog, identity as library, namespaces};
+use kagari_stdlib::{identity as library, namespaces};
 use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding() {
-    let artifact =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-            .unwrap()
-            .compile_to_artifact(
-                SourceFile::new(
-                    "fast-ops.kgr",
-                    r#"
+    let artifact = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap()
+    .compile_to_artifact(
+        SourceFile::new(
+            "fast-ops.kgr",
+            r#"
 fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
 "#,
-                ),
-                Default::default(),
-            )
-            .unwrap();
+        ),
+        Default::default(),
+    )
+    .unwrap();
     let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     let main = module
         .functions
@@ -39,7 +41,7 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
     let CallTarget::Native(index) = calls[0] else {
         panic!("native Index binding")
     };
-    let providers = catalog::declarations().unwrap();
+    let providers = standard_library().declarations().declarations();
     let provider = providers
         .iter()
         .find(|provider| provider.records().identity == namespaces::module("core", "array"))

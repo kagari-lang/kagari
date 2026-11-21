@@ -102,8 +102,14 @@ async function browserCase(test) {
   await module.default();
   const initializationMs = performance.now() - initializedAt;
   equal(typeof module.BrowserSession.prototype.compile, test.mode === 'source' ? 'function' : 'undefined', 'feature surface');
+  const artifactBytes = async () => {
+    const result = await fetch('/kagari/wasm/browser-basic.kbc');
+    check(result.ok, `Fixture HTTP ${result.status}`);
+    return new Uint8Array(await result.arrayBuffer());
+  };
   step('construct BrowserSession');
-  const session = new module.BrowserSession();
+  // This fixture is a trusted build product, not bytes chosen by a loaded application.
+  const session = test.mode === 'source' ? new module.BrowserSession() : new module.BrowserSession(await artifactBytes());
   const timings = { initializationMs, compilationMs: [], executionMs: [] };
   function compile(source) {
     step('compile');
@@ -138,11 +144,6 @@ async function browserCase(test) {
     }
     throw new Error('Finite case exceeded 500 drive slices');
   }
-  const artifactBytes = async () => {
-    const result = await fetch('/kagari/wasm/browser-basic.kbc');
-    check(result.ok, `Fixture HTTP ${result.status}`);
-    return new Uint8Array(await result.arrayBuffer());
-  };
   let evidence = {};
   if (test.kind === 'execute' || test.kind === 'trap') {
     compile(test.source);

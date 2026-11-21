@@ -1,11 +1,12 @@
 use super::fixture;
 use super::{compile_without_foundation, fixture_without_foundation};
+use crate::test_library;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
     interfaces::Interface, objects::Object, typed::NativeContext,
 };
 
-use crate::{declarations::StandardDeclarations, tests::support::bytecode::reload_bytecode};
+use crate::tests::support::bytecode::reload_bytecode;
 use kagari_common::cancellation::CancellationToken;
 
 use std::sync::{
@@ -90,10 +91,7 @@ fn interface_method_results_use_existing_native_and_inherited_adapters() {
     let list: Interface = vm
         .execute_typed(&_owner_program, "make", (), &Default::default())
         .unwrap();
-    let registered = StandardDeclarations::default()
-        .list()
-        .method("len")
-        .unwrap();
+    let registered = test_library::standard().list().method("len").unwrap();
     let direct = vm
         .interface_member_declaration(
             &owner,
@@ -192,7 +190,7 @@ fn interface_dispatch_collects_during_reentry_and_selects_current_default_code()
     let observed = calls.clone();
     let mut builder = ModuleBuilder::new(
         "example::interface_methods",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     {

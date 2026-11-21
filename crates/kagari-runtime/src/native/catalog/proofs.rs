@@ -19,6 +19,7 @@ impl DeclarationCatalog {
                     declaration,
                     implementation,
                 })
+                .chain(self.source_impls.values().map(Implementation::Interface))
                 .collect(),
             [],
             self.traits.entries(),

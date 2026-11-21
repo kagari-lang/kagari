@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -9,7 +10,6 @@ use crate::{
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 mod diagnostics;
 mod evaluation;
@@ -18,7 +18,8 @@ mod lifecycle;
 fn execute_entries(source: &str, entries: &[(ProgramEntry<'_>, i32)]) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine =
+        KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("never.kgr", source), Default::default())
         .unwrap();

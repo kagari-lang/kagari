@@ -34,7 +34,9 @@ pub struct NativeModule {
     bindings: Arc<[Arc<BindingRegistration>]>,
     owned: DeclarationCatalog,
     catalog: DeclarationCatalog,
-    required: DeclarationCatalog,
+    installed_required: DeclarationCatalog,
+    authored_required: Option<DeclarationCatalog>,
+    pub(super) authored_seed: Option<DeclarationCatalog>,
     storage: Arc<DefinitionMap<NativeStorage>>,
     path_bindings: Arc<DefinitionMap<Vec<HostPathAdapter>>>,
 }
@@ -119,7 +121,8 @@ impl NativeModule {
         // A binding extends this closed seed only with its own signature/proofs.
         let base =
             available.dependency_closure(owned.traits.ids(), iter::empty(), [&declaration])?;
-        let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
+        let dependencies =
+            available.module_dependencies(&base, &declaration, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.copy_rust_types(&available)?;
@@ -172,6 +175,7 @@ impl NativeModule {
                 .chain(required.types.ids())
                 .chain(required.declarations.ids())
                 .chain(required.implementations.ids())
+                .chain(required.source_impls.ids())
                 .map(|id| {
                     definitions
                         .resolve(id)
@@ -183,6 +187,12 @@ impl NativeModule {
                 .filter(|owner| *owner != declaration.identity),
         );
         available.validate_module_shape(&declaration)?;
+        let authored_required = required.nonempty_authored_contracts();
+        let installed_required = if let Some(authored) = &authored_required {
+            required.foreign_to(authored)?
+        } else {
+            required
+        };
         let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
         for (id, storage) in storage {
             indexed_storage
@@ -200,7 +210,9 @@ impl NativeModule {
             bindings: registrations.into(),
             owned,
             catalog: checked,
-            required,
+            installed_required,
+            authored_required,
+            authored_seed: providers.nonempty_authored_contracts(),
             storage: Arc::new(indexed_storage),
             path_bindings: Arc::new(indexed_paths),
         })
@@ -252,12 +264,13 @@ impl NativeModule {
         for module in modules {
             module.publish_owners(&mut staged, &mut imports)?;
         }
+        let contracts = staged.validation_contracts()?;
         for module in modules {
-            module.publish_bindings(&mut staged, &mut imports)?;
+            module.publish_bindings(&mut staged, &mut imports, &contracts)?;
         }
-        staged.catalog.validate_callable_contracts()?;
-        staged.catalog.validate_paths()?;
-        staged.metadata = staged.metadata.prepare(&staged.catalog)?;
+        contracts.validate_callable_contracts()?;
+        contracts.validate_paths()?;
+        staged.metadata = staged.metadata.prepare(&contracts)?;
         *registry = staged;
         Ok(())
     }
@@ -305,6 +318,12 @@ impl NativeModule {
             }
         }
         registry.catalog.merge(&owned)?;
+        if let Some(required) = &self.authored_required {
+            registry.record_authored_requirements(
+                &self.declaration().identity,
+                imports.import(required)?,
+            )?;
+        }
         registry.owned_traits.extend(owned.traits.ids());
         let referenced = self
             .declaration
@@ -368,8 +387,9 @@ impl NativeModule {
         &self,
         registry: &mut NativeRegistry,
         imports: &mut CatalogImports,
+        contracts: &DeclarationCatalog,
     ) -> NativeResult<()> {
-        if !self.required.satisfied_by(&registry.catalog)? {
+        if !self.installed_required.satisfied_by(&registry.catalog)? {
             return Err(RuntimeError::metadata_conflict(
                 "native module dependency is not installed",
             ));
@@ -385,9 +405,7 @@ impl NativeModule {
             .records()
             .collect_definitions(registry.catalog.types.context())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        registry
-            .catalog
-            .check_implementations([declaration.records()])?;
+        contracts.check_implementations([declaration.records()])?;
         for registration in self.bindings.iter() {
             registry.install(registration.clone(), imports)?;
         }

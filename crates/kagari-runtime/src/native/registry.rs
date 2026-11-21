@@ -1,5 +1,6 @@
 //! Validate registrations and prepare concrete entries/callables before execution.
 
+mod authored;
 mod dependencies;
 mod forwarding;
 mod matching;
@@ -27,7 +28,7 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
+        DefinitionKind, ModuleIdentity,
         map::DefinitionMap,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
@@ -90,6 +91,7 @@ pub(crate) struct NativeRegistry {
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
     scripts: DefinitionMap<scripts::InstalledScript>,
+    authored_requirements: BTreeMap<ModuleIdentity, DeclarationCatalog>,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
     pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
     // Only declarations published by providers, never their foreign requirements.
@@ -103,6 +105,7 @@ impl Default for NativeRegistry {
         Self {
             metadata: MetadataSnapshot::default(),
             scripts: DefinitionMap::new(context.clone()),
+            authored_requirements: BTreeMap::new(),
             owned_traits: HashSet::new(),
             entries: DefinitionMap::new(context.clone()),
             declaration_bindings: DefinitionMap::new(context.clone()),
@@ -151,15 +154,18 @@ impl NativeRegistry {
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
     ) -> NativeResult<()> {
+        if let Some(required) = self.authored_requirements.get(&module.identity) {
+            authored::validate(required, module, program, admission)?;
+        }
         let definitions = self.catalog.definitions();
         if let Some(expected) = definitions
             .lookup_root(&module.identity)
             .and_then(|root| self.trait_references.get_id(root))
         {
-            dependencies::validate_expected_traits(expected, program, admission)?;
+            dependencies::validate_expected_traits(expected, module, admission)?;
         }
         dependencies::validate_installed_traits(&self.catalog, module, admission)?;
-        dependencies::validate_installed_values(&self.catalog, module, admission)?;
+        dependencies::validate_installed_values(&self.catalog, module, program, admission)?;
         self.validate_forwarding(module, admission)?;
         self.validate_scripts(module, program, admission)?;
         for declaration in &module.native_declarations {
@@ -170,16 +176,18 @@ impl NativeRegistry {
                     "native declaration lacks an installed binding",
                 ));
             };
-            if self
+            let entry = self
                 .declaration_bindings
                 .get_id(declaration.declaration)
                 .or_else(|| self.declaration_bindings.get_id(binding))
                 .and_then(|entry| self.entries.get_id(*entry))
-                .is_none_or(|entry| {
-                    !entry.declarations.iter().any(|expected| {
-                        matching::installed(expected, &declaration, program, admission)
-                    })
-                })
+                .ok_or_else(|| {
+                    RuntimeError::module_validation("native declaration is not installed")
+                })?;
+            if !entry
+                .declarations
+                .iter()
+                .any(|expected| matching::installed(expected, &declaration, program, admission))
             {
                 return Err(RuntimeError::module_validation(
                     "native declaration differs from its installed contract",

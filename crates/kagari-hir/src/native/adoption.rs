@@ -1,10 +1,11 @@
 //! Import a provider batch once before attaching its records to source lowering.
-use crate::collections::HashSet;
+use crate::{collections::HashSet, native::paths::range_declaration};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
+use kagari_types::range::RangeKind;
 use std::sync::Arc;
 
 /// Return one retained prefix containing all provider references and implicit names.
@@ -31,6 +32,13 @@ pub(crate) fn adopt(
     cancel
         .check()
         .map_err(|_| DeclarationError("native provider adoption cancelled".into()))?;
+    if !records.is_empty() {
+        for kind in RangeKind::ALL {
+            context
+                .intern(&range_declaration(kind))
+                .map_err(|error| invalid(error.into()))?;
+        }
+    }
     let definitions = context.snapshot();
     records
         .into_iter()
@@ -46,14 +54,14 @@ pub(crate) fn adopt(
 mod tests {
     use super::*;
     use crate::native::render::declaration_source;
+    use crate::tests::standard::standard_modules;
     use kagari_common::identity::{DefinitionKind, ModuleIdentity, scoped::DefinitionReferences};
-    use kagari_stdlib::catalog;
 
     #[test]
     fn provider_batch_adoption_retains_one_analysis_scope_and_checks_failure() {
         let cancel = CancellationToken::default();
         // Alternate providers from independent writers to exercise cross-provider adoption.
-        let left = catalog::shared().unwrap();
+        let left = standard_modules();
         let right_context = DefinitionContext::new().unwrap();
         let right = adopt(&left, &right_context, &cancel).unwrap();
         assert_ne!(left[0].definitions().id(), right[0].definitions().id());

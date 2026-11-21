@@ -3,7 +3,7 @@
 use kagari_analyzer::AnalyzerQueries;
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use {kagari_contract::types::PublicItem, kagari_types::ty::Ty};
 
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
@@ -16,8 +16,10 @@ use kagari_compiler::{bytecode, source::program};
 use kagari_source::source_database::SourceLayer;
 
 fn main() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     for (name, text) in [
         (
             "shared",

@@ -1,0 +1,20 @@
+use core::cmp::PartialEq;
+
+struct Point {
+    val x: i32,
+    val label: i32,
+}
+
+impl PartialEq for Point {
+    fn eq(self, other: Self) -> bool {
+        self.x == other.x
+    }
+}
+
+fn same<T: PartialEq>(a: T, b: T) -> bool {
+    a == b
+}
+
+fn main() -> bool {
+    same(Point { x: 3, label: 1 }, Point { x: 3, label: 2 })
+}

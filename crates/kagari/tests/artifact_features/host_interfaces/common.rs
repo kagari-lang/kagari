@@ -1,3 +1,4 @@
+use crate::standard_library;
 use kagari::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::ModuleRef;
 use kagari_common::identity::{
@@ -20,8 +21,6 @@ use kagari_runtime::{
     value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{
     HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
     HostTypePolicy, PathAccess,
@@ -93,8 +92,8 @@ impl Fixture {
             name: "read".into(),
             occurrence: 0,
         });
-        let catalog = StandardDeclarations::default().catalog().unwrap();
-        let mut module = ModuleBuilder::new("demo", &catalog).unwrap();
+        let catalog = standard_library().declarations().catalog();
+        let mut module = ModuleBuilder::new("demo", catalog).unwrap();
         let reader = reference_trait(&mut module, &contract, "Reader");
         let child = config
             .child
@@ -186,7 +185,8 @@ impl Fixture {
         let module = module.finish().unwrap();
         let engine = KagariEngine::with_native_modules(
             Default::default(),
-            stdlib::modules()
+            standard_library()
+                .modules()
                 .unwrap()
                 .into_iter()
                 .chain(vec![module.clone()])
@@ -230,7 +230,7 @@ impl Fixture {
 
     pub fn runtime(&self) -> Runtime {
         let mut runtime = Runtime::default();
-        let mut modules = stdlib::modules().unwrap();
+        let mut modules = standard_library().modules().unwrap();
         modules.push(self.module.clone());
         NativeModule::install_all(&modules, &mut runtime).unwrap();
         runtime
@@ -262,8 +262,11 @@ pub fn source_contract(
     source: &str,
     owner: Option<ModuleIdentity>,
 ) -> DefinitionMetadata<BytecodeArtifact> {
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let author = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     if let Some(owner) = owner {
         author.bind_module(URI, owner).unwrap();
     }

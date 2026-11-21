@@ -15,7 +15,7 @@ fn compile_success(#[case] text: &str) {
         .set("foundation.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(foundation_catalog::shared().expect("foundation declarations"));
+    analysis.set_native_modules(standard_modules());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

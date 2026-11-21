@@ -9,14 +9,15 @@ use kagari_runtime::native::{
     types::Type,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use kagari_types::reference::ReferenceAccess;
 
 kagari_runtime::native_data! { struct Player { hp: i32 } }
 
 fn main() {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("game::actors", builder.declarations()).unwrap();
     let mut declaration = module.define_type("Player").unwrap();
     declaration

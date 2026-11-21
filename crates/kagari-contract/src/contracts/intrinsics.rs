@@ -15,6 +15,9 @@ pub(super) fn verify(
         (Intrinsic::ValuePartialCmp | Intrinsic::ValueCmp, [left, right]) if left == right => {
             ValueType::HeapObject
         }
+        (Intrinsic::ForwardErrOrigin, [ValueType::HeapObject, ValueType::HeapObject]) => {
+            ValueType::HeapObject
+        }
         (Intrinsic::ValueEq, [left, right]) if left == right => ValueType::Bool,
         (
             Intrinsic::ValueHash,

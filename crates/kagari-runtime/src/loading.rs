@@ -125,7 +125,13 @@ impl Runtime {
             .iter()
             .filter_map(|id| definitions.product_id(*id))
             .collect();
+        let conversion_catalog = self.native_entries.catalog.for_conversions(
+            program,
+            &definitions,
+            &self.execution_options().cancellation,
+        )?;
         Ok(LinkedProgramBindings {
+            conversion_catalog,
             definitions,
             members,
             shared_traits,

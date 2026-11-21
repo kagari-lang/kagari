@@ -1,4 +1,5 @@
 use super::compile_program;
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_runtime::{
@@ -51,7 +52,7 @@ fn native_slot(owner: &ExecutableModule, provider: &NativeModule, name: &str) ->
 
 fn runtime() -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig::default());
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }
 
@@ -108,10 +109,8 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         ("result_error_type", "Result<i32, String>", result.clone()),
         ("result_option", "Result<i32, String>", result),
     ];
-    let catalog = crate::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("fixtures::composites", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("fixtures::composites", catalog).unwrap();
     let mut source = format!("{fixture_source}\nuse fixtures::composites;\n");
     let mut checks = Vec::new();
     for (index, (entry, syntax, ty)) in cases.into_iter().enumerate() {
@@ -276,7 +275,7 @@ fn composite_arguments_survive_callback_collection_and_reject_foreign_ownership(
         );
     }
     let mut other = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut other).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut other).unwrap();
     let other_owner = value_owner(&mut other);
     let foreign = other
         .execute_module(&other_owner, "make", other.execution_options())

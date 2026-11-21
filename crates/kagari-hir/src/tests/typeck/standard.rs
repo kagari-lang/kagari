@@ -1,8 +1,8 @@
 use super::*;
 use crate::analyze_source;
+use crate::tests::standard::standard_modules;
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog as foundation_catalog;
 
 /* stdlib test support paused (NC01-NC06).
 fn foundation_vec(definitions: &DefinitionTable, item: TypeId) -> TypeId {
@@ -37,7 +37,7 @@ fn main() -> u64 {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");
@@ -78,7 +78,7 @@ fn main(value: HashMap<String, i32>) -> u64 {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed declarations");
@@ -158,11 +158,10 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     }
     assert_eq!(
         declarations.files().count(),
-        catalog::shared().unwrap().len() + 1
+        standard_modules().len() + snapshot.inputs().core_modules().len() + 1
     ); // User input plus installed library modules.
     assert!(declarations.files().any(|file| {
-        catalog::shared()
-            .unwrap()
+        standard_modules()
             .iter()
             .any(|module| file.source().module_identity() == &module.records().identity)
     }));
@@ -247,7 +246,7 @@ fn constructed() -> Pick<i32> { Pick(7) }
     let mut aliases = ModuleDecl::new(kagari_stdlib::namespaces::module("app", "aliases"));
     let context = DefinitionContext::new().unwrap();
     let mut modules = adoption::adopt(
-        &foundation_catalog::shared().unwrap(),
+        &standard_modules(),
         &context,
         &Default::default(),
     )
@@ -346,7 +345,7 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
         fn qualified() -> Vec<i32> { foundation::Vec::new() }
     "#,
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked constructor imports");
@@ -434,7 +433,7 @@ fn popped(values: Vec<i32>) -> Option<i32> {
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("checked installed method declarations");
@@ -542,7 +541,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
 }
 "#,
     );
-    crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("hash-key constrained generics should type check");
@@ -551,7 +550,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         "test.kg",
         "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> u64 { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let diagnostics = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("f64 map keys should reject");
@@ -567,7 +566,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
         "test.kg",
         "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> u64 { values.len() }",
     );
-    let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let diagnostics = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unconstrained generic map key should reject");
@@ -589,7 +588,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
             "test.kg",
             format!("use std::collections::HashSet; struct Key {{}} {declaration}"),
         );
-        let diagnostics = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let diagnostics = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis")
             .into_checked()
             .expect_err("nominal keys still require explicit protocols");
@@ -612,13 +611,13 @@ fn unsigned(lhs: u64, rhs: u64) -> u64 { lhs + rhs }
 fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 "#,
     );
-    analyze_source(&source, foundation_catalog::shared().unwrap())
+    analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("standard numeric types should check");
 
     let source = SourceFile::new("test.kg", "fn bad(value: u32) -> u32 { -value }");
-    let diagnostics = analyze_source(&source, foundation_catalog::shared().unwrap())
+    let diagnostics = analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unsigned negation should reject");
@@ -666,8 +665,7 @@ fn checks_print_builtin_signature() {
 
 /* stdlib test support paused (NC01-NC06).
 fn binding_id(definitions: &DefinitionTable, owner: &str, name: &str) -> DefinitionId {
-    for module in catalog::shared()
-        .unwrap()
+    for module in standard_modules()
         .into_iter()
         .filter(|module| module.records().identity.path == [owner])
     {

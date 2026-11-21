@@ -9,7 +9,10 @@ use kagari_common::identity::{
 
 pub mod adapter;
 pub mod binding;
+pub mod comparison;
+pub mod requirements;
 pub mod role;
+pub mod schema;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Protocol {
@@ -180,8 +183,20 @@ impl Protocol {
         self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index | Self::Fn)
     }
 
+    pub fn source_operation(self) -> bool {
+        self.operator() || matches!(self, Self::From | Self::Try | Self::FromResidual)
+    }
+
     pub fn host_implementable(self) -> bool {
         matches!(self, Self::Debug | Self::Display)
+    }
+
+    /// Roles defined by the public comparison module (not hash or arithmetic).
+    pub fn comparison(self) -> bool {
+        matches!(
+            self,
+            Self::PartialEq | Self::Eq | Self::PartialOrd | Self::Ord
+        )
     }
 
     pub fn equality_protocol(self) -> bool {

@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, error::EmbeddingError,
 };
@@ -10,8 +11,6 @@ use kagari_runtime::{
     native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
 };
 use kagari_source::{identity::FileId, source_database::SourceLayer};
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
 
@@ -42,7 +41,7 @@ fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>
     let calls = Arc::new(Mutex::new(Vec::new()));
     let recorded = calls.clone();
     let mut builder =
-        ModuleBuilder::new("trace", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+        ModuleBuilder::new("trace", standard_library().declarations().catalog()).unwrap();
     let record = builder
         .define_function(
             FunctionDecl::new("record")
@@ -68,7 +67,8 @@ fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])

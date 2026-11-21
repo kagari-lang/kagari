@@ -1,6 +1,9 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_analyzer::AnalyzerQueries;
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::{ExecutableModule, entry::ProgramEntry},
@@ -17,15 +20,11 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 
-use crate as foundation;
-use crate::{catalog as foundation_catalog, declarations::StandardDeclarations};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::compile_input::program::CheckedCompilation;
-use kagari_hir::{
-    analysis::AnalysisDatabase, declarations::DeclarationId, native::render::declaration_source,
-};
+use kagari_hir::{declarations::DeclarationId, native::render::declaration_source_with_external};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::Arc;
 use std::sync::{
@@ -43,7 +42,7 @@ fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<Bytecode
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation::modules()
+        test_library::modules()
             .unwrap()
             .iter()
             .filter(|installed| {
@@ -102,7 +101,7 @@ fn array_i32(vm: &mut Runtime, owner: &ExecutableModule, root: &RootedValue) -> 
 }
 
 fn run<T: FromKagari>(text: &str) -> T {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| {
@@ -112,7 +111,7 @@ fn run<T: FromKagari>(text: &str) -> T {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "sort", program(text, &[&library])).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
@@ -149,13 +148,8 @@ struct Probe {
 
 impl Probe {
     fn new() -> Self {
-        let mut module = ModuleBuilder::new(
-            "test::probe",
-            &StandardDeclarations::default()
-                .catalog()
-                .expect("explicit standard providers"),
-        )
-        .unwrap();
+        let mut module =
+            ModuleBuilder::new("test::probe", test_library::standard().catalog()).unwrap();
         let retained = Arc::new(Mutex::new(None));
         let calls = Arc::new(AtomicUsize::new(0));
         let keep = module.define_function(FunctionDecl::new("keep")).unwrap();
@@ -201,7 +195,7 @@ impl Probe {
 #[test]
 fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let probe = Probe::new();
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| {
@@ -212,7 +206,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     probe.module.install(&mut runtime).unwrap();
     let loaded = load_bytecode(
         &mut runtime,
@@ -281,7 +275,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
         include_str!("../../../tests/fixtures/collections/sort-guard-nested.kgr"),
     ] {
         let probe = Probe::new();
-        let library = foundation::modules()
+        let library = test_library::modules()
             .unwrap()
             .into_iter()
             .find(|module| {
@@ -289,7 +283,7 @@ fn callback_alias_writes_and_nested_edits_are_rejected_without_changing_slots() 
             })
             .unwrap();
         let mut runtime = Runtime::default();
-        NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
         probe.module.install(&mut runtime).unwrap();
         let loaded = load_bytecode(
             &mut runtime,
@@ -334,7 +328,7 @@ fn primitive_selection_covers_unsigned_bounds_and_string_ordering() {
 
 #[test]
 fn scalar_ord_overrides_are_rejected_before_native_selection() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| {
@@ -351,8 +345,9 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
+        test_library::standard()
+            .declarations()
+            .to_vec()
             .into_iter()
             .filter(|installed| installed.records().identity != library.declaration().identity)
             .chain([Arc::new(library.to_declaration())])
@@ -369,14 +364,15 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
 
 #[test]
 fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
-    let library = foundation::modules()
+    let library = test_library::modules()
         .unwrap()
         .into_iter()
         .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
         .unwrap();
-    let generated = declaration_source(
+    let generated = declaration_source_with_external(
         &library.to_declaration(),
-        &foundation_catalog::shared().unwrap(),
+        test_library::standard().declarations(),
+        packaged_modules(),
     )
     .unwrap();
     let text = include_str!("../../../tests/fixtures/collections/mapped-navigation.kgr");
@@ -386,8 +382,9 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
+        test_library::standard()
+            .declarations()
+            .to_vec()
             .into_iter()
             .filter(|installed| installed.records().identity != library.declaration().identity)
             .chain([Arc::new(library.to_declaration())])

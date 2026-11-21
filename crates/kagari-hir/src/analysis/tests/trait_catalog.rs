@@ -1,4 +1,5 @@
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::{
     aggregates::traits::MethodDefault,
     declarations::DeclarationId,
@@ -10,7 +11,6 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::ty::NominalTy;
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
@@ -33,8 +33,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
         .any(|module| module.records().identity == fixture::module().records().identity)
     {
         db.set_native_modules(
-            foundation_catalog::shared()
-                .unwrap()
+            standard_modules()
                 .into_iter()
                 .chain([fixture::module()])
                 .collect(),
@@ -165,8 +164,7 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
     )
     .unwrap();
     db.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
+        standard_modules()
             .into_iter()
             .chain([Arc::new(
                 DefinitionMetadata::checked(definitions, invalid, &Default::default()).unwrap(),

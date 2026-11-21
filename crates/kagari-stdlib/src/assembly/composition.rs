@@ -1,6 +1,6 @@
 //! Pure composition of canonical owners, their std facades and the explicit prelude.
 //! Paths, explicit dependencies and presentation use the same checked draft as declarations.
-use crate::{catalog::documentation, foundation, identity, namespaces};
+use crate::{assembly::authored, catalog::documentation, foundation, identity, namespaces};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
@@ -23,7 +23,23 @@ struct Composition {
     prelude: bool,
 }
 
-pub(super) fn collect() -> NativeResult<ModuleAssembly> {
+impl Composition {
+    fn export_type(&mut self, owner: &ModuleIdentity, kind: DefinitionKind, name: &str) {
+        self.exports.push((
+            ExportName::new(NameNamespace::Type, name),
+            DefinitionPath {
+                module: owner.clone(),
+                path: vec![DefinitionPathSegment {
+                    kind,
+                    name: name.into(),
+                    occurrence: 0,
+                }],
+            },
+        ));
+    }
+}
+
+pub(super) fn collect(seed: &DeclarationCatalog) -> NativeResult<ModuleAssembly> {
     let mut owners = BTreeMap::new();
     for &(package, path, docs) in foundation::MODULES {
         let identity = namespaces::module(package, path);
@@ -35,7 +51,7 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
             return Err(conflict("duplicate canonical module owner"));
         }
     }
-    let canonical = owners.keys().cloned().collect::<Vec<_>>();
+    let mut canonical = owners.keys().cloned().collect::<Vec<_>>();
     let public = foundation::public_types();
     for owner in &canonical {
         if owner.package.0 != "std" {
@@ -49,22 +65,34 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
             }
         }
     }
-    for (owner, kind, name) in public {
-        let target = DefinitionPath {
-            module: owner.clone(),
-            path: vec![DefinitionPathSegment {
-                kind,
-                name: name.clone(),
-                occurrence: 0,
-            }],
+    for facade in authored::FACADES {
+        let owner = namespaces::module("core", facade.path);
+        if seed.authored_origin(&owner).is_none() {
+            return Err(conflict(format!("missing verified standard owner {owner}")));
+        }
+        canonical.push(owner.clone());
+        let mut declaration = Composition {
+            documentation: documentation::markdown(facade.docs),
+            ..Default::default()
         };
+        for &(kind, names) in facade.exports {
+            for &name in names {
+                declaration.export_type(&owner, kind, name);
+            }
+        }
+        if owners
+            .insert(namespaces::module("std", facade.path), declaration)
+            .is_some()
+        {
+            return Err(conflict("duplicate standard facade"));
+        }
+    }
+    for (owner, kind, name) in public {
         if owner.package.0 != "std" {
             let facade = owners
                 .get_mut(&namespaces::module("std", &owner.path.join("::")))
                 .expect("explicit facade");
-            facade
-                .exports
-                .push((ExportName::new(NameNamespace::Type, name), target));
+            facade.export_type(&owner, kind, &name);
         }
     }
     let mut prelude = Composition {
@@ -125,7 +153,7 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
         }
     }
     owners.insert(namespaces::prelude(), prelude);
-    let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default())?;
+    let mut set = ModuleSetBuilder::new(seed)?;
     for (owner, composition) in owners {
         set.add(ModuleDefinition::new(owner, move |module| {
             match module.identity().package.0.as_str() {

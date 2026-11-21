@@ -1,3 +1,4 @@
+use crate::test_library;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{
@@ -984,10 +985,8 @@ fn unsupported_native_static_entry_falls_back_before_initialization() {
 
 #[test]
 fn indirect_native_future_construction_is_denied_without_provider_submission() {
-    let catalog = crate::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("test::pending", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut builder = ModuleBuilder::new("test::pending", catalog).unwrap();
     let future = catalog.future_type().unwrap().apply([Type::i32()]).unwrap();
     let request = builder
         .define_function(FunctionDecl::new("request").returns(future))

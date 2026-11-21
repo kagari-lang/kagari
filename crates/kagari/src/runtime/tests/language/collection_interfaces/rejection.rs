@@ -1,11 +1,14 @@
+use crate::test_support::standard::standard_library;
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "fn main() { val xs: std::collections::List<i32> = Vec::from([1]); xs[0] = 2; }",
         "use std::collections::{MutableList};\nfn main() { val xs: MutableList<i32> = Vec::from([1]); xs[true] = 2; }",
@@ -28,8 +31,11 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
 
 #[test]
 fn collection_interfaces_do_not_inherit_receiver_equality() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for interface in [
         "List<i32>",
         "MutableList<i32>",

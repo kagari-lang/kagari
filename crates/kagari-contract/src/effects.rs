@@ -143,6 +143,7 @@ pub fn runtime_primitive_effects(primitive: RuntimePrimitive) -> EffectSet {
         | RuntimePrimitive::ValueCmp
         | RuntimePrimitive::ValueDebug
         | RuntimePrimitive::ValueDisplay
+        | RuntimePrimitive::ForwardErrOrigin
         | RuntimePrimitive::StringPartsJoin => read.union(EffectSet::allocation()),
     }
 }

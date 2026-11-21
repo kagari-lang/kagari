@@ -1,5 +1,7 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -31,13 +33,11 @@ use kagari_gc::{
     object::{GcObject, ObjectCharge},
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
-use crate as foundation;
-use crate::declarations::StandardDeclarations;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{ops::Bound, sync::Arc};
 
@@ -60,7 +60,7 @@ fn compile_program(
     text: &str,
     module: Option<&NativeModule>,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    let modules = foundation::modules().unwrap();
+    let modules = test_library::modules().unwrap();
     compile_with_modules(
         text,
         modules
@@ -114,7 +114,7 @@ fn compile_with_modules<'a>(
 fn compile(text: &str, module: Option<&NativeModule>) -> (Runtime, InstalledProgram) {
     let program = compile_program(text, module);
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     if let Some(module) = module {
         module.install(&mut runtime).unwrap();
     }
@@ -134,13 +134,8 @@ pub(super) fn publish_unused_version(vm: &mut Runtime, active: &InstalledProgram
 
 #[test]
 fn scalar_function_executes_through_the_checked_registration() {
-    let mut module = ModuleBuilder::new(
-        "example::math",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::math", test_library::standard().catalog()).unwrap();
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -173,13 +168,8 @@ fn scalar_function_executes_through_the_checked_registration() {
 
 #[test]
 fn raw_result_contract_failure_releases_the_execution_scope() {
-    let mut module = ModuleBuilder::new(
-        "example::bad",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::bad", test_library::standard().catalog()).unwrap();
     let function = module
         .define_function(FunctionDecl::new("broken").returns(Type::i32()))
         .unwrap();
@@ -247,13 +237,8 @@ fn custom_hash_collisions_use_selected_script_methods() {
 
 #[test]
 fn selected_script_callbacks_return_directly_to_a_rust_loop() {
-    let mut module = ModuleBuilder::new(
-        "example::calls",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::calls", test_library::standard().catalog()).unwrap();
     let mut step = module.define_trait("Step").unwrap();
     step.define_method(
         MethodDecl::instance("step")
@@ -369,12 +354,8 @@ impl Drop for TracedCounter {
 
 #[test]
 fn array_literals_repeats_and_empty_arrays_preserve_native_access_and_aliases() {
-    let language = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new(
-        "example::arrays",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut builder = ModuleBuilder::new("example::arrays", language.catalog()).unwrap();
     let array = Type::array(Type::i32()).unwrap();
     let probe = builder
         .define_function(
@@ -506,12 +487,8 @@ fn assert_i32_array(cx: &mut ConversionContext<'_>, array: &ValueView<'_>, expec
 
 #[test]
 fn every_scalar_array_preserves_its_declared_element_and_values() {
-    let language = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new(
-        "example::scalar_arrays",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut builder = ModuleBuilder::new("example::scalar_arrays", language.catalog()).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut expressions = Vec::new();
     macro_rules! check {
@@ -590,13 +567,8 @@ fn every_scalar_array_preserves_its_declared_element_and_values() {
 
 #[test]
 fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
-    let mut builder = ModuleBuilder::new(
-        "example::hash_gc",
-        &StandardDeclarations::default()
-            .catalog()
-            .expect("explicit standard providers"),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::hash_gc", test_library::standard().catalog()).unwrap();
     let collect = builder
         .define_function(FunctionDecl::new("collect").returns(Type::i64()))
         .unwrap();
@@ -640,12 +612,8 @@ fn hash_callbacks_can_collect_and_trap_without_losing_keys_or_lookup_guards() {
 
 #[test]
 fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
-    let language = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new(
-        "example::provided",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = test_library::standard();
+    let mut builder = ModuleBuilder::new("example::provided", language.catalog()).unwrap();
     let mut declaration = builder.define_type("Counter").unwrap();
     declaration.type_parameter("T").unwrap();
     declaration

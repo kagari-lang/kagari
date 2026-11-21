@@ -1,0 +1,17 @@
+pub enum Signal<T> {
+    Value(T),
+    End
+}
+
+pub struct Envelope<T> {
+    val value: T
+}
+
+pub trait Read {
+    type Item;
+    fn read(self) -> Signal<Self::Item>;
+}
+
+enum Hidden {
+    Off
+}

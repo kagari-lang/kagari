@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_runtime::{
     host::HostError,
@@ -9,15 +10,16 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{declaration::host::HostCallPolicy, scalar::BuiltinType, ty::Ty};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn shifts_reject_negative_and_width_counts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for expression in ["1u8 << 8", "1u8 >> -1", "1u64 << 64u16"] {
         let source = format!("fn main() {{ val value = {expression}; }}");
         let artifact = engine
@@ -44,8 +46,8 @@ fn shifts_reject_negative_and_width_counts() {
 
 #[test]
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
-    let standard = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new("demo", &standard.catalog().unwrap()).unwrap();
+    let standard = standard_library().declarations();
+    let mut builder = ModuleBuilder::new("demo", standard.catalog()).unwrap();
     let memory = builder
         .define_function(
             FunctionDecl::new("memory")
@@ -75,7 +77,8 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])
@@ -153,8 +156,11 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
 
 #[test]
 fn ordinary_narrow_remainder_and_compound_arithmetic_still_trap() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for body in [
         "val n = -128i8; val r = n % -1i8;",
         "var n = 255u8; n += 1u8;",

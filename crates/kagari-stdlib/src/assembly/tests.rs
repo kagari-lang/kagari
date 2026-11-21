@@ -184,8 +184,7 @@ fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread
     });
     let semantic = cache.semantic().unwrap();
     let before = semantic
-        .snapshot()
-        .modules()
+        .shared()
         .iter()
         .map(|module| {
             module
@@ -207,7 +206,7 @@ fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread
         .enumeration(&enum_path())
         .and_then(|enumeration| enumeration.variant("None"))
         .unwrap();
-    let metadata = &semantic.snapshot().modules()[0];
+    let metadata = &semantic.shared()[0];
     assert_eq!(enumeration.definitions().id(), metadata.definitions().id());
     assert_eq!(variant.definitions().id(), metadata.definitions().id());
     assert_eq!(variant.id(), enumeration.variant("None").unwrap().id());

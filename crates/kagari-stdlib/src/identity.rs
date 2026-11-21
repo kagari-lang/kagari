@@ -1,4 +1,4 @@
-//! Rust-authoritative mandatory library declarations and registration identities.
+//! Canonical lookup paths for standard declarations. Paths do not grant ownership.
 use crate::namespaces;
 use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 

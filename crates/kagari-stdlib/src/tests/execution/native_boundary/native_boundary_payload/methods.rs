@@ -1,11 +1,9 @@
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{
-            compile_program, native_boundary_functions::fixture, support::round_trip_program,
-        },
-        support::bytecode::reload_bytecode,
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{
+        compile_program, native_boundary_functions::fixture, support::round_trip_program,
     },
+    support::bytecode::reload_bytecode,
 };
 mod loans;
 use super::PlayerState;
@@ -42,11 +40,8 @@ impl HostDescribe for PlayerState {
 }
 
 fn registration() -> (NativeModule, TypeRef, FunctionRef) {
-    let mut module = ModuleBuilder::new(
-        "example::methods",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::methods", test_library::standard().catalog()).unwrap();
     let mut declaration = module.define_type("Player").unwrap();
     declaration
         .native_storage(NativeStorage::data::<PlayerState>())
@@ -171,7 +166,7 @@ const SOURCE: &str =
 #[test]
 fn rust_trait_implementations_do_not_supply_implicit_script_traits() {
     let (module, _, _) = registration();
-    let mut providers = crate::catalog::shared().unwrap();
+    let mut providers = test_library::standard().declarations().to_vec();
     providers.push(Arc::new(module.to_declaration()));
     let analysis = analyze_source(
         &SourceFile::new(
@@ -346,7 +341,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
 fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     let mut module = ModuleBuilder::new(
         "example::generic_methods",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut declaration = module.define_type("Holder").unwrap();
@@ -484,7 +479,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
 fn native_method_requirements_use_selected_generic_evidence() {
     let mut module = ModuleBuilder::new(
         "example::bounded_methods",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut contract = module.define_trait("Read").unwrap();

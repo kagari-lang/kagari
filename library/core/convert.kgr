@@ -1,0 +1,64 @@
+//! Conversions between types, with separate contracts for conversions that can fail.
+use core::result::Result;
+/// A type with no values. As an error type it rules out a failure payload;
+/// in a residual's success slot it rules out the success branch. An empty
+/// match eliminates a value of this type without inventing a return value.
+pub enum Infallible {}
+/// Defines how to construct `Self` from a value of type `S`. Choose `From`
+/// when conversion cannot fail; use `TryFrom` when the input must be checked.
+/// Implement the forward direction once. The blanket `Into` implementation
+/// then lets callers ask for the same conversion from the input value:
+///
+/// ```kagari
+/// use core::convert::{From, Into};
+/// struct Count { val n: i32 }
+/// impl From<i32> for Count {
+///     fn from(value: i32) -> Self { Count { n: value } }
+/// }
+/// fn count(value: i32) -> Count { value.into() }
+/// ```
+///
+/// `count(3).n` returns `3`, just as `Count::from(3).n` does.
+#[lang = "from"]
+pub trait From<S> {
+    /// Builds the destination from `value`, without an error result.
+    fn from(value: S) -> Self;
+}
+/// Converts a receiver to `D`. Use this bound on inputs when a caller knows
+/// its destination type. Prefer implementing `From` on the destination; see
+/// its example for how the expected return type selects the conversion.
+pub trait Into<D> {
+    /// Returns the destination value. The blanket implementation calls `D`'s `from` once.
+    fn into(self) -> D;
+}
+/// Constructs `Self` from `S` when not all source values are valid. For example,
+/// a positive-count type can accept `3` but reject `0` without truncating it.
+/// Return the reason as data in `Err`, so the caller can handle it.
+pub trait TryFrom<S> {
+    /// Describes why the source could not be converted.
+    type Error;
+    /// Returns `Ok` containing the destination, or `Err` containing `Self::Error`.
+    fn try_from(value: S) -> Result<Self, Self::Error>;
+}
+/// Tries to convert the receiver to `D`. If `D` implements `TryFrom<Self>`,
+/// the blanket implementation returns that conversion's `Result` unchanged;
+/// callers do not need a second implementation or a second error type.
+pub trait TryInto<D> {
+    /// The failure payload returned to this caller.
+    type Error;
+    /// Returns the converted destination or the conversion error.
+    fn try_into(self) -> Result<D, Self::Error>;
+}
+
+impl<S, D: From<S>> Into<D> for S {
+    fn into(self) -> D {
+        <D as From<S>>::from(self)
+    }
+}
+
+impl<S, D: TryFrom<S>> TryInto<D> for S {
+    type Error = <D as TryFrom<S>>::Error;
+    fn try_into(self) -> Result<D, <D as TryFrom<S>>::Error> {
+        <D as TryFrom<S>>::try_from(self)
+    }
+}

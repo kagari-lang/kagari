@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -22,7 +23,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::host::{
         HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
@@ -53,7 +53,9 @@ kagari_runtime::native_data! { struct Stats { hp: i32 } }
 #[test]
 fn opaque_loans_accept_compatible_reloaded_descriptors() {
     let mut engine = KagariEngine::builder().unwrap();
-    engine.install_all(stdlib::modules().unwrap()).unwrap();
+    engine
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let mut module = ModuleBuilder::new("game::reload", engine.declarations()).unwrap();
     let mut stats = module.define_type("Stats").unwrap();
     stats
@@ -184,7 +186,9 @@ fn scoped_host_entries_use_explicit_context_and_release_argument_loans() {
     const GOLD: HostObjectId = HostObjectId(2);
 
     let mut engine = KagariEngine::builder().unwrap();
-    engine.install_all(stdlib::modules().unwrap()).unwrap();
+    engine
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let mut module = ModuleBuilder::new("game::scoped", engine.declarations()).unwrap();
     let mut counter = module.define_type("Counter").unwrap();
     counter

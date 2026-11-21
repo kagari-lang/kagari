@@ -1,6 +1,7 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
 use super::native_allocations_counter::{Counts, measured, verify_counter};
 use crate::bytecode_fixture::load_bytecode;
+use crate::standard_library::STANDARD;
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, Slot};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::ids::FunctionRef;
@@ -25,17 +26,12 @@ use kagari_runtime::{
     },
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{hint::black_box, sync::Arc, time::Duration};
 
 fn module() -> NativeModule {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "measure::bindings",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+    let language = STANDARD.declarations();
+    let mut module = ModuleBuilder::new("measure::bindings", language.catalog()).unwrap();
     let add = module
         .define_function(
             FunctionDecl::new("add")
@@ -104,9 +100,11 @@ fn load() -> (Runtime, ExecutableModule) {
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
-        foundation_catalog::shared()
-            .unwrap()
-            .into_iter()
+        STANDARD
+            .declarations()
+            .declarations()
+            .iter()
+            .cloned()
             .chain([Arc::new(module.to_declaration())])
             .collect(),
     );
@@ -123,7 +121,7 @@ fn load() -> (Runtime, ExecutableModule) {
         .map(|program| program.into_unverified())
         .unwrap();
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&STANDARD.modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "allocation", program).unwrap();
     let _loaded_program = loaded;

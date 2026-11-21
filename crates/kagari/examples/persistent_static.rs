@@ -5,7 +5,7 @@ use kagari::{engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::module::InstalledProgram;
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 
 const V1: &str = r#"
 struct Box { var value: i32 }
@@ -32,8 +32,10 @@ fn call(runtime: &mut Runtime, module: &InstalledProgram, entry: &str) -> i32 {
 }
 
 fn main() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let first = engine
         .compile_to_program(
             SourceFile::new("persistent-static.kgr", V1),

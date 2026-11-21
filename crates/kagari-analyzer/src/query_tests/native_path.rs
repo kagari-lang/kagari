@@ -1,3 +1,4 @@
+use crate::query_tests::standard_modules;
 use crate::{
     AnalyzerQueries,
     query_tests::{common::import_facts, test_analysis},
@@ -16,7 +17,6 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -197,7 +197,7 @@ impl Hosts {
             module.collect_definitions(&self.context).unwrap();
         }
         let definitions = self.context.snapshot();
-        let mut providers = foundation_catalog::shared().unwrap();
+        let mut providers = standard_modules();
         providers.extend(self.modules.iter().cloned().map(|module| {
             Arc::new(
                 DefinitionMetadata::checked(definitions.clone(), module, &Default::default())

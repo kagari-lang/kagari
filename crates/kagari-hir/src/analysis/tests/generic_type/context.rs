@@ -1,7 +1,7 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::typeck::table::CallTarget;
 use kagari_source::diagnostic::DiagnosticKind;
-use kagari_stdlib::catalog as foundation_catalog;
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
@@ -25,7 +25,7 @@ fn body_constraints_use_later_arguments_and_local_uses() {
                 "use std::collections::{{HashMap, HashSet}}; struct Marker<T> {{ val value: i32 }} fn consume<T>(marker: Marker<T>, seed: T) {{}} fn apply<T, U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert!(
             analysis.diagnostics().is_empty(),
@@ -52,7 +52,7 @@ fn unresolved_body_variables_and_conflicting_uses_are_rejected() {
                 "use std::collections::List; fn apply<T,U>(callback: fn(T) -> U, value: T) -> U {{ callback(value) }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert!(!analysis.diagnostics().is_empty(), "{body}");
         assert!(analysis.into_codegen().is_err());
@@ -78,8 +78,8 @@ fn main() {
 }
 "#,
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let analysis =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -98,7 +98,7 @@ fn choose<T, C: Accept<T>>(target: C) -> T { loop {} }
 fn main() { val value = choose(Sink { seed: 0 }); }
 "#,
     );
-    let analysis = crate::analyze_source(&ambiguous, foundation_catalog::shared().unwrap())
+    let analysis = crate::analyze_source(&ambiguous, standard_modules())
         .expect("installed declaration analysis");
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
@@ -130,7 +130,7 @@ fn explicit_enum_arguments_check_units_payloads_and_constraints() {
                 "use std::collections::HashMap; use std::hash::{{Hash}};\nenum Token<T> {{ Empty, Data(T) }} enum Key<T: Eq + Hash> {{ Empty }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -149,8 +149,8 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
         "shared-bounds.kgr",
         "struct Key<T: PartialEq> { val value: i32 } fn consume<T: PartialEq>(value: T) {} fn make<T: PartialEq>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } } fn main() -> i32 { make(true).value }",
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let analysis =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -161,7 +161,7 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
         "missing-bound.kgr",
         "struct Key<T: PartialEq> { val value: i32 } fn consume<T: PartialEq>(value: T) {} fn make<T>(value: T) -> Key<(T, i32)> { consume((value, 7)); Key { value: 42 } }",
     );
-    let analysis = crate::analyze_source(&unconstrained, foundation_catalog::shared().unwrap())
+    let analysis = crate::analyze_source(&unconstrained, standard_modules())
         .expect("installed declaration analysis");
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         diagnostic.kind,
@@ -189,7 +189,7 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
                 "use std::collections::HashMap; use std::hash::Hash; use std::ops::Neg; struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         let constraints = analysis
             .diagnostics()
@@ -240,7 +240,7 @@ fn partial_annotations_preserve_independent_container_constraint_errors() {
                 template.replace("TYPE", annotation)
             );
             let source = SourceFile::new("partial-constraints.kgr", text.clone());
-            let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+            let analysis = crate::analyze_source(&source, standard_modules())
                 .expect("installed declaration analysis");
             let constraints = analysis
                 .diagnostics()
@@ -287,7 +287,7 @@ fn explicit_struct_arguments_check_identity_arity_bounds_and_fields() {
                 "use std::collections::HashMap; use std::hash::{{Hash}};\nstruct Marker<T> {{ val value: i32 }} struct Key<T: Eq + Hash> {{ val value: i32 }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -334,7 +334,7 @@ fn earlier_constructor_members_supply_context_to_later_members() {
                 "struct Marker<T> {{ val value: i32 }} struct Bundle<T> {{ val seed: T, val marker: Marker<T> }} struct Fixed<T> {{ val marker: Marker<bool>, val seed: T }} enum Packet<T> {{ Data(T, Marker<T>) }} {body}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -377,7 +377,7 @@ fn local_container_annotations_enforce_the_same_key_bounds_as_signatures() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("key-context.kgr", source),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert_eq!(
@@ -409,7 +409,7 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
         "use std::collections::HashMap; fn main() { var map: HashMap<i32, bool> = HashMap::new(); map = HashMap::new(); }",
     ] {
         let source = SourceFile::new("empty-context.kgr", body);
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert!(
             analysis.diagnostics().is_empty(),
@@ -425,7 +425,7 @@ fn empty_container_context_is_shared_by_all_expression_positions() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("invalid-empty-context.kgr", source),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .expect("installed declaration analysis");
         assert!(analysis.into_codegen().is_err(), "{source}");
@@ -468,7 +468,7 @@ fn assignment_context_uses_checked_target_types_without_bypassing_writeability()
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ var marker: Marker<i32> }} enum Token<T> {{ Empty }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -507,7 +507,7 @@ fn caller_owned_binders_are_context_but_uninferred_callee_binders_are_not() {
                 "struct Marker<T> {{ val value: i32 }} fn consume<T>(seed: T, value: Marker<T>) {{}} fn unseeded<T>(value: Marker<T>) {{}} fn identity<T>(value: T) -> T {{ value }} {body}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -541,7 +541,7 @@ fn generic_calls_use_result_context_and_preceding_arguments() {
                 "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} fn identity<T>(value: T) -> T {{ value }} fn empty<T>() -> Token<T> {{ Token::Empty }} fn consume<T>(seed: T, marker: Marker<T>) {{}} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -567,7 +567,7 @@ fn trait_parameter_context_keeps_targets_through_invalid_payloads() {
                 "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} trait Take {{ fn take(self, marker: Marker<i32>, token: Token<bool>) -> i32; }} fn invoke<T: Take>(value: T) -> i32 {{ value.take({arguments}) }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -605,7 +605,7 @@ fn concrete_call_parameters_supply_constructor_context_and_keep_errors() {
                 "struct Marker<T> {{ val value: i32 }} enum Token<T> {{ Empty }} fn take(value: Marker<i32>, token: Token<bool>) {{}} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -644,7 +644,7 @@ fn enum_context_resolves_unit_variants_and_nested_payload_constructors() {
                 "struct Marker<T> {{ val value: i32 }} enum Packet<T> {{ Empty, Data(Marker<T>) }} enum Other<T> {{ Empty }} {body}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -671,7 +671,7 @@ fn return_context_reaches_control_flow_and_composite_constructors() {
             "return-context.kgr",
             format!("struct Marker<T> {{ val value: i32 }} {body}"),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert!(
             analysis.diagnostics().is_empty(),
@@ -700,7 +700,7 @@ fn annotated_struct_constructors_infer_phantom_parameters_and_check_fields() {
                 "struct Marker<T> {{ val value: i32 }} struct Outer<T> {{ val marker: Marker<T> }} struct Other<T> {{ val value: i32 }} fn main() {{ {body} }}"
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),
@@ -731,7 +731,7 @@ fn main() -> {item} {{ transform(Feed {{ value: 1 }}, {argument}) }}
 "#
             ),
         );
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),

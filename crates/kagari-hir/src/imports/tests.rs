@@ -1,6 +1,9 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{
-    analysis::{AnalysisDatabase, AnalysisSnapshot, error::AnalysisError},
+    analysis::{
+        AnalysisDatabase, AnalysisSnapshot, core_source::packaged_modules, error::AnalysisError,
+    },
     lower::lower_module,
     tests::{native_fixture::function_module, test_analysis},
 };
@@ -13,7 +16,6 @@ use kagari_source::{
     package::{PackageEnvironment, PackageScope},
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
 
 fn identity(name: &str) -> ModuleIdentity {
@@ -38,10 +40,14 @@ pub(super) fn analyze(db: &SourceDatabase) -> AnalysisSnapshot {
 fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     let mut expected = names.iter().map(|name| identity(name)).collect::<Vec<_>>();
     expected.extend(
-        foundation_catalog::shared()
-            .unwrap()
+        standard_modules()
             .into_iter()
             .map(|module| module.records().identity.clone()),
+    );
+    expected.extend(
+        packaged_modules()
+            .iter()
+            .map(|input| input.source.module_identity().clone()),
     );
     expected.sort();
     expected
@@ -347,7 +353,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         vec![("value", Ty::Builtin(BuiltinType::I32))],
         Ty::Builtin(BuiltinType::I32),
     );
-    let mut modules = foundation_catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(module);
     analysis.set_native_modules(modules);
     let snapshot = analysis
@@ -486,7 +492,7 @@ fn duplicate_source_and_structured_module_owners_are_rejected() {
         vec![],
         Ty::Builtin(BuiltinType::Unit),
     );
-    let mut modules = foundation_catalog::shared().unwrap();
+    let mut modules = standard_modules();
     modules.push(module);
     // Distinct type/value namespace spellings are valid in the original snapshot.
     let snapshot = analysis

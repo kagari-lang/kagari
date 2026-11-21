@@ -1,9 +1,7 @@
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{compile, compile_program},
-        support::bytecode::reload_bytecode,
-    },
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{compile, compile_program},
+    support::bytecode::reload_bytecode,
 };
 
 use kagari_runtime::{
@@ -109,11 +107,8 @@ impl Drop for Observer {
 type Callback = Function<(i32,), i32>;
 
 fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> NativeModule {
-    let mut builder = ModuleBuilder::new(
-        "fixture::transfer",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("fixture::transfer", test_library::standard().catalog()).unwrap();
     let mut declaration = builder.define_type("Counter").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<Counter>())

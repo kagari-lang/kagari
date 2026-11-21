@@ -1,8 +1,8 @@
 //! Matched finite arithmetic/bit/conversion workloads across every numeric type.
 use crate::Options;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
+use crate::standard_builder;
+use kagari::{context::ExecutionContext, program::Program};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use mlua::{Function, Lua};
 use std::{hint::black_box, time::Instant};
 
@@ -57,8 +57,7 @@ pub(super) fn run(options: &Options) {
         .map(|ty| source(ty))
         .collect::<Vec<_>>()
         .join("\n");
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = standard_builder().build().unwrap();
     let start = Instant::now();
     let artifact = engine
         .compile_to_artifact(

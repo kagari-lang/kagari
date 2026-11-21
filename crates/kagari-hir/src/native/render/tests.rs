@@ -1,8 +1,8 @@
 use super::*;
 use crate::native::adoption::adopt;
+use crate::tests::standard::standard_modules;
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog;
 use kagari_syntax::{
     ast::visit::NodeRef,
     parser::{ParseOptions, parse},
@@ -10,7 +10,7 @@ use kagari_syntax::{
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
-    let left = catalog::shared().unwrap();
+    let left = standard_modules();
     let cancel = CancellationToken::default();
     let context = DefinitionContext::new().unwrap();
     // Catalog projections share one sealed scope; import explicitly to test another scope.
@@ -102,7 +102,7 @@ fn native_views_preserve_canonical_text_and_scoped_navigation() {
 fn native_view_retains_its_prefix_and_rejects_missing_implicit_names() {
     let cancel = CancellationToken::default();
     let context = DefinitionContext::new().unwrap();
-    let providers = catalog::shared().unwrap();
+    let providers = standard_modules();
     let original = providers
         .iter()
         .find(|provider| !provider.records().functions.is_empty())

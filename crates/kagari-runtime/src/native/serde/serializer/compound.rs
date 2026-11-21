@@ -30,9 +30,8 @@ pub(crate) fn check_standard_enum(
     } else {
         binding::option_declaration()
     };
-    cx.runtime()
-        .native_entries
-        .catalog
+    cx.owner()
+        .conversion_catalog()
         .type_reference(&declaration)?;
     if matches!(expected.ty(), Ty::Enum(nominal) if expected.definitions().lookup(&declaration) == Some(nominal.declaration) && nominal.arguments.len() == if result { 2 } else { 1 })
     {

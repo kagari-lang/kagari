@@ -48,7 +48,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     )?;
     let index = interface(module, "Index", 1)?;
     let output = module.reference_associated_type(&index, "Output", 0)?;
-    let entry = override_entry(module, &index, "index", 0, raw(2, arrays::index))?;
+    let entry = override_entry(module, &index, "index", 0, raw(2, arrays::index))?
+        .documentation("Return the element at the given index; an out-of-bounds index traps.");
     module.trait_implementation_with(1, |arguments| {
         Ok(TraitImplementation {
             receiver: array(arguments[0].clone())?,
@@ -60,7 +61,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })?;
     let equal = interface(module, "PartialEq", 0)?;
     let member = module.reference_method(&equal, "eq", 0)?;
-    let entry = override_entry(module, &equal, "eq", 0, raw(2, arrays::equal))?;
+    let entry = override_entry(module, &equal, "eq", 0, raw(2, arrays::equal))?.documentation("Compare lengths, then compare elements in order using their selected PartialEq implementation.");
     module.trait_implementation_with(1, |arguments| {
         Ok(TraitImplementation {
             receiver: array(arguments[0].clone())?,

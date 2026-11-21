@@ -561,6 +561,7 @@ dependencies = [
 name = "kagari-analyzer"
 version = "0.1.0"
 dependencies = [
+ "kagari",
  "kagari-common",
  "kagari-contract",
  "kagari-hir",
@@ -672,6 +673,7 @@ dependencies = [
  "kagari-contract",
  "kagari-hir",
  "kagari-mir",
+ "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",
  "kagari-syntax",
@@ -688,10 +690,13 @@ dependencies = [
  "bincode",
  "kagari-abi",
  "kagari-common",
- "kagari-stdlib",
  "kagari-types",
  "serde",
 ]
+
+[[package]]
+name = "kagari-core-source"
+version = "0.1.0"
 
 [[package]]
 name = "kagari-derive"
@@ -727,8 +732,11 @@ dependencies = [
  "bincode",
  "blake3",
  "kagari-analyzer",
+ "kagari-bytecode",
  "kagari-common",
  "kagari-contract",
+ "kagari-core-source",
+ "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",
  "kagari-syntax",
@@ -745,6 +753,7 @@ dependencies = [
 name = "kagari-lint"
 version = "0.1.0"
 dependencies = [
+ "kagari",
  "kagari-common",
  "kagari-hir",
  "kagari-source",
@@ -890,6 +899,7 @@ name = "kagari-web"
 version = "0.1.0"
 dependencies = [
  "kagari",
+ "kagari-common",
  "kagari-runtime",
  "kagari-source",
  "kagari-stdlib",

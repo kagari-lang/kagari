@@ -1,0 +1,19 @@
+//! Construction of a type's chosen default value.
+/// Use this bound when a caller needs a value without knowing how to construct it.
+/// A type supplies its own policy; its fields need not all implement `Default`.
+/// For example, `Option<T>` chooses `None` even if `T` has no default.
+///
+/// ```kagari
+/// use core::default::Default;
+/// struct Level { val number: i32 }
+/// impl Default for Level {
+///     fn default() -> Self { Level { number: 1 } }
+/// }
+/// fn initial<T: Default>() -> T { T::default() }
+/// ```
+///
+/// `initial::<Level>().number` returns `1`.
+pub trait Default {
+    /// Returns the value chosen by this implementation. No receiver is needed.
+    fn default() -> Self;
+}

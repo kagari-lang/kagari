@@ -1,6 +1,6 @@
+use crate::test_support::standard::standard_library;
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn invalid_conversion_implementations_are_diagnostics() {
@@ -13,10 +13,13 @@ fn invalid_conversion_implementations_are_diagnostics() {
         "struct X{} impl From<i32> for X {fn from(v:i32)->X {X{}}} fn main(){X{}.from(1);}",
     ] {
         assert!(
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(SourceFile::new("bad.kgr", source), Default::default())
-                .is_err(),
+            KagariEngine::with_native_modules(
+                Default::default(),
+                standard_library().modules().unwrap()
+            )
+            .unwrap()
+            .compile_to_artifact(SourceFile::new("bad.kgr", source), Default::default())
+            .is_err(),
             "{source}"
         );
     }
@@ -24,8 +27,11 @@ fn invalid_conversion_implementations_are_diagnostics() {
 
 #[test]
 fn direct_reverse_implementations_are_reserved_for_core_convert() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for source in [
         "struct X{} impl Into<i32> for X {fn into(self)->i32 {1}} fn main(){}",
         "struct X{} impl TryInto<i32> for X {type Error=String;fn try_into(self)->Result<i32,String>{Ok(1)}} fn main(){}",
@@ -66,9 +72,11 @@ fn construction_contracts_reject_invalid_signatures_and_bounds() {
         "fn main()->i32 {i32::sum([true])}",
         "fn main(){val x:Result<i32,String> = i32::try_from(1);}",
     ] {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         assert!(
             engine
                 .compile_to_artifact(

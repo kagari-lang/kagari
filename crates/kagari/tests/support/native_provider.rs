@@ -6,27 +6,25 @@ use kagari_gc::{
     object::{Edge, GcObject, ObjectCharge},
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
+use kagari_runtime::{
+    error::RuntimeError,
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::ModuleBuilder,
+        callable::{CallableHandle, StoredCallable},
+        catalog::DeclarationCatalog,
+        context::NativeCall,
+        declarations::{FunctionDecl, MethodDecl},
+        module::NativeModule,
+        storage::NativeStorage,
+        types::Type,
+        views::ValueHandle,
+    },
+    value::{carriers::StoredValue, view::ValueView},
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
-};
-use {
-    kagari_runtime::{
-        error::RuntimeError,
-        native::{
-            binding::{Codec, NativeBinding, NativeResult},
-            builder::ModuleBuilder,
-            callable::{CallableHandle, StoredCallable},
-            context::NativeCall,
-            declarations::{FunctionDecl, MethodDecl},
-            module::NativeModule,
-            storage::NativeStorage,
-            types::Type,
-            views::ValueHandle,
-        },
-        value::{carriers::StoredValue, view::ValueView},
-    },
-    kagari_stdlib::declarations::StandardDeclarations,
 };
 
 fn fill<'call>(
@@ -46,13 +44,8 @@ fn fill<'call>(
     cx.allocate_array(cx.result_type_parameter(0)?, &values)
 }
 
-pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new(
-        "external::fixture",
-        &language.catalog().expect("explicit standard providers"),
-    )
-    .unwrap();
+pub fn module(catalog: &DeclarationCatalog, drops: Arc<AtomicUsize>) -> NativeModule {
+    let mut module = ModuleBuilder::new("external::fixture", catalog).unwrap();
     let function = module
         .define_function(FunctionDecl::new("from_fn"))
         .unwrap();

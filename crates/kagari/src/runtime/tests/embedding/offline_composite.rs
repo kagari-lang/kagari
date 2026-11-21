@@ -1,5 +1,6 @@
 #[cfg(feature = "native")]
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
@@ -19,7 +20,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 fn array() -> Type {
     Type::from_semantic(
         Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-        StandardDeclarations::default().declarations().unwrap()[0].definitions(),
+        standard_library().declarations().declarations()[0].definitions(),
     )
     .unwrap()
 }
@@ -43,7 +43,8 @@ fn composite(standard: &StandardDeclarations) -> Type {
         Type::tuple([string.clone(), Type::bool()]).unwrap(),
         string.clone(),
         standard.option(Type::i32()).unwrap(),
-        StandardDeclarations::enumeration("Result")
+        standard
+            .enumeration("Result")
             .unwrap()
             .apply([Type::i32(), string])
             .unwrap(),
@@ -53,9 +54,9 @@ fn composite(standard: &StandardDeclarations) -> Type {
 
 #[test]
 fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes() {
-    let standard = StandardDeclarations::default();
-    let mut builder = ModuleBuilder::new("demo", &standard.catalog().unwrap()).unwrap();
-    let shape = composite(&standard);
+    let standard = standard_library().declarations();
+    let mut builder = ModuleBuilder::new("demo", standard.catalog()).unwrap();
+    let shape = composite(standard);
     let make = builder
         .define_function(
             FunctionDecl::new("make")
@@ -119,7 +120,8 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])
@@ -215,7 +217,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
 #[test]
 fn offline_composite_signatures_reject_nested_source_mismatches() {
     let mut builder =
-        ModuleBuilder::new("demo", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+        ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
     let take = builder
         .define_function(
             FunctionDecl::new("take")
@@ -234,7 +236,8 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])
@@ -253,7 +256,7 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
 #[test]
 fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_operands() {
     let mut builder =
-        ModuleBuilder::new("demo", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+        ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
     let take = builder
         .define_function(
             FunctionDecl::new("take")
@@ -284,7 +287,8 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])

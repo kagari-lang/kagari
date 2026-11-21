@@ -1,9 +1,7 @@
 use super::{fixture, fixture_without_foundation};
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::compile_without_foundation, support::bytecode::reload_bytecode,
-    },
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::compile_without_foundation, support::bytecode::reload_bytecode,
 };
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
@@ -69,7 +67,7 @@ struct IntList;
 
 impl KagariType for IntList {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        Ok(StandardDeclarations::default()
+        Ok(test_library::standard()
             .list()
             .apply([i32::kagari_type(catalog)?])
             .unwrap()
@@ -83,7 +81,7 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
     let observed = calls.clone();
     let mut builder = ModuleBuilder::new(
         "example::interface_handles",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     {

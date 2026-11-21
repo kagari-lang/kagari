@@ -291,8 +291,7 @@ mod interpolation_queries {
                     .unwrap();
                 let mut db = test_analysis();
                 db.set_native_modules(
-                    foundation_catalog::shared()
-                        .unwrap()
+                    standard_modules()
                         .into_iter()
                         .chain([crate::tests::native::text_items_module(
                             interface_implementations,

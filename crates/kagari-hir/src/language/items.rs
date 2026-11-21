@@ -1,4 +1,6 @@
 //! Header-time role collection. Roles identify ordinary traits, not a second trait model.
+pub(crate) mod conversion;
+mod projection;
 mod shapes;
 #[cfg(test)]
 mod tests;
@@ -13,7 +15,6 @@ use crate::{
     },
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
-    types::semantic::{lower_nominal_type, lower_type},
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -25,10 +26,8 @@ use kagari_source::{
     literal::decode_string_literal,
 };
 use kagari_types::{
-    callable::CallableImplementation,
-    declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, names::NameNamespace},
-    language::{self, role::LangRole},
-    ty::{GenericBound, GenericParam},
+    declaration::names::NameNamespace,
+    language::{self, requirements, role::LangRole, schema::CoreEnum},
     visibility::Visibility,
 };
 use std::collections::{BTreeMap, btree_map::Entry};
@@ -122,11 +121,31 @@ pub(crate) fn collect(
 /// Check language-required shapes against their semantic requirements, not a copy
 /// supplied by the producer. Static conversion relationships use the shared verifier.
 pub(crate) fn validate_shapes(
+    lowered: &LoweredModule,
     declarations: &Declarations,
     aggregates: &AggregateCatalog,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    let definitions = declarations.definitions();
+    for required in CoreEnum::COMPARISON {
+        let path = required.declaration();
+        if &path.module != lowered.source.module_identity() {
+            continue;
+        }
+        let valid = definitions.lookup(&path).is_some_and(|owner| {
+            matches!(declarations.definition_target(&owner), Some(ResolvedName::Enum(id)) if lowered.module.enums[id.index()].visibility == Visibility::Public)
+                && aggregates.enumeration(&owner)
+                    .and_then(|actual| projection::enumeration(actual, definitions))
+                    .is_some_and(|record| required.shape_valid(owner, &record, definitions))
+        });
+        if !valid {
+            diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
+                role: path.path[0].name.clone(),
+                reason: "missing or invalid public comparison enum".into(),
+            }));
+        }
+    }
     for (role, id) in &declarations.language_items {
         if cancel.check().is_err() {
             return;
@@ -140,22 +159,34 @@ pub(crate) fn validate_shapes(
             }));
         }
     }
-    for actual in aggregates.traits().filter(|actual| {
-        actual.conversion_adapter.is_some()
-            && matches!(
-                declarations.definition_target(&actual.id),
-                Some(ResolvedName::Trait(_))
-            )
-    }) {
+    let try_from = conversion::try_from(definitions);
+    for item in &lowered.module.traits {
         if cancel.check().is_err() {
             return;
+        }
+        let Some(actual) = declarations
+            .definition(ResolvedName::Trait(item.id))
+            .and_then(|id| aggregates.trait_(id))
+        else {
+            continue;
+        };
+        let canonical = Some(actual.id) == try_from;
+        if !canonical && actual.conversion_adapter.is_none() {
+            continue;
         }
         let exposed = match conversion_exposed(actual, declarations, cancel) {
             Ok(exposed) => exposed,
             Err(_) => return,
         };
+        let canonical_shape = !canonical
+            || (item.visibility == Visibility::Public
+                && item
+                    .conversion_adapter
+                    .as_ref()
+                    .is_none_or(|supplied| actual.conversion_adapter.as_ref() == Some(supplied)));
         if !exposed
-            || !conversion_valid(actual, declarations.definitions())
+            || !canonical_shape
+            || !conversion_valid(actual, definitions, canonical)
             || !shapes::conversion_targets_valid(actual, aggregates)
         {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
@@ -179,91 +210,20 @@ fn conversion_exposed(
         .is_some())
 }
 
-fn conversion_valid(actual: &TraitSignature, definitions: &DefinitionTable) -> bool {
-    if !actual.associated_consts.is_empty()
-        || !actual.associated_type_parameters.is_empty()
-        || !actual.supertraits.is_empty()
-        || actual.bounds.values().any(|bounds| !bounds.is_empty())
-        || actual
-            .methods
-            .iter()
-            .any(|method| method.bounds.values().any(|bounds| !bounds.is_empty()))
-    {
-        return false;
-    }
-    // A temporary projection of the actual checked declaration lets the portable
-    // verifier own conversion rules too; no expected trait catalog is retained.
-    let record = TraitDef {
-        associated_consts: vec![],
-        name: String::new(),
-        supertraits: actual.supertraits.iter().map(lower_nominal_type).collect(),
-        bounds: actual
-            .bounds
-            .iter()
-            .map(|(ty, constraints)| GenericBound {
-                ty: lower_type(ty),
-                constraints: constraints.iter().map(lower_nominal_type).collect(),
-            })
-            .collect(),
-        generic_params: actual
-            .generic_params
-            .iter()
-            .map(|parameter| GenericParam {
-                owner: parameter.owner,
-                position: parameter.position,
-            })
-            .collect(),
-        methods: actual
-            .methods
-            .iter()
-            .map(|method| FnDecl {
-                host_policy: None,
-                method_policy: method.policy,
-                name: method.name.clone(),
-                implementation: CallableImplementation::Required,
-                generic_params: method
-                    .generic_params
-                    .iter()
-                    .filter(|parameter| parameter.owner == method.id)
-                    .map(|parameter| GenericParam {
-                        owner: parameter.owner,
-                        position: parameter.position,
-                    })
-                    .collect(),
-                bounds: method
-                    .bounds
-                    .iter()
-                    .map(|(ty, constraints)| GenericBound {
-                        ty: lower_type(ty),
-                        constraints: constraints.iter().map(lower_nominal_type).collect(),
-                    })
-                    .collect(),
-                params: method
-                    .params
-                    .iter()
-                    .map(|parameter| Param {
-                        name: parameter.name.clone(),
-                        ty: lower_type(&parameter.ty),
-                        mutable: parameter.writeability.is_var(),
-                    })
-                    .collect(),
-                return_type: lower_type(&method.return_type),
-            })
-            .collect(),
-        associated_types: actual
-            .associated_types
-            .iter()
-            .map(|(id, bounds)| AssociatedTypeDef {
-                declaration: *id,
-                generic_params: vec![],
-                parameter_bounds: vec![],
-                bounds: bounds.iter().map(lower_nominal_type).collect(),
-            })
-            .collect(),
-        conversion_adapter: actual.conversion_adapter.clone(),
-    };
-    actual
-        .conversion_adapter
-        .as_ref()
-        .is_some_and(|relationship| relationship.valid_in(&actual.id, &record, definitions))
+fn conversion_valid(
+    actual: &TraitSignature,
+    definitions: &DefinitionTable,
+    canonical: bool,
+) -> bool {
+    projection::simple_trait(actual, definitions).is_some_and(|record| {
+        if canonical {
+            requirements::trait_shape_valid(actual.id, &record, definitions)
+        } else {
+            record.supertraits.is_empty()
+                && record
+                    .conversion_adapter
+                    .as_ref()
+                    .is_some_and(|adapter| adapter.valid_in(&actual.id, &record, definitions))
+        }
+    })
 }

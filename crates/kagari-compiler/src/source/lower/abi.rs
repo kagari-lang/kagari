@@ -12,8 +12,8 @@ mod type_definitions;
 use crate::source::lower::statics::static_contract;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::types::{
-    InterfaceTable, ModuleContract, PublicItem, inherent::InherentTable, materialization,
-    named::FunctionOrigin,
+    InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
+    materialization, named::FunctionOrigin,
 };
 use kagari_hir::{
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -159,7 +159,14 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
     ModuleContract {
         named_declarations: named::collect(module),
         function_origins: Vec::new(),
-        trait_references: Vec::new(),
+        trait_references: module
+            .trait_references()
+            .iter()
+            .map(|(declaration, abi)| TraitContract {
+                declaration: *declaration,
+                abi: abi.clone(),
+            })
+            .collect(),
         native_declarations,
         public_items,
         private_types,

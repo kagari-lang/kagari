@@ -1,6 +1,7 @@
 //! Compile against common native declarations without callbacks or a runtime.
 //! Run with `cargo run -p kagari --example offline_compile`.
 use kagari::BytecodeArtifact;
+use kagari::engine::KagariEngine;
 use kagari_analyzer::AnalyzerQueries;
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact},
@@ -14,7 +15,7 @@ use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_hir::{analysis::AnalysisDatabase, declarations::DeclarationId};
 use kagari_mir::codec::encode_program;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog;
+use kagari_stdlib::StandardLibrary;
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
@@ -224,6 +225,8 @@ fn declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     // A binding provider shares its ordinary declaration records with tooling.
     // This does not construct a NativeModule, callback, host object or Runtime.
     let offline = declarations()?;
@@ -250,7 +253,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         path.fingerprint(offline.definitions())?
     );
     let mut analysis = AnalysisDatabase::default();
-    let mut providers = catalog::shared()?;
+    let mut providers = library.declarations().declarations().to_vec();
     providers.push(Arc::new(offline));
     analysis.set_native_modules(providers);
     let mut sources = SourceDatabase::default();

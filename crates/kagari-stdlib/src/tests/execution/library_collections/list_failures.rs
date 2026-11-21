@@ -1,5 +1,6 @@
 //! Failure preserves completed work and releases every temporary root/lease.
 use super::*;
+use crate::test_library;
 use kagari_runtime::{Runtime, module::entry::ProgramEntry};
 
 #[cfg(test)]
@@ -12,7 +13,7 @@ fn failed_array(source: &str, expected: &[i32], calls: usize) {
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
-        &crate::modules().unwrap(),
+        &test_library::modules().unwrap(),
         &mut runtime,
     )
     .unwrap();

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "fuzz",
+    "library/core",
     "benchmarks/lua-comparison",
     "crates/kagari-codegen",
     "crates/kagari-abi",
@@ -34,6 +35,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+kagari-core-source = { path = "library/core" }
 kagari-analyzer = { path = "crates/kagari-analyzer" }
 kagari-format = { path = "crates/kagari-format" }
 kagari-lint = { path = "crates/kagari-lint" }

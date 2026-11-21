@@ -10,9 +10,12 @@ use kagari_runtime::{
     native::{builder::ModuleBuilder, host},
     value::view::ValueView,
 };
-use kagari_stdlib as stdlib;
+#[path = "../tests/support/portable_standard.rs"]
+mod portable_standard;
+use kagari_contract::native_bundle::BYTECODE_FILE;
+use kagari_stdlib::{StandardLibrary, namespaces};
 use kagari_types::declaration::logging;
-use std::{env, path::PathBuf};
+use std::{env, fs, path::PathBuf};
 
 fn main() {
     let path = PathBuf::from(
@@ -32,7 +35,16 @@ fn main() {
     // The CLI producer installs host::log. Loading validates all carried native
     // declarations, including services unused by the selected scalar entry.
     let mut engine = KagariEngine::builder().expect("engine registrations");
-    engine.install_all(stdlib::modules().unwrap()).unwrap();
+    let library = if engine
+        .declarations()
+        .authored_origin(&namespaces::module("core", "cmp"))
+        .is_some()
+    {
+        StandardLibrary::new(engine.declarations()).unwrap()
+    } else {
+        portable_standard::from_bytes(&fs::read(path.join(BYTECODE_FILE)).unwrap()).unwrap()
+    };
+    engine.install_all(library.modules().unwrap()).unwrap();
     let mut logging = ModuleBuilder::from_declaration(
         logging::declaration().expect("logging declaration"),
         engine.declarations(),

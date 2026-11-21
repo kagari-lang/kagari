@@ -1,4 +1,5 @@
 use crate::runtime::tests::embedding::native_program::ProgramFixture;
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -43,7 +44,6 @@ use kagari_runtime::{
     },
     value::view::ValueView,
 };
-use kagari_stdlib as stdlib;
 
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -61,10 +61,8 @@ use kagari_types::{
 };
 
 fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
-    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new("game", &catalog).unwrap();
+    let catalog = standard_library().declarations().catalog();
+    let mut builder = ModuleBuilder::new("game", catalog).unwrap();
     let mut player = builder.define_type("Player").unwrap();
     player
         .external(HostTypePolicy {
@@ -350,7 +348,8 @@ fn host_path_artifact(
 fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
@@ -439,7 +438,8 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 fn installed_host_path_mutation_uses_declared_access() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![embedding_host_path_module(PathAccess::ReadWrite)])
@@ -503,7 +503,8 @@ fn installed_host_path_mutation_uses_declared_access() {
 fn installed_host_path_reads_need_no_permission_flags() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![embedding_host_path_module(PathAccess::ReadOnly)])

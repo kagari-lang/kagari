@@ -3,9 +3,10 @@ use crate::{
     callable::CallableImplementation,
     declaration::{
         FnDecl, TraitDef,
-        conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
+        conversion::{
+            forwarding_expression, is_library_forwarding_trait, library_forwarding_header_valid,
+        },
         module::{DeclarationError, ImplDecl, ModuleDecl},
-        script::ScriptExpr,
         verify::trait_valid,
     },
     ty::{
@@ -252,37 +253,23 @@ impl ModuleDecl {
         owner: DefinitionId,
         definitions: &DefinitionTable,
     ) -> bool {
-        let bound = &implementation.bounds[0];
-        let forward = &bound.constraints[0];
-        let (name, target) = if implementation
+        let fallible = implementation
             .trait_type
             .as_ref()
-            .is_some_and(|ty| ty.associated_types.is_empty())
-        {
-            ("into", "from")
-        } else {
-            ("try_into", "try_from")
-        };
+            .is_some_and(|ty| !ty.associated_types.is_empty());
+        let name = if fallible { "try_into" } else { "into" };
         let [method] = implementation.methods.as_slice() else {
-            return false;
-        };
-        let Some(id) = definitions.lookup_child(owner, DefinitionKind::Method, name, 0) else {
-            return false;
-        };
-        let Some(ScriptExpr::Call {
-            callee,
-            type_arguments,
-            arguments,
-        }) = self.script_bodies.get(&id)
-        else {
             return false;
         };
         method.name == name
             && method.implementation == CallableImplementation::Script
-            && type_arguments.is_empty()
-            && matches!(arguments.as_slice(), [ScriptExpr::Name(arg)] if arg == "self")
-            && matches!(callee.as_ref(), ScriptExpr::TraitMethod { receiver, interface, member }
-                if receiver == &bound.ty && interface == forward && definitions.lookup_child(forward.declaration, DefinitionKind::Method, target, 0) == Some(*member))
+            && definitions
+                .lookup_child(owner, DefinitionKind::Method, name, 0)
+                .and_then(|id| self.script_bodies.get(&id))
+                .is_some_and(|body| {
+                    forwarding_expression(definitions, &implementation.bounds[0], fallible).as_ref()
+                        == Some(body)
+                })
     }
 
     fn normalized(

@@ -5,7 +5,7 @@
 //! installed module's ordinary expression, never a digest supplied by the artifact.
 mod trait_calls;
 
-use super::NativeRegistry;
+use super::{NativeRegistry, forwarding::source_member};
 use crate::{
     error::RuntimeError,
     module::{VerifiedProgram, admission::DefinitionAdmission},
@@ -29,7 +29,13 @@ use kagari_contract::types::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::{FnDecl, module::ModuleDecl, script::ScriptExpr},
+    declaration::{
+        FnDecl,
+        conversion::{forwarding_expression, is_library_forwarding_trait},
+        module::ModuleDecl,
+        script::ScriptExpr,
+    },
+    language::Protocol,
     scalar::BuiltinType,
     ty::{
         GenericBound, GenericParam, NominalTy, Ty,
@@ -195,6 +201,21 @@ impl NativeRegistry {
                 }
             }
         }
+        let defs = program.definitions();
+        let convert = Protocol::From.module();
+        let mut blankets = HashMap::new();
+        if !self.catalog.contains_module(&convert)
+            && let Some(owner) = program.modules().iter().find(|m| m.identity == convert)
+        {
+            for item in &owner.public_items {
+                if let PublicItem::InterfaceTable(table) = item
+                    && let Ty::Trait(interface) = &table.trait_type
+                    && is_library_forwarding_trait(defs, interface.declaration)
+                {
+                    blankets.insert(source_member(table, defs).ok_or_else(invalid)?, table);
+                }
+            }
+        }
         let mut proofs = None;
         for function in &module.functions {
             let identity = function.identity.as_ref().ok_or_else(invalid)?;
@@ -225,21 +246,33 @@ impl NativeRegistry {
                 })
                 .unwrap_or(placement);
             if canonical != placement
-                && self
-                    .scripts
-                    .get_id(admission.runtime_id(placement)?)
-                    .is_some()
+                && (blankets.contains_key(&canonical)
+                    || blankets.contains_key(&placement)
+                    || self
+                        .scripts
+                        .get_id(admission.runtime_id(placement)?)
+                        .is_some())
             {
                 // An authored implementation cannot be replaced by an inherited body.
                 return Err(invalid());
             }
             let installed = admission.runtime_id(canonical)?;
-            let Some(script) = self.scripts.get_id(installed) else {
+            let (mut body, function_contract) = if let Some(script) = self.scripts.get_id(installed)
+            {
+                (
+                    script.product_body(admission, &cancel)?,
+                    admission.product(&script.function, &cancel)?,
+                )
+            } else if let Some(table) = blankets.get(&placement) {
+                let method = &table.methods[0];
+                (
+                    forwarding_expression(defs, &table.bounds[0], method.name == "try_into")
+                        .ok_or_else(invalid)?,
+                    explicit_signature(method, &table.generic_params, &table.bounds)?,
+                )
+            } else {
                 continue;
             };
-            // Installed expressions are independent of compiler-produced instruction facts.
-            let mut body = script.product_body(admission, &cancel)?;
-            let function_contract = admission.product(&script.function, &cancel)?;
             let arguments = identity
                 .arguments
                 .iter()
@@ -309,7 +342,14 @@ impl NativeRegistry {
                 None => None,
             };
 
-            let trace = Trace::read(module, function, program)?;
+            // A blanket forwards its argument without even constructing a closure.
+            // Installed expressions may legitimately name a function value.
+            let trace = Trace::read(
+                module,
+                function,
+                program,
+                !blankets.contains_key(&placement),
+            )?;
             let qualified = trait_calls::contains(&body);
             if qualified && proofs.is_none() {
                 proofs = Some(proof_scope(module, program)?);
@@ -331,7 +371,18 @@ impl NativeRegistry {
                 expression.fold_identity_calls(&mut body)?;
             }
             let expected_result = expression.apply_type(&function_contract.return_type)?;
-            let result = expression.value(&body, Some(&expected_result))?;
+            let result = expression
+                .value(&body, Some(&expected_result))
+                .map_err(|error| {
+                    if blankets.contains_key(&placement) {
+                        RuntimeError::module_validation(format!(
+                            "{} differs from the required qualified forward call",
+                            function_contract.name
+                        ))
+                    } else {
+                        error
+                    }
+                })?;
             if result != trace.result || expression.next != trace.calls.len() {
                 return Err(invalid());
             }
@@ -418,6 +469,7 @@ impl Trace {
         module: &BytecodeModule,
         function: &BytecodeFunction,
         program: &VerifiedProgram,
+        allow_closures: bool,
     ) -> NativeResult<Self> {
         let mut slots = HashMap::new();
         for (index, slot) in function.metadata.parameter_slots.iter().enumerate() {
@@ -460,7 +512,7 @@ impl Trace {
                     dst,
                     function,
                     captures,
-                } if captures.is_empty() => {
+                } if allow_closures && captures.is_empty() => {
                     let identity = module
                         .functions
                         .get(function.index())

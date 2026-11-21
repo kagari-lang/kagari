@@ -1,6 +1,6 @@
+use crate::test_support::standard::standard_library;
 use crate::{engine::KagariEngine, error::EmbeddingError};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn propagation_requires_one_infallible_conversion_bound() {
@@ -9,11 +9,13 @@ fn propagation_requires_one_infallible_conversion_bound() {
         "struct E{} struct F{} impl F {fn convert(e:E)->Result<Self,String>{Ok(F{})}} fn main()->Result<i32,F>{val x:Result<i32,E> = Err(E{});Ok(x?)}",
         "struct E{} struct Mid{} struct F{} impl From<E> for Mid {fn from(e:E)->Self{Mid{}}} impl From<Mid> for F {fn from(e:Mid)->Self{F{}}} fn main()->Result<i32,F>{val x:Result<i32,E> = Err(E{});Ok(x?)}",
     ] {
-        let error =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_source(SourceFile::new("missing-error-conversion.kgr", source))
-                .unwrap_err();
+        let error = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap()
+        .compile_source(SourceFile::new("missing-error-conversion.kgr", source))
+        .unwrap_err();
         assert!(
             format!("{error:?}").contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED"),
             "{error:?}"
@@ -65,11 +67,13 @@ fn invalid_propagation_constructors_and_callbacks_are_diagnosed() {
             "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
     ] {
-        let error =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap()
-                .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
-                .unwrap_err();
+        let error = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap()
+        .compile_to_artifact(SourceFile::new("invalid.kgr", source), Default::default())
+        .unwrap_err();
         let EmbeddingError::Diagnostics { diagnostics } = error else {
             panic!("{source}: {error:?}");
         };

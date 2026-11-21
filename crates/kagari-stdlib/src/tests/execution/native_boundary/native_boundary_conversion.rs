@@ -1,14 +1,12 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 mod dto;
 mod dto_loans;
 mod host_adapter;
 
-use crate::{
-    declarations::StandardDeclarations,
-    tests::execution::native_boundary::{
-        compile_program, publish_unused_version, support::round_trip_program,
-    },
+use crate::tests::execution::native_boundary::{
+    compile_program, publish_unused_version, support::round_trip_program,
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -47,13 +45,10 @@ use std::sync::{
 
 #[test]
 fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() {
-    let module = ModuleBuilder::new(
-        "example::typed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let module = ModuleBuilder::new("example::typed", test_library::standard().catalog())
+        .unwrap()
+        .finish()
+        .unwrap();
     let (mut vm, owner) = source_free_vm(
         include_str!("../../../../tests/fixtures/native/typed-empty-entry.kgr"),
         &module,
@@ -136,8 +131,8 @@ fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() 
 
 #[test]
 fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let module = ModuleBuilder::new("example::typed", &catalog)
+    let catalog = test_library::standard().catalog();
+    let module = ModuleBuilder::new("example::typed", catalog)
         .unwrap()
         .finish()
         .unwrap();
@@ -216,11 +211,11 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
             Ok(Self(text))
         }
     }
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::typed", catalog).unwrap();
     let mut label = module.define_enum("Label").unwrap();
     label
-        .variant("Text", [String::kagari_type(&catalog).unwrap()])
+        .variant("Text", [String::kagari_type(catalog).unwrap()])
         .unwrap();
     let label = label.finish().unwrap();
     let catalog = module.declarations().clone();
@@ -275,7 +270,7 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Runtime, InstalledPro
         },
         ..Default::default()
     });
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
     let loaded = load_bytecode(&mut runtime, "typed-native", program).unwrap();
     runtime.collect_garbage().unwrap();
@@ -284,8 +279,8 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Runtime, InstalledPro
 
 #[test]
 fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loading() {
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::typed", catalog).unwrap();
     {
         let registered_function = module
             .define_function(
@@ -378,8 +373,8 @@ fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loadin
 #[test]
 fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
     kagari_runtime::native_data! { struct FieldCount { len: u64 } }
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::typed", catalog).unwrap();
     let fields = module.register_type::<Opaque<FieldCount>>().unwrap();
     let mut counted = module.define_trait("Counted").unwrap();
     counted
@@ -458,8 +453,8 @@ fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots()
             Ok(ValueView::from(true))
         }
     }
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
+    let catalog = test_library::standard().catalog();
+    let mut module = ModuleBuilder::new("example::typed", catalog).unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     {
@@ -551,13 +546,10 @@ fn typed_host_entries_convert_composites_and_retain_returned_handles() {
             cx.retain(value).map(Self)
         }
     }
-    let module = ModuleBuilder::new(
-        "example::typed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let module = ModuleBuilder::new("example::typed", test_library::standard().catalog())
+        .unwrap()
+        .finish()
+        .unwrap();
     let (mut vm, loaded) = source_free_vm(
         include_str!("../../../../tests/fixtures/native/typed-host-composites.kgr"),
         &module,
@@ -629,11 +621,8 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
             ))
         }
     }
-    let mut module = ModuleBuilder::new(
-        "example::typed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::typed", test_library::standard().catalog()).unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     {
@@ -692,13 +681,10 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
 
 #[test]
 fn moving_a_result_out_of_its_report_keeps_it_rooted_without_manual_registration() {
-    let module = ModuleBuilder::new(
-        "example::typed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap()
-    .finish()
-    .unwrap();
+    let module = ModuleBuilder::new("example::typed", test_library::standard().catalog())
+        .unwrap()
+        .finish()
+        .unwrap();
     let (mut vm, loaded) = source_free_vm(
         include_str!("../../../../tests/fixtures/native/typed-report-result.kgr"),
         &module,
@@ -750,11 +736,8 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
     let steps = Arc::new(AtomicUsize::new(0));
     let observed = steps.clone();
     let cancel = cancellation.clone();
-    let mut module = ModuleBuilder::new(
-        "example::typed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::typed", test_library::standard().catalog()).unwrap();
     {
         let registered_function = module
             .define_function(FunctionDecl::new("gather").returns(Type::i32()))

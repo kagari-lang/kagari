@@ -12,6 +12,7 @@ mod origins;
 mod passes;
 mod patterns;
 mod program_points;
+pub(crate) mod standard;
 mod verify;
 mod visibility;
 

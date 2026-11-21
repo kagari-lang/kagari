@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -5,7 +6,6 @@ use crate::{
 };
 use kagari_runtime::{error::reason::ErrorReason, module::entry::ProgramEntry};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use kagari_types::{arithmetic::ArithmeticError, scalar::error::ScalarError};
 
 #[test]
@@ -29,7 +29,8 @@ pub fn after() -> i32 { 42 }
 "#;
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine =
+        KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("conversion-trap.kgr", source),

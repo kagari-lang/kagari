@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
@@ -7,8 +8,6 @@ use kagari_runtime::{
     value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects},
     scalar::BuiltinType,
@@ -17,9 +16,9 @@ use kagari_types::{
 
 #[test]
 fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_checks() {
-    let declarations = StandardDeclarations::default();
+    let declarations = standard_library().declarations();
     let module = |result: Type| {
-        let mut builder = ModuleBuilder::new("demo", &declarations.catalog().unwrap()).unwrap();
+        let mut builder = ModuleBuilder::new("demo", declarations.catalog()).unwrap();
         let values = builder
             .define_function(FunctionDecl::new("values").returns(result).host_policy(
                 HostCallPolicy {
@@ -59,7 +58,8 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
     .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module(array)])
@@ -104,7 +104,8 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
     let changed = module(Type::tuple([Type::i32()]).unwrap());
     let changed = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![changed])

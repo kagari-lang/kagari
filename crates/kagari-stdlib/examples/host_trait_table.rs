@@ -18,7 +18,6 @@ use kagari_runtime::{
     },
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::{declarations::StandardDeclarations, modules};
 use kagari_types::{reference::ReferenceAccess, ty::Ty};
 use std::{error::Error, sync::Arc};
 
@@ -35,7 +34,7 @@ impl RustReadable for Counter {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut module = ModuleBuilder::new("demo", &StandardDeclarations::default().catalog()?)?;
+    let mut module = ModuleBuilder::new("demo", &Default::default())?;
     let counter = module.register_type::<Opaque<Counter>>()?;
     // RustReadable alone exposes nothing. Declare the Kagari trait explicitly.
     let mut readable = module.define_trait("Readable")?;
@@ -49,8 +48,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             })
         })
     })?;
-    let mut modules = modules()?;
-    modules.push(module.finish()?);
+    let modules = [module.finish()?];
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         modules

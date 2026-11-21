@@ -1,146 +1,47 @@
 use super::*;
 use crate::{
-    declare_analysis,
-    imports::{ModuleGraph, types::TypeCatalog},
-    lower,
-    native::{adoption, api::preparation::PreparedRegistration, render::declaration_source},
+    analysis::{
+        AnalysisDatabase,
+        core_source::packaged_modules,
+        external::foundation::{change_export, exported},
+    },
+    declare_analysis, lower,
+    tests::standard::standard_modules,
 };
-use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::{catalog as foundation_catalog, catalog};
-use kagari_syntax::parser::{ParseOptions, parse};
 use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
-    let cancel = CancellationToken::default();
-    let context = DefinitionContext::new().unwrap();
-    let modules = adoption::adopt(&catalog::shared().unwrap(), &context, &cancel).unwrap();
-    let lowered = modules
-        .iter()
-        .map(|module| {
-            let mut generated = declaration_source(module, &modules).unwrap();
-            let prepared = PreparedRegistration::new(
-                module.clone(),
-                modules.clone().into(),
-                Some(&generated),
-                "/native-declarations",
-                Default::default(),
-                &cancel,
-            )
-            .unwrap();
-            let original = prepared.attach(&cancel).unwrap();
-            mutate_source(&mut generated.text);
-            if generated.text == original.source.text() {
-                return original;
-            }
-            // Exercise the role/shape checker independently of the production
-            // registration correspondence gate, which rejects these views earlier.
-            let mut sources = SourceDatabase::default();
-            sources
-                .bind_module(&generated.uri, module.records().identity.clone())
-                .unwrap();
-            let file = sources
-                .set(&generated.uri, generated.text, SourceLayer::Base)
-                .unwrap();
-            let source = sources.snapshot().file(file).unwrap().clone();
-            let parsed = parse(&source, ParseOptions::default(), &cancel).unwrap();
-            assert!(parsed.diagnostics().is_empty());
-            let mut lowered = lower::lower_module_controlled(source, &parsed.module(), &cancel);
-            lowered
-                .module
-                .imports
-                .extend(original.module.imports.clone());
-            Arc::new(lowered)
-        })
-        .collect::<Vec<_>>();
-    let environment = crate::imports::environment::ImportEnvironment {
-        modules: modules
-            .iter()
-            .map(|module| {
-                let input = module.records();
-                let mut scope = crate::imports::environment::ModuleScope::default();
-                for provider in modules.iter().map(|module| module.records()) {
-                    scope.packages.dependencies.insert(
-                        provider
-                            .package_alias
-                            .clone()
-                            .unwrap_or_else(|| provider.identity.package.0.clone()),
-                        provider.identity.package.clone(),
-                    );
-                }
-                scope.dependencies = input.dependencies.clone();
-                (input.identity.clone(), scope)
-            })
-            .collect(),
-    };
-    let graph = ModuleGraph::build_with_environment(
-        lowered.iter().map(Arc::as_ref),
-        &context,
-        &Default::default(),
-        &environment,
-        &cancel,
-        None,
-    )
-    .unwrap();
-    let declared = lowered
-        .into_iter()
-        .map(|lowered| {
-            let imports = graph
-                .node(
-                    &graph
-                        .catalog
-                        .definitions
-                        .lookup_module(lowered.source.module_identity())
-                        .unwrap(),
-                )
-                .unwrap()
-                .imports
-                .clone();
-            declare_analysis(lowered, imports, graph.catalog.clone(), &context, &cancel).unwrap()
-        })
-        .collect::<Vec<_>>();
-    let types = TypeCatalog::new(declared.iter());
-    let prepared = declared
-        .iter()
-        .map(|declared| {
-            declared
-                .clone()
-                .check_signatures(
-                    types
-                        .bindings(&declared.record.names.facts, &cancel)
-                        .unwrap(),
-                    None,
-                    &cancel,
-                )
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    let mut aggregates = AggregateCatalog::default();
-    for module in &prepared {
-        aggregates
-            .add_module(
-                &module.lowered,
-                &module.record.declarations,
-                module.record.signatures.facts(),
-                &cancel,
-            )
-            .unwrap();
+    let mut db = AnalysisDatabase::default();
+    let mut native = exported(&standard_modules());
+    for input in &mut native {
+        change_export(input, |source| {
+            let mut text = source.to_owned();
+            mutate_source(&mut text);
+            text
+        });
     }
-    let mut diagnostics = DiagnosticBuffer::default();
-    for module in &prepared {
-        diagnostics.extend(module.record.names.diagnostics.iter().cloned());
-        diagnostics.extend(module.record.signatures.diagnostics().iter().cloned());
-        validate_shapes(
-            &module.record.declarations,
-            &aggregates,
-            &mut diagnostics,
-            &cancel,
-        );
+    db.set_external_modules(native);
+    for input in packaged_modules() {
+        let mut text = input.source.text().to_owned();
+        mutate_source(&mut text);
+        if text != input.source.text() {
+            let mut altered = input.clone();
+            change_export(&mut altered, |_| text);
+            db.replace_core_fixture(altered);
+        }
     }
-    diagnostics
+    let snapshot = db
+        .snapshot(Default::default(), &Default::default())
+        .unwrap();
+    snapshot
+        .files()
+        .flat_map(|file| file.result().diagnostics().iter().cloned())
+        .collect()
 }
 
 #[test]
@@ -190,8 +91,15 @@ fn incorrect_language_member_types_are_rejected() {
 fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
     for (from, to, role) in [
         ("pub trait Hash", "trait Hash", "hash"),
-        ("pub trait Add<T>", "pub trait Add<T, Extra>", "add"),
+        ("pub trait Add<Rhs>", "pub trait Add<Rhs, Extra>", "add"),
         ("pub trait Eq: PartialEq", "pub trait Eq", "eq"),
+        (
+            "pub trait PartialEq {",
+            "pub trait PartialEq { type Extra<T>;",
+            "partial_eq",
+        ),
+        ("Some(T),", "Some(T, T),", "Option"),
+        ("pub enum Ordering", "enum Ordering", "Ordering"),
         (
             "fn hash(self) -> i64;",
             "fn hash(self, extra: i32) -> i64;",
@@ -201,8 +109,8 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
         ("pub trait Try:", "trait Try:", "try"),
         ("type Residual;", "type Residual; type Extra;", "try"),
         (
-            "pub trait FromResidual<T>",
-            "pub trait FromResidual<T, Extra>",
+            "pub trait FromResidual<R>",
+            "pub trait FromResidual<R, Extra>",
             "from_residual",
         ),
     ] {
@@ -241,8 +149,8 @@ fn application_traits_cannot_claim_roles() {
         "memory://application-role.kgr",
         "#[lang = \"add\"] trait Add<Rhs> { type Output; fn add(self, rhs: Rhs) -> Self::Output; }",
     );
-    let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
-        .expect("installed declaration analysis");
+    let result =
+        crate::analyze_source(&source, standard_modules()).expect("installed declaration analysis");
     assert!(
         result.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,

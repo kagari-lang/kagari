@@ -1,14 +1,10 @@
-use crate::types::{
-    proofs::{ProofCatalog, implementation::Implementation},
-    verify::*,
-};
+use crate::types::verify::*;
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
-use kagari_stdlib::{catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, ConstDef, FieldDef, Param, TypeDeclaration, TypeDef,
-        module::ImplDecl, native::NativeStorageLayout, verify::type_definition_valid,
+        conversion::ConversionAdapter, native::NativeStorageLayout, verify::type_definition_valid,
     },
     scalar::BuiltinType,
     ty::{
@@ -155,32 +151,79 @@ fn character_public_and_associated_constants_validate_their_domain() {
 }
 
 #[test]
-fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
+fn conversion_adapters_validate_shapes_and_member_ownership() {
     let context = DefinitionContext::new().unwrap();
-    let module = catalog::shared()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.records().identity == namespaces::module("core", "convert"))
-        .unwrap()
-        .import_into(&context, &CancellationToken::default())
+    let module = ModuleIdentity::single_file("adapter.kgr");
+    let interface = owner(&context, &module, DefinitionKind::Trait, "Convert");
+    let method = context
+        .intern_child(interface, DefinitionKind::Method, "convert", 0)
         .unwrap();
+    let error = context
+        .intern_child(interface, DefinitionKind::AssociatedType, "Error", 0)
+        .unwrap();
+    let result = owner(&context, &module, DefinitionKind::Enum, "Outcome");
+    let parameter = GenericParam {
+        owner: interface,
+        position: 0,
+    };
+    let this = Ty::SelfType(interface);
+    let failure = Ty::Projection {
+        receiver: Box::new(this.clone()),
+        interface: Box::new(NominalTy {
+            declaration: interface,
+            arguments: vec![parameter.as_type()],
+            associated_types: Default::default(),
+        }),
+        member: error,
+        arguments: vec![],
+    };
+    let contract = TraitDef {
+        name: "Convert".into(),
+        methods: vec![FnDecl {
+            host_policy: None,
+            method_policy: Default::default(),
+            implementation: CallableImplementation::Required,
+            name: "convert".into(),
+            generic_params: vec![],
+            bounds: vec![],
+            params: vec![Param {
+                name: "value".into(),
+                mutable: false,
+                ty: parameter.as_type(),
+            }],
+            return_type: Ty::Enum(NominalTy {
+                declaration: result,
+                arguments: vec![this, failure],
+                associated_types: Default::default(),
+            }),
+        }],
+        generic_params: vec![parameter],
+        bounds: vec![],
+        supertraits: vec![],
+        associated_consts: vec![],
+        associated_types: vec![AssociatedTypeDef {
+            declaration: error,
+            generic_params: vec![],
+            bounds: vec![],
+            parameter_bounds: vec![],
+        }],
+        conversion_adapter: Some(ConversionAdapter {
+            method,
+            error,
+            result,
+        }),
+    };
     let cancel = CancellationToken::default();
-    let contract = module
-        .records()
-        .traits
-        .iter()
-        .find(|contract| contract.name == "TryFrom")
-        .unwrap();
     let valid = |contract: &TraitDef| {
         validate(
             &[PublicItem::Trait(contract.clone())],
-            &module.records().identity,
+            &module,
             &cancel,
             &context.snapshot(),
         )
         .is_ok()
     };
-    assert!(valid(contract));
+    assert!(valid(&contract));
     let mut changed = contract.clone();
     changed.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(!valid(&changed));
@@ -205,64 +248,6 @@ fn installed_conversion_adapters_validate_shapes_and_member_ownership() {
         )
         .unwrap();
     assert!(!valid(&changed));
-}
-
-#[test]
-fn forwarding_admission_requires_the_registered_bound_and_error_projection() {
-    let cancel = CancellationToken::default();
-    let modules = catalog::shared().unwrap();
-    let module = modules
-        .iter()
-        .find(|module| module.records().identity == Protocol::From.module())
-        .unwrap();
-    let definitions = module.definitions();
-    let records = module.records();
-    let reverse = records
-        .definition(DefinitionKind::Trait, "TryInto", definitions)
-        .unwrap();
-    let (index, blanket) = records
-        .implementations
-        .iter()
-        .enumerate()
-        .find(|(_, implementation)| {
-            implementation
-                .trait_type
-                .as_ref()
-                .is_some_and(|ty| ty.declaration == reverse)
-        })
-        .unwrap();
-    let owner = records.implementation_id(index, definitions).unwrap();
-    let admitted = |implementation: &ImplDecl| {
-        ProofCatalog::new(
-            vec![Implementation::Native {
-                declaration: &owner,
-                implementation,
-            }],
-            [],
-            [],
-            [],
-            definitions,
-            &cancel,
-        )
-        .unwrap()
-        .overrides_valid(&Default::default(), &cancel)
-        .unwrap()
-    };
-    assert!(admitted(blanket));
-    let mut forged = blanket.clone();
-    forged.bounds.clear();
-    assert!(!admitted(&forged));
-    let mut forged = blanket.clone();
-    let output = forged
-        .trait_type
-        .as_mut()
-        .unwrap()
-        .associated_types
-        .values_mut()
-        .next()
-        .unwrap();
-    *output = Ty::Builtin(BuiltinType::I32);
-    assert!(!admitted(&forged));
 }
 
 #[test]

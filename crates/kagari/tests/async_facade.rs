@@ -1,5 +1,9 @@
 #![cfg(feature = "source")]
 //! Public typed calls: no raw values, factory staging or per-Task driving.
+#[path = "support/standard.rs"]
+mod standard;
+use standard::standard_library;
+
 use kagari::{context::ExecutionContext, engine::KagariEngine, runtime::Runtime};
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::{
@@ -26,7 +30,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use std::{
     cell::Cell,
     future::{Future, poll_fn},
@@ -78,7 +81,9 @@ impl Fixture {
         let cancels = Arc::new(AtomicUsize::new(0));
         let sent = Arc::new(Mutex::new(Vec::new()));
         let mut engine = KagariEngine::builder().unwrap();
-        engine.install_all(stdlib::modules().unwrap()).unwrap();
+        engine
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         let mut provider = ModuleBuilder::new("test::typed", engine.declarations()).unwrap();
         let touch = provider
             .define_function(

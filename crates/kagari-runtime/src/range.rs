@@ -148,6 +148,44 @@ unsafe impl GcObject for RangeValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        Runtime,
+        interpreter_tests::common::{load_bytecode_program_with_runtime, round_trip_bytecode},
+    };
+    use kagari_compiler::{
+        bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
+    };
+    use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+    use kagari_source::source_database::{SourceDatabase, SourceLayer};
+
+    #[test]
+    fn authored_range_bounds_execute_without_providers() {
+        let cancel = Default::default();
+        let mut sources = SourceDatabase::default();
+        let root = sources
+            .set(
+                "ranges.kgr",
+                include_str!("../tests/fixtures/execution/authored-range-bounds.kgr").into(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let snapshot = db.snapshot(sources.snapshot(), &cancel).unwrap();
+        let checked = snapshot.check_program(root, &cancel).unwrap();
+        let input = CheckedCompilation::from_program(&checked, &cancel).unwrap();
+        let mir = lower_program_to_mir(&input, &Default::default()).unwrap();
+        let bytecode = lower_program_to_bytecode(&mir, &cancel).unwrap();
+        let (mut runtime, installed) = load_bytecode_program_with_runtime(
+            Runtime::default(),
+            "ranges",
+            round_trip_bytecode(bytecode.into_unverified()),
+        );
+        let selected = runtime.select_program(&installed).unwrap();
+        let result = runtime
+            .execute_module(&selected, "main", runtime.execution_options())
+            .unwrap();
+        assert_eq!(result.return_value.as_bool(), Some(true));
+    }
 
     #[test]
     fn integer_endpoints_preserve_full_domain_and_validate_shapes() {

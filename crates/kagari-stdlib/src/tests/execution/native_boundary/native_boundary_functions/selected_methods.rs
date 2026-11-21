@@ -1,10 +1,8 @@
 use super::{fixture, fixture_without_foundation};
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{compile_without_foundation, publish_unused_version},
-        support::bytecode::reload_bytecode,
-    },
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{compile_without_foundation, publish_unused_version},
+    support::bytecode::reload_bytecode,
 };
 
 use kagari_runtime::{
@@ -31,11 +29,8 @@ type Base = SelectedMethod<(), i32>;
 
 #[test]
 fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload() {
-    let mut module = ModuleBuilder::new(
-        "example::selected",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::selected", test_library::standard().catalog()).unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     {
@@ -245,7 +240,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
 fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects_other_shapes() {
     let mut module = ModuleBuilder::new(
         "example::selected_generic",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let mut contract = module.define_trait("Identity").unwrap();
@@ -333,9 +328,8 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
 
 #[test]
 fn selected_primitive_operations_use_checked_typed_arguments() {
-    let declarations = StandardDeclarations::default();
-    let mut module =
-        ModuleBuilder::new("example::selected_hash", &declarations.catalog().unwrap()).unwrap();
+    let declarations = test_library::standard();
+    let mut module = ModuleBuilder::new("example::selected_hash", declarations.catalog()).unwrap();
     let hash = declarations.hash();
     let function = module
         .define_function(FunctionDecl::new("repeat").returns(Type::i64()))

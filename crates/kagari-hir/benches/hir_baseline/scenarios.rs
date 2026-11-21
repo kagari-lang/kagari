@@ -11,13 +11,15 @@ use kagari_hir::{
     types::TypeId,
 };
 use kagari_source::{identity::FileId, source_database::SourceDatabase};
-use kagari_stdlib::catalog;
+#[path = "../../tests/support/standard.rs"]
+mod standard;
 use kagari_types::{
     declaration::module::ModuleDecl,
     scalar::{BuiltinType, IntegerType},
 };
 use serde::Serialize;
 use serde_json::{Value, json};
+use standard::standard_modules;
 
 use crate::{
     report::measure,
@@ -33,7 +35,7 @@ pub struct Setup {
 impl Setup {
     pub fn initialize() -> Self {
         Self {
-            providers: catalog::shared().unwrap(),
+            providers: standard_modules(),
         }
     }
 

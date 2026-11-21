@@ -1,0 +1,24 @@
+use core::ops::{ Bound, RangeBounds, RangeFull, RangeInclusive };
+
+fn endpoints<R: RangeBounds<i32>>(r: R, start: Bound<i32>, end: Bound<i32>) -> bool {
+    r.start_bound() == start && r.end_bound() == end
+}
+
+fn bool_end<R: RangeBounds<bool>>(r: R) -> Bound<bool> {
+    r.end_bound()
+}
+
+pub fn main() -> bool {
+    val inclusive: RangeInclusive<i32> = -3..=5;
+    val full: RangeFull =..;
+    val unbounded = bool_end(full);
+    val wide: Bound<u64> = (..=18446744073709551615u64).end_bound();
+    endpoints(-3..5, Bound::Included(-3), Bound::Excluded(5)) &&
+        endpoints(inclusive, Bound::Included(-3), Bound::Included(5)) &&
+        endpoints(-3.., Bound::Included(-3), Bound::Unbounded) &&
+        endpoints(..5, Bound::Unbounded, Bound::Excluded(5)) &&
+        endpoints(..=5, Bound::Unbounded, Bound::Included(5)) &&
+        endpoints(.., Bound::Unbounded, Bound::Unbounded) &&
+        unbounded == Bound::Unbounded &&
+        wide == Bound::Included(18446744073709551615u64)
+}

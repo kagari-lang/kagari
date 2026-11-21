@@ -1,5 +1,6 @@
 use super::compile;
 use crate::test_support::bytecode::load_bytecode;
+use crate::test_support::standard::standard_library;
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
 };
@@ -23,7 +24,7 @@ fn main() -> i32 { boxed().read() }
     let artifact = compile(source).unwrap();
     let mut vm = {
         let mut registered = Runtime::default();
-        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
+        NativeModule::install_all(&standard_library().modules().unwrap(), &mut registered).unwrap();
         registered
     };
     let (definitions, artifact) = artifact.into_parts();
@@ -119,7 +120,7 @@ fn main() -> i32 { boxed().read() }
     );
     let mut foreign = {
         let mut registered = Runtime::default();
-        NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut registered).unwrap();
+        NativeModule::install_all(&standard_library().modules().unwrap(), &mut registered).unwrap();
         registered
     };
     assert_eq!(

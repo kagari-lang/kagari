@@ -1,6 +1,9 @@
 //! Diagnostic snapshots contain no script values, roots or execution-version handles.
 pub mod asynchronous;
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     Runtime,
     error::RuntimeError,

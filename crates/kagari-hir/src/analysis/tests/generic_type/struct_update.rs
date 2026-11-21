@@ -1,7 +1,7 @@
 //! Struct update typing and the checked constructor/base handoff.
+use crate::tests::standard::standard_modules;
 use crate::{analyze_source, hir::expr::ExprKind, typeck::table::CallTarget};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
-use kagari_stdlib::catalog as foundation_catalog;
 
 const FACTORIES: &str =
     include_str!("../../../../tests/fixtures/analysis/struct_update/factories.kgr");
@@ -27,7 +27,7 @@ fn struct_update_fields_keep_explicit_order_and_omitted_declaration_order() {
                 "struct Item {{ val first: i32, val second: i32, val third: i32 }} fn main(base: Item) -> Item {{ Item {{ {fields} }} }}"
             ),
         );
-        let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{fields}: {:?}",
@@ -57,7 +57,7 @@ fn struct_update_fields_keep_explicit_order_and_omitted_declaration_order() {
         "empty-update.kgr",
         "struct Empty {} fn main(base: Empty) -> Empty { Empty { ..base } }",
     );
-    analyze_source(&source, foundation_catalog::shared().unwrap())
+    analyze_source(&source, standard_modules())
         .unwrap()
         .into_codegen()
         .expect("empty struct base");
@@ -79,7 +79,7 @@ fn struct_update_context_links_fields_bases_and_factory_receivers() {
             "update-context.kgr",
             format!("{FACTORIES} fn main(base: Pair<Player>) {{ {body} }}"),
         );
-        let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{body}: {:?}",
@@ -99,7 +99,7 @@ fn struct_update_context_links_fields_bases_and_factory_receivers() {
         "update-generic.kgr",
         include_str!("../../../../tests/fixtures/analysis/struct_update/generic_projection.kgr"),
     );
-    let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -143,7 +143,7 @@ fn main(pair: Pair<Player>, wrong: Pair<bool>, other: Other, view: View) {{ {bod
 "#
             ),
         );
-        let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis
                 .diagnostics()
@@ -169,7 +169,7 @@ fn struct_update_context_does_not_choose_implementation_arguments_or_grant_bound
         "fn main<T>(base: Pair<T>) { Pair { value: Factory::make(), ..base }; }",
     ] {
         let source = SourceFile::new("update-bound.kgr", format!("{FACTORIES} {declaration}"));
-        let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().iter().any(|diagnostic| matches!(
                 diagnostic.kind,
@@ -199,7 +199,7 @@ fn struct_update_completion_uses_only_normally_produced_operands() {
             "update-completion.kgr",
             format!("{FACTORIES} fn main(base: Pair<Player>) -> i32 {{ {body} 0 }}"),
         );
-        let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = analyze_source(&source, standard_modules()).unwrap();
         assert_eq!(
             analysis.diagnostics().is_empty(),
             valid,
@@ -224,7 +224,7 @@ fn struct_update_missing_base_preserves_the_written_marker_and_other_errors() {
         "missing-update.kgr",
         "struct Item { val value: i32 } fn main() { Item { value: false, .. }; Missing { value: unknown, ..absent }; }",
     );
-    let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     let facts = analysis.facts();
     let base = facts
         .lowered
@@ -266,7 +266,7 @@ fn struct_update_bases_remain_nonconstant_in_recovery() {
         "const-update.kgr",
         "struct Item { val value: i32 } fn make() -> Item { Item { value: 1 } } const BAD: i32 = Item { value: 2, ..make() };",
     );
-    let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = analyze_source(&source, standard_modules()).unwrap();
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind, DiagnosticKind::InvalidConstInitializer { reason, .. } if reason == "unsupported const initializer expression"
     ) && diagnostic.span.is_some_and(|span| &source.text()[span.start..span.end] == "make()")), "{:?}", analysis.diagnostics());

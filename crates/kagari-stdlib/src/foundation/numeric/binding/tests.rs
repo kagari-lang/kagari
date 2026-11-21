@@ -1,10 +1,12 @@
 //! Installed float imports retain checked carrier admission and domain errors.
 use crate::namespaces;
+use crate::test_library;
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_gc::heap::HeapStats;
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
@@ -51,7 +53,7 @@ fn invoke(
 }
 
 fn fixture() -> (Runtime, ExecutableModule, HeapStats) {
-    let modules = crate::modules().unwrap();
+    let modules = test_library::modules().unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         modules

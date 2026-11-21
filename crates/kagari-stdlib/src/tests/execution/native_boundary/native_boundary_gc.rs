@@ -1,6 +1,7 @@
+use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
-use crate::{declarations::StandardDeclarations, tests::support::bytecode::reload_bytecode};
+use crate::tests::support::bytecode::reload_bytecode;
 mod payload_failures;
 mod program_cycles;
 use super::{compile, compile_program};
@@ -118,11 +119,8 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
     let captured = Arc::new(Mutex::new(None::<RootedValue>));
-    let mut builder = ModuleBuilder::new(
-        "fixture::capture",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("fixture::capture", test_library::standard().catalog()).unwrap();
     let capture = builder
         .define_function(FunctionDecl::new("capture"))
         .unwrap();

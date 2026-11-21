@@ -512,6 +512,7 @@ mod tests {
         KagariEngine,
         source::{PreparationOptions, compilation::Compilation},
     };
+    use crate::test_support::standard::standard_library;
     use kagari_common::identity::PackageId;
     use kagari_hir::typeck::const_budget::ConstLimits;
     use kagari_package::{modules::VirtualSources, project::ProjectInputs};
@@ -522,7 +523,6 @@ mod tests {
         package::{PackageEnvironment, PackageScope},
         source::SourceFile,
     };
-    use kagari_stdlib as stdlib;
     use kagari_syntax::parser::ParseLimits;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -607,7 +607,9 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let weak = Arc::downgrade(&calls);
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         builder.source_root("/capsule").unwrap();
         let mut native = ModuleBuilder::new("host", builder.declarations()).unwrap();
         let function = native
@@ -699,9 +701,11 @@ mod tests {
 
     #[test]
     fn direct_candidates_recheck_whole_inputs_without_changing_the_engine() {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         let checked = engine
             .compile_source(SourceFile::new(
                 "main.kgr",
@@ -836,9 +840,11 @@ mod tests {
         ], &cancel).unwrap();
         let project = ProjectInputs::load(&sources, "", &Default::default(), &cancel).unwrap();
         let package = project.programs().values().next().unwrap();
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         let checked = engine.compile_package(package, &cancel).unwrap();
         let capture = checked.inputs();
         assert_eq!(capture.sources().files().count(), 2);
@@ -883,9 +889,11 @@ mod tests {
 
     #[test]
     fn explicit_snapshot_replay_does_not_collapse_equal_display_origins() {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         let cancel = CancellationToken::default();
         let root = ModuleIdentity {
             package: PackageId("app".into()),

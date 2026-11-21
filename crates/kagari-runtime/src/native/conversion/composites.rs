@@ -139,11 +139,10 @@ fn check_enum_type(
     declaration: &DefinitionPath,
     arity: usize,
 ) -> NativeResult<()> {
-    // The standard provider must be installed even for an empty Option or an
-    // unselected Result arm. Nominal identity is never inferred from variant names.
-    cx.runtime()
-        .native_entries
-        .catalog
+    // Check the admitted declaration even for an empty Option or an unselected
+    // Result arm. Variant names alone do not establish nominal identity.
+    cx.owner()
+        .conversion_catalog()
         .type_reference(declaration)?;
     if let Ty::Enum(nominal) = expected.ty()
         && nominal.arguments.len() == arity
@@ -152,7 +151,7 @@ fn check_enum_type(
         return Ok(());
     }
     Err(RuntimeError::module_validation(
-        "conversion requires the installed standard enum type",
+        "conversion requires the admitted standard enum type",
     ))
 }
 

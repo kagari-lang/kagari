@@ -1,9 +1,7 @@
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{compile, compile_program},
-        support::bytecode::reload_bytecode,
-    },
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{compile, compile_program},
+    support::bytecode::reload_bytecode,
 };
 
 use kagari_runtime::{
@@ -81,11 +79,8 @@ impl Drop for Payload {
 }
 
 fn module(faults: &Arc<Faults>) -> NativeModule {
-    let mut builder = ModuleBuilder::new(
-        "fixture::payload",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("fixture::payload", test_library::standard().catalog()).unwrap();
     let faults = faults.clone();
     let mut declaration = builder.define_type("Payload").unwrap();
     declaration

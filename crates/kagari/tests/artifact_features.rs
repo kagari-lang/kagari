@@ -1,4 +1,16 @@
 //! The same portable artifact is consumed with source, native, or neither feature.
+#[path = "support/standard.rs"]
+mod standard;
+#[cfg(feature = "source")]
+use standard::standard_library;
+
+#[cfg(not(feature = "source"))]
+fn standard_library() -> &'static kagari_stdlib::StandardLibrary {
+    static LIBRARY: std::sync::LazyLock<kagari_stdlib::StandardLibrary> =
+        std::sync::LazyLock::new(|| standard::from_fixture("feature_artifact.kbc"));
+    &LIBRARY
+}
+
 #[cfg(feature = "native")]
 use kagari::context::JitPolicy;
 #[cfg(feature = "native")]
@@ -23,7 +35,6 @@ use kagari_runtime::{
     native::{conversion::context::ConversionContext, objects::Object},
     reload::ReloadValidationError,
 };
-use kagari_stdlib as stdlib;
 use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
@@ -63,11 +74,17 @@ mod reverse_conversions;
 fn engine(config: EngineConfig, drops: Arc<AtomicUsize>) -> KagariEngine {
     {
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         builder.config(config);
-        builder.install(provider::module(drops)).unwrap();
+        builder
+            .install(provider::module(builder.declarations(), drops))
+            .unwrap();
         builder.install(native_enums::module().unwrap()).unwrap();
-        builder.install(try_carrier::module().unwrap()).unwrap();
+        builder
+            .install(try_carrier::module(standard_library().declarations()).unwrap())
+            .unwrap();
         builder.build().unwrap()
     }
 }

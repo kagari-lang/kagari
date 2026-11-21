@@ -1,8 +1,8 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{hir::expr::ExprKind, typeck::table::CallTarget};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
-use kagari_stdlib::catalog as foundation_catalog;
 
 const FACTORY: &str = r#"
 trait Factory { fn make() -> Self; }
@@ -16,7 +16,7 @@ fn contextual_trait_static_calls_share_checked_dispatch_and_expected_boundaries(
         "factory.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/factory-dispatch.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -80,7 +80,7 @@ fn contextual_trait_static_calls_constrain_general_declared_results() {
         "factory-result.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/factory-result.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -101,8 +101,7 @@ fn contextual_trait_static_calls_do_not_invent_self_from_implementations() {
             "factory-context.kgr",
             format!("{FACTORY} {extra} fn main() {{ val player = Factory::make(); }}"),
         );
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
         )), "{:?}", analysis.diagnostics());
@@ -117,7 +116,7 @@ impl Factory for Player { type Item = i32; fn make() -> i32 { 42 } }
 fn main() -> i32 { Factory::make() }
 "#,
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
     )), "{:?}", analysis.diagnostics());
@@ -131,8 +130,7 @@ fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() 
         include_str!("../../../tests/fixtures/typeck/traits/factory-incompatible-bound.kgr"),
     ] {
         let source = SourceFile::new("factory-bound.kgr", declaration);
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().iter().any(|diagnostic| matches!(
                 diagnostic.kind,
@@ -154,7 +152,7 @@ fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() 
         "factory-ambiguity.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/factory-ambiguity.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis
             .diagnostics()
@@ -173,8 +171,7 @@ fn contextual_trait_static_calls_preserve_static_only_admission() {
         "fn dynamic() { val value: Factory = Factory::make(); }",
     ] {
         let source = SourceFile::new("factory-shadow.kgr", format!("{FACTORY} {declaration}"));
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(!analysis.diagnostics().is_empty(), "{declaration}");
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             diagnostic.kind,
@@ -191,8 +188,7 @@ fn contextual_trait_static_calls_recovery_and_never_do_not_prove_a_receiver() {
         include_str!("../../../tests/fixtures/typeck/traits/factory-recovery.kgr"),
     ] {
         let source = SourceFile::new("factory-recovery.kgr", declaration);
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
             &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
         )), "{:?}", analysis.diagnostics());
@@ -218,7 +214,7 @@ impl Factory for Player { fn make(seed: i32) -> Self { Player {} } }
 fn main() { Factory::make(false, unknown); }
 "#,
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     for expected in ["Self", "arity", "argument", "name"] {
         assert!(
             analysis
@@ -244,7 +240,7 @@ fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
         "trait Sequence { type Item; fn size(self) -> u64 where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
-    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&lowered.source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("Self bounds in their declaring trait context");
@@ -281,7 +277,7 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let result = crate::analyze_source(&source, standard_modules()).unwrap();
         if valid {
             result
                 .into_checked()
@@ -308,8 +304,7 @@ fn blanket_impl_headers_compare_receiver_and_trait_arguments_together() {
         ("impl<U: Marker> Ready<U> for U {}", true),
     ] {
         let source = SourceFile::new("headers.kgr", format!("{blanket}{other}"));
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         if overlaps {
             assert!(
                 analysis.diagnostics().iter().any(|diagnostic| matches!(
@@ -341,7 +336,7 @@ fn blanket_method_applications_infer_trait_arguments_from_call_signatures() {
         "blanket-method.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/blanket-method.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -403,8 +398,7 @@ fn blanket_method_applications_require_a_destination_and_forward_evidence() {
         "fn rejected<S, D>(value: S) -> Packet<D> { value.deliver(true) }",
     ] {
         let source = SourceFile::new("missing-method.kgr", format!("{declarations}{caller}"));
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().iter().any(
                 |d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "deliver")
@@ -422,7 +416,7 @@ fn bare_receiver_cannot_override_standard_formatting() {
         "format-impl.kgr",
         "impl<T> std::fmt::Display for T { fn display(self) -> String { \"\" } }",
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
         &diagnostic.kind,
         DiagnosticKind::InvalidTraitImpl { reason, .. } if reason.contains("standard protocol implementation cannot have a bare receiver")
@@ -449,7 +443,7 @@ fn forward<T{bound}>(value: Wrap<T>) {{
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let result = crate::analyze_source(&source, standard_modules()).unwrap();
         if valid {
             result
                 .into_checked()
@@ -472,7 +466,7 @@ fn conditional_application_proves_forwarded_outputs_after_substitution() {
     let fixture = include_str!("../../../tests/fixtures/typeck/traits/conditional-application.kgr");
     let check = |text: String| {
         let source = SourceFile::new("conditional-application.kgr", text);
-        crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap()
+        crate::analyze_source(&source, standard_modules()).unwrap()
     };
     let valid = check(fixture.into());
     assert!(valid.diagnostics().is_empty(), "{:?}", valid.diagnostics());
@@ -504,7 +498,7 @@ fn unused_trait_method_checks_closed_where_bound_on_trait_name() {
         "where-bound-trait-name.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/where-bound-trait-name.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         matches!(analysis.diagnostics(), [diagnostic] if matches!(
             &diagnostic.kind,
@@ -523,7 +517,7 @@ fn where_bounds_accept_satisfied_and_rhs_dependent_predicates() {
         "where-bound-valid.kgr",
         include_str!("../../../tests/fixtures/typeck/traits/where-bound-valid.kgr"),
     );
-    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
     assert!(
         analysis.diagnostics().is_empty(),
         "{:?}",
@@ -561,7 +555,7 @@ where T: Display
 }
 "#,
     );
-    let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    let analyzed = crate::analyze_source(&lowered.source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("type checker should succeed");
@@ -605,7 +599,7 @@ fn use_mapper(value: Mapper) -> (i32, String) {
 }
 "#,
     );
-    crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+    crate::analyze_source(&lowered.source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("method arguments are inferred independently through the same interface");
@@ -689,14 +683,14 @@ fn forward<K: Ord>(receiver: Transform, value: K) -> K { receiver.apply(value) }
 fn call(receiver: Transform) -> i32 { forward(receiver, 42) }
 "#,
     );
-    crate::analyze_source(&valid.source, foundation_catalog::shared().unwrap())
+    crate::analyze_source(&valid.source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect("generic interface call forwards a statically proven bound");
     let invalid = common::lower_ok(
         "trait Transform { fn apply<K: Ord>(self, value: K) -> K; } struct Unordered {} fn call(receiver: Transform) { receiver.apply(Unordered {}); }",
     );
-    let diagnostics = crate::analyze_source(&invalid.source, foundation_catalog::shared().unwrap())
+    let diagnostics = crate::analyze_source(&invalid.source, standard_modules())
         .expect("installed declaration analysis")
         .into_checked()
         .expect_err("interface calls must not bypass method-local bounds");
@@ -776,8 +770,7 @@ fn dynamic_trait_eligibility_checks_the_whole_applied_surface() {
             "static-trait.kgr",
             format!("{declaration} fn use_static<T: View>() {{}}"),
         );
-        let analysis =
-            crate::analyze_source(&static_source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&static_source, standard_modules()).unwrap();
         assert!(
             analysis.diagnostics().is_empty(),
             "{declaration}: {:?}",
@@ -787,8 +780,7 @@ fn dynamic_trait_eligibility_checks_the_whole_applied_surface() {
             "dynamic-trait.kgr",
             format!("{declaration} fn accept(value: {application}) {{}}"),
         );
-        let analysis =
-            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
         assert_eq!(
             analysis.diagnostics().is_empty(),
             accepted,
@@ -860,7 +852,7 @@ fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
     ] {
         let analysis = crate::analyze_source(
             &SourceFile::new("structural-trait.kgr", source),
-            foundation_catalog::shared().unwrap(),
+            standard_modules(),
         )
         .unwrap();
         assert_eq!(
@@ -895,7 +887,7 @@ fn main() -> i32 {{ C {{}}.get() }}
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let result = crate::analyze_source(&source, standard_modules()).unwrap();
         if valid {
             result
                 .into_checked()
@@ -929,7 +921,7 @@ fn main() -> i32 {{ val view: Read<Item = i32> = Reader {{}}; view.read() }}
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let result = crate::analyze_source(&source, standard_modules()).unwrap();
         if valid {
             result
                 .into_checked()
@@ -965,7 +957,7 @@ fn main() {{}}
 "#
             ),
         );
-        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        let result = crate::analyze_source(&source, standard_modules()).unwrap();
         if valid {
             result.into_checked().expect("Item: Related<Reader>");
         } else {

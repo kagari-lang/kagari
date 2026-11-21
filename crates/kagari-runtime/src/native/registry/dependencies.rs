@@ -6,28 +6,137 @@ use crate::{
 };
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{
-    DefinitionKind,
+    DefinitionKind, ModuleIdentity,
     table::{DefinitionId, DefinitionTable},
 };
-use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable, trait_contract};
+use kagari_contract::types::{
+    InterfaceTable, PublicItem, inherent::InherentTable, trait_contract, type_contract,
+};
 use kagari_types::{
     declaration::{
         TraitDef, TypeDefKind, conversion::is_library_forwarding_trait, module::ImplDecl,
+        native::NativeTypeConstructor,
     },
-    language,
-    language::Protocol,
+    language::{
+        Protocol, comparison, requirements,
+        schema::{CoreEnum, range_shape_valid},
+    },
+    range::RangeKind,
     ty::Ty,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
+
+/// Only follow the requesting module's verified edges. A layout in that module,
+/// or a declaration in another branch of the program, is not an imported owner.
+fn reachable_owner<'a>(
+    module: &BytecodeModule,
+    owner: &ModuleIdentity,
+    program: &'a VerifiedProgram,
+) -> Option<&'a BytecodeModule> {
+    let mut seen = HashSet::new();
+    let mut pending = module.dependencies.clone();
+    while let Some(next) = pending.pop() {
+        if seen.insert(next) {
+            let dependency = &program.modules()[next.index()];
+            if &dependency.identity == owner {
+                return Some(dependency);
+            }
+            pending.extend_from_slice(&dependency.dependencies);
+        }
+    }
+    None
+}
+
+fn public_enum_valid(
+    required: CoreEnum,
+    module: &BytecodeModule,
+    source: &DefinitionTable,
+) -> bool {
+    source
+        .lookup(&required.declaration())
+        .and_then(|owner| {
+            type_contract(&module.identity, &module.public_items, &owner, source)
+                .map(|record| required.shape_valid(owner, record, source))
+        })
+        .unwrap_or(false)
+}
 
 /// Registered value/external schemas remain exact even without callable imports.
 pub(super) fn validate_installed_values(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
+    program: &VerifiedProgram,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
-    let public_items = admission.runtime(&module.public_items, &Default::default())?;
+    let source = admission.source();
+    if module.identity == Protocol::PartialOrd.module()
+        && reachable_owner(module, &CoreEnum::Option.declaration().module, program).is_none()
+    {
+        return Err(RuntimeError::module_validation(
+            "comparison requires the reachable public Option declaration",
+        ));
+    }
+    // Every reached owner is checked on its own module, including Option when
+    // loaded without cmp. Read product records only in the product's table.
+    let authored = !installed.contains_module(&module.identity);
+    if authored {
+        let required = if module.identity == Protocol::From.module() {
+            Some(CoreEnum::Result)
+        } else if module.identity == Protocol::Try.module() {
+            Some(CoreEnum::Infallible)
+        } else {
+            None
+        };
+        if let Some(required) = required {
+            let path = required.declaration();
+            let owner = reachable_owner(module, &path.module, program).ok_or_else(|| {
+                RuntimeError::module_validation(format!(
+                    "{} requires the reachable {required:?} owner",
+                    module.identity
+                ))
+            })?;
+            // An installed owner may legitimately be partial. When another module
+            // uses the source operation, its signature still needs this public type.
+            if installed.contains_module(&owner.identity)
+                && (installed.types.get(&path).is_none()
+                    || !public_enum_valid(required, owner, source))
+            {
+                return Err(RuntimeError::module_validation(format!(
+                    "installed dependency lacks the required public {required:?} schema"
+                )));
+            }
+        }
+        if module.identity == Protocol::Try.module() {
+            validate_ranges(module, source)?;
+        }
+    }
+    for required in CoreEnum::COMPARISON
+        .into_iter()
+        .chain(CoreEnum::OPERATIONS.into_iter().filter(|_| authored))
+    {
+        let path = required.declaration();
+        if path.module != module.identity {
+            continue;
+        }
+        if installed.contains_module(&path.module) && installed.types.get(&path).is_none() {
+            return Err(RuntimeError::module_validation(format!(
+                "installed owner lacks the required comparison enum in {}",
+                path.module
+            )));
+        }
+        if !public_enum_valid(required, module, source) {
+            return Err(RuntimeError::module_validation(format!(
+                "missing or invalid public {} enum {required:?} in {}",
+                if CoreEnum::COMPARISON.contains(&required) {
+                    "comparison"
+                } else {
+                    "operation"
+                },
+                module.identity
+            )));
+        }
+    }
     for (id, expected) in installed.types.entries().filter(|(_, ty)| {
         matches!(
             ty.kind,
@@ -37,10 +146,17 @@ pub(super) fn validate_installed_values(
         let owner = definitions
             .resolve(id)
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        if owner.module() == &module.identity
-            && !public_items
-                .iter()
-                .any(|item| matches!(item, PublicItem::Type(actual) if actual == expected))
+        if owner.module() != &module.identity {
+            continue;
+        }
+        let actual = source.lookup(&owner.to_path()).and_then(|product| {
+            type_contract(&module.identity, &module.public_items, &product, source)
+        });
+        if actual
+            .map(|record| admission.runtime(record, &Default::default()))
+            .transpose()?
+            .as_ref()
+            != Some(expected)
         {
             return Err(RuntimeError::module_validation(
                 "registered value schema differs from its installed contract",
@@ -58,120 +174,159 @@ pub(super) fn validate_installed_values(
     Ok(())
 }
 
+fn validate_ranges(module: &BytecodeModule, source: &DefinitionTable) -> Result<(), RuntimeError> {
+    let root = source.lookup_root(&module.identity);
+    for kind in RangeKind::ALL {
+        let constructor = NativeTypeConstructor::Range(kind);
+        if !root
+            .and_then(|root| {
+                source.lookup_child(root, constructor.declaration_kind(), kind.name(), 0)
+            })
+            .is_some_and(|owner| {
+                type_contract(&module.identity, &module.public_items, &owner, source)
+                    .is_some_and(|record| range_shape_valid(owner, record, source))
+            })
+        {
+            return Err(RuntimeError::module_validation(format!(
+                "missing or invalid public range constructor: {}",
+                kind.name()
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Installed trait identities retain their exact contracts even without calls.
-/// Ordinary uninstalled traits carry no native authority. Conversion adapters
-/// and reserved language contracts still require exact installed declarations.
+/// Without an installed owner, supported public core traits must prove their operation
+/// contracts. This never authorizes a native function or storage provider.
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
     module: &BytecodeModule,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
-    let public_items = admission.runtime(&module.public_items, &Default::default())?;
-    for item in &public_items {
+    let source = admission.source();
+    let authored = !installed.contains_module(&module.identity);
+    let mut companions = if authored {
+        requirements::companions(&module.identity).to_vec()
+    } else {
+        vec![]
+    };
+    let mut missing: Vec<_> = Protocol::ALL
+        .into_iter()
+        .filter(|protocol| protocol.module() == module.identity)
+        .collect();
+    for item in &module.public_items {
         let PublicItem::Trait(contract) = item else {
             continue;
         };
-        let source = admission.source();
+
         let lexical = source
             .lookup_root(&module.identity)
             .and_then(|root| source.lookup_child(root, DefinitionKind::Trait, &contract.name, 0));
-        let reserved = lexical.is_some_and(|id| is_library_forwarding_trait(source, id))
-            || Protocol::ALL.into_iter().any(|protocol| {
-                protocol.module() == module.identity && protocol.name() == contract.name
-            });
+        let role = missing
+            .iter()
+            .position(|protocol| protocol.name() == contract.name);
         let id = definitions.lookup_root(&module.identity).and_then(|root| {
             definitions.lookup_child(root, DefinitionKind::Trait, &contract.name, 0)
         });
-        let registered = id.and_then(|id| installed.traits.get_id(id));
-        if (registered.is_some() || reserved || contract.conversion_adapter.is_some())
-            && !registered.is_some_and(|expected| {
-                id.is_some_and(|id| matching::trait_contract(id, expected, contract, &definitions))
-            })
+        let comparison_role = role.is_some_and(|index| missing[index].comparison());
+        if comparison_role
+            && !lexical.is_some_and(|id| comparison::trait_shape_valid(id, contract, source))
         {
+            return Err(RuntimeError::module_validation(format!(
+                "invalid public comparison trait: {}",
+                contract.name
+            )));
+        }
+        let companion = companions.iter().position(|name| *name == contract.name);
+        let operation = authored
+            && (role.is_some_and(|i| missing[i].source_operation()) || companion.is_some());
+        if operation
+            && !lexical.is_some_and(|id| requirements::trait_shape_valid(id, contract, source))
+        {
+            return Err(RuntimeError::module_validation(format!(
+                "invalid public operation trait: {}",
+                contract.name
+            )));
+        }
+        let valid = if let Some(id) = id
+            && let Some(expected) = installed.traits.get_id(id)
+        {
+            let actual = admission.runtime(contract, &Default::default())?;
+            matching::trait_contract(id, expected, &actual, &definitions)
+        } else if role.is_some() || companion.is_some() {
+            operation || (authored && comparison_role)
+        } else {
+            contract.conversion_adapter.is_none()
+                && !lexical.is_some_and(|id| is_library_forwarding_trait(source, id))
+        };
+        if !valid {
             return Err(RuntimeError::module_validation(format!(
                 "reserved or native trait differs from its installed contract: {}",
                 contract.name
             )));
         }
+        if let Some(index) = companion {
+            companions.swap_remove(index);
+        }
+        if let Some(index) = role {
+            missing.swap_remove(index);
+        }
     }
     for contract in &module.trait_contracts {
-        let contract = admission.runtime(contract, &Default::default())?;
-        definitions
-            .resolve(contract.declaration)
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let registered = installed.traits.get_id(contract.declaration);
-        if (registered.is_some()
-            || Protocol::from_definition(&contract.declaration, &definitions).is_some()
-            || is_library_forwarding_trait(&definitions, contract.declaration)
-            || contract.abi.conversion_adapter.is_some())
-            && !registered.is_some_and(|expected| {
-                matching::trait_contract(
-                    contract.declaration,
-                    expected,
-                    &contract.abi,
-                    &definitions,
-                )
-            })
-        {
+        let id = admission.runtime_id(contract.declaration)?;
+        let valid = if let Some(expected) = installed.traits.get_id(id) {
+            matching::trait_contract(
+                id,
+                expected,
+                &admission.runtime(&contract.abi, &Default::default())?,
+                &definitions,
+            )
+        } else {
+            Protocol::from_definition(&contract.declaration, source).is_none()
+                && !is_library_forwarding_trait(source, contract.declaration)
+                && contract.abi.conversion_adapter.is_none()
+                && !(authored
+                    && requirements::companions(&module.identity)
+                        .contains(&contract.abi.name.as_str())
+                    && source.lookup_root(&module.identity).and_then(|root| {
+                        source.lookup_child(root, DefinitionKind::Trait, &contract.abi.name, 0)
+                    }) == Some(contract.declaration))
+        };
+        if !valid {
             return Err(RuntimeError::module_validation(
                 "private reserved or native trait lacks an installed contract",
             ));
         }
     }
-    if language::is_language_module(&module.identity) {
-        for protocol in Protocol::ALL
-            .into_iter()
-            .filter(|protocol| protocol.module() == module.identity)
-        {
-            let expected = protocol
-                .definition(&definitions)
-                .and_then(|id| installed.traits.get_id(id))
-                .ok_or_else(|| {
-                    RuntimeError::module_validation("language foundation is not installed")
-                })?;
-            if !public_items
-                .iter()
-                .any(|item| matches!(item, PublicItem::Trait(actual) if protocol.definition(&definitions).is_some_and(|id| matching::trait_contract(id, expected, actual, &definitions))))
-            {
-                return Err(RuntimeError::module_validation(
-                    "language foundation is missing a required role",
-                ));
-            }
-        }
+    if !missing.is_empty() || !companions.is_empty() {
+        return Err(RuntimeError::module_validation(
+            "language foundation is missing a required role",
+        ));
     }
     Ok(())
 }
 
-/// Expected source traits are implementation obligations checked against actual owners,
-/// never a copied compiler catalog or a runtime trait solver.
+/// Linked verification already matched every unique carried reference to its reachable
+/// owner. The compiler may add private interface requirements beyond this installed subset.
 pub(super) fn validate_expected_traits(
     expected: &BTreeMap<DefinitionId, TraitDef>,
-    program: &VerifiedProgram,
+    module: &BytecodeModule,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
-    for (id, required) in expected {
-        let product_id = admission
-            .product_id(*id)
-            .ok_or_else(|| RuntimeError::module_validation("expected source trait is absent"))?;
-        let found = program.modules().iter().any(|module| {
-            trait_contract(
-                &module.identity,
-                &module.public_items,
-                &module.trait_contracts,
-                &product_id,
-                program.definitions(),
-            )
-            .and_then(|actual| admission.runtime(actual, &Default::default()).ok())
-            .is_some_and(|actual| {
-                matching::trait_contract(*id, required, &actual, admission.target())
-            })
-        });
-        if !found {
-            return Err(RuntimeError::module_validation(
-                "expected source trait differs from its actual owner",
-            ));
+    let mut matched = 0;
+    for reference in &module.trait_references {
+        if let Some(required) = expected.get(&admission.runtime_id(reference.declaration)?)
+            && &admission.runtime(&reference.abi, &Default::default())? == required
+        {
+            matched += 1;
         }
+    }
+    if matched != expected.len() {
+        return Err(RuntimeError::module_validation(
+            "source trait references differ from their installed module contracts",
+        ));
     }
     Ok(())
 }
@@ -344,18 +499,205 @@ fn inherent_matches(
 mod tests {
     use crate::test_support::bytecode::load_bytecode;
     use crate::test_support::native::program::ProgramFixture;
-    use crate::{Runtime, RuntimeConfig};
+    use crate::{Runtime, RuntimeConfig, module::VerifiedProgram};
     use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
-        metadata::DefinitionMetadata,
+        metadata::DefinitionMetadata, table::DefinitionId,
     };
-    use kagari_contract::types::PublicItem;
-    use kagari_types::declaration::{
-        TypeDeclaration, TypeDef, TypeDefKind,
-        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
-        module::ModuleDecl,
+    use kagari_compiler::source::lower::module_contract;
+    use kagari_contract::{
+        layout::{EnumLayout, EnumVariantLayout},
+        types::{PublicItem, type_contract},
     };
+    use kagari_hir::{
+        analysis::{AnalysisDatabase, core_source::packaged_modules},
+        compile_input::program::CheckedCompilation,
+    };
+    use kagari_types::{
+        declaration::{
+            TypeDeclaration, TypeDef, TypeDefKind, VariantDef,
+            host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+            module::ModuleDecl,
+        },
+        language::{Protocol, binding},
+        ty::{GenericParam, NominalTy, Ty},
+    };
+
+    fn option_schema(owner: DefinitionId) -> TypeDef {
+        let parameter = GenericParam { owner, position: 0 };
+        TypeDef {
+            name: "Option".into(),
+            kind: TypeDefKind::Enum,
+            variants: vec![
+                VariantDef {
+                    name: "Some".into(),
+                    reports_failure: false,
+                    payload: vec![parameter.as_type()],
+                },
+                VariantDef {
+                    name: "None".into(),
+                    reports_failure: false,
+                    payload: vec![],
+                },
+            ],
+            generic_params: vec![parameter],
+            bounds: vec![],
+            fields: vec![],
+        }
+    }
+
+    #[test]
+    fn source_option_requires_a_public_schema_with_the_canonical_payload() {
+        let context = DefinitionContext::new().unwrap();
+        let path = binding::option_declaration();
+        let owner = context.intern(&path).unwrap();
+        let mut option = option_schema(owner);
+        let load = |public_items, private_types| {
+            let program = ProgramFixture {
+                root: ModuleRef::new(0),
+                exports: Default::default(),
+                modules: vec![BytecodeModule {
+                    identity: path.module.clone(),
+                    public_items,
+                    private_types,
+                    ..Default::default()
+                }],
+            }
+            .build(&context);
+            let input =
+                DefinitionMetadata::checked(context.snapshot(), program, &Default::default())
+                    .unwrap();
+            load_bytecode(&mut Runtime::default(), "option", input)
+        };
+        load(vec![PublicItem::Type(option.clone())], vec![]).unwrap();
+        let hidden = TypeDeclaration {
+            declaration: owner,
+            definition: option.clone(),
+        };
+        let error = load(vec![], vec![hidden]).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("missing or invalid public comparison enum"),
+            "{error}"
+        );
+        option.variants[0].payload.clear();
+        let error = load(vec![PublicItem::Type(option)], vec![]).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("missing or invalid public comparison enum"),
+            "{error}"
+        );
+    }
+
+    fn comparison_fixture(context: &DefinitionContext, option: DefinitionId) -> BytecodeModule {
+        let cancel = Default::default();
+        let sources = packaged_modules();
+        let identity = Protocol::Ord.module();
+        let cmp = sources
+            .iter()
+            .find(|m| m.source.module_identity() == &identity)
+            .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let snapshot = db.snapshot(Default::default(), &cancel).unwrap();
+        let checked = snapshot.check_program(cmp.source.id(), &cancel).unwrap();
+        let input = CheckedCompilation::from_program(&checked, &cancel).unwrap();
+        let items = module_contract(input.module(input.root()).unwrap(), &cancel)
+            .unwrap()
+            .import_into(context, &cancel)
+            .unwrap()
+            .into_records()
+            .public_items;
+        let ordering = context.intern(&binding::ordering_declaration()).unwrap();
+        let variants = &type_contract(&identity, &items, &ordering, &context.snapshot())
+            .unwrap()
+            .variants;
+        let order = Ty::Enum(NominalTy {
+            declaration: ordering,
+            arguments: vec![],
+            associated_types: Default::default(),
+        });
+        let layout = |declaration, arguments, variants: &[VariantDef]| EnumLayout {
+            declaration,
+            arguments,
+            variants: variants
+                .iter()
+                .map(|v| EnumVariantLayout {
+                    declaration: context
+                        .intern_child(declaration, DefinitionKind::Variant, &v.name, 0)
+                        .unwrap(),
+                    reports_failure: v.reports_failure,
+                    payload: v.payload.clone(),
+                })
+                .collect(),
+        };
+        let mut option_variants = option_schema(option).variants;
+        option_variants[0].payload = vec![order.clone()];
+        let enumerations = vec![
+            layout(ordering, vec![], variants),
+            layout(option, vec![order], &option_variants),
+        ];
+        BytecodeModule {
+            identity,
+            public_items: items,
+            enumerations,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn comparison_requires_option_in_its_own_dependency_closure() {
+        let context = DefinitionContext::new().unwrap();
+        let path = binding::option_declaration();
+        let option = context.intern(&path).unwrap();
+        let mut cmp = comparison_fixture(&context, option);
+        cmp.dependencies.push(ModuleRef::new(2));
+        let mut modules = vec![
+            BytecodeModule {
+                identity: ModuleIdentity::single_file("consumer"),
+                dependencies: vec![ModuleRef::new(1), ModuleRef::new(3)],
+                ..Default::default()
+            },
+            cmp,
+            BytecodeModule {
+                identity: ModuleIdentity::single_file("bridge"),
+                dependencies: vec![ModuleRef::new(3)],
+                ..Default::default()
+            },
+            BytecodeModule {
+                identity: path.module,
+                public_items: vec![PublicItem::Type(option_schema(option))],
+                ..Default::default()
+            },
+        ];
+        let load = |modules| {
+            let program = ProgramFixture {
+                root: ModuleRef::new(0),
+                modules,
+                exports: Default::default(),
+            }
+            .build(&context);
+            let metadata =
+                DefinitionMetadata::checked(context.snapshot(), program, &Default::default())
+                    .unwrap();
+            let verified =
+                VerifiedProgram::new(metadata, &DefinitionContext::new().unwrap()).unwrap();
+            Runtime::default().load_verified_program("comparison", verified)
+        };
+        load(modules.clone()).unwrap();
+        // The root still reaches both owners, and cmp still carries a valid applied
+        // Option<Ordering> layout. Only the importer's path to the schema is lost.
+        modules[2].dependencies.clear();
+        let error = load(modules).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("comparison requires the reachable public Option declaration"),
+            "{error}"
+        );
+    }
 
     #[test]
     fn uninstalled_external_schema_cannot_publish_a_source_free_module() {

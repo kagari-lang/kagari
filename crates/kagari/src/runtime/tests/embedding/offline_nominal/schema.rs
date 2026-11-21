@@ -1,5 +1,6 @@
 //! Shared nominal fixtures author external identities through the common catalog.
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -10,7 +11,6 @@ use kagari_runtime::{
         types::TypeRef,
     },
 };
-use kagari_stdlib as stdlib;
 use kagari_types::{
     declaration::{
         FieldDef, TypeDeclaration,
@@ -43,15 +43,13 @@ impl NominalSchema {
     }
 
     fn build(count: Option<PathAccess>) -> Self {
-        let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
-            .catalog()
-            .unwrap();
+        let catalog = standard_library().declarations().catalog();
         let policy = HostTypePolicy {
             ownership: HostTypeOwnership::HostRoot,
             reflection: HostReflectionPolicy::Hidden,
             path_access: count.unwrap_or(PathAccess::ReadOnly),
         };
-        let mut right = ModuleBuilder::new("right", &catalog).unwrap();
+        let mut right = ModuleBuilder::new("right", catalog).unwrap();
         let mut related = right.define_type("Item").unwrap();
         related
             .external(HostTypePolicy {
@@ -88,7 +86,7 @@ impl NominalSchema {
             .unwrap()
             .to_path();
         let right = right.finish().unwrap();
-        let mut unused = ModuleBuilder::new("unused", &catalog).unwrap();
+        let mut unused = ModuleBuilder::new("unused", catalog).unwrap();
         let mut other = unused.define_type("Other").unwrap();
         other
             .external(HostTypePolicy {
@@ -99,7 +97,7 @@ impl NominalSchema {
             .unwrap();
         other.finish().unwrap();
         let unused = unused.finish().unwrap();
-        let mut builder = ModuleBuilder::new("left", &catalog)
+        let mut builder = ModuleBuilder::new("left", catalog)
             .unwrap()
             .with_modules(&[&right, &unused])
             .unwrap();
@@ -201,7 +199,8 @@ impl NominalSchema {
         let [right, unused] = self.providers;
         KagariEngine::with_native_modules(
             Default::default(),
-            stdlib::modules()
+            standard_library()
+                .modules()
                 .unwrap()
                 .into_iter()
                 .chain(vec![right, unused, self.builder.finish().unwrap()])

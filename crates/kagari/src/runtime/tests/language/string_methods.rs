@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use crate::test_support::standard::standard_library;
 use crate::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -11,7 +12,6 @@ use kagari_runtime::{
     reload::ReloadValidationError,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 mod boundaries;
 mod rejection;
@@ -31,7 +31,8 @@ mod rejection;
 fn run(source: &str, expected_error: Option<&str>) {
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    let engine =
+        KagariEngine::with_native_modules(config, standard_library().modules().unwrap()).unwrap();
     let artifact = engine
         .compile_to_artifact(SourceFile::new("strings.kgr", source), Default::default())
         .unwrap();

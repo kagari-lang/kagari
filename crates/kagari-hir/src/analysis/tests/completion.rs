@@ -1,5 +1,5 @@
+use crate::tests::standard::standard_modules;
 use kagari_source::source::SourceFile;
-use kagari_stdlib::catalog as foundation_catalog;
 
 #[test]
 fn function_fallthrough_is_checked_only_when_reachable() {
@@ -67,7 +67,7 @@ fn function_fallthrough_is_checked_only_when_reachable() {
         ("42;", false),
     ] {
         let source = SourceFile::new("completion.kgr", format!("fn main() -> i32 {{ {body} }}"));
-        let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+        let analysis = crate::analyze_source(&source, standard_modules())
             .expect("installed declaration analysis");
         assert_eq!(
             analysis.diagnostics().is_empty(),

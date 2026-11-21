@@ -8,9 +8,11 @@ use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as standard;
+use kagari_stdlib::StandardLibrary;
 
 fn main() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     let mut source = String::new();
     for index in 0..32 {
         source.push_str(&format!("fn f{index}() -> i32 {{ {index} }}\n"));
@@ -20,7 +22,7 @@ fn main() {
     let mut compile_samples = Vec::new();
     for _ in 0..5 {
         let engine =
-            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            KagariEngine::with_native_modules(Default::default(), library.modules().unwrap())
                 .unwrap();
         let start = Instant::now();
         let artifact = engine
@@ -38,9 +40,8 @@ fn main() {
         compile_samples[2]
     );
 
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
-            .unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let file = engine
         .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
         .unwrap();
@@ -81,8 +82,8 @@ fn main() {
     let (table, records) = artifact.into_parts();
     let program = DefinitionMetadata::checked(table, records.program, &Default::default()).unwrap();
     let verified = VerifiedProgram::new(program, &definitions).unwrap();
-    let mut first_runtime = standard_runtime();
-    let mut second_runtime = standard_runtime();
+    let mut first_runtime = standard_runtime(&library);
+    let mut second_runtime = standard_runtime(&library);
     let first_loaded = first_runtime
         .load_verified_program("baseline", verified.clone())
         .unwrap();
@@ -132,8 +133,8 @@ fn main() {
 }
 
 // Standard installation is explicit setup, outside the executable import measurement.
-fn standard_runtime() -> Runtime {
+fn standard_runtime(library: &StandardLibrary) -> Runtime {
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&standard::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&library.modules().unwrap(), &mut runtime).unwrap();
     runtime
 }

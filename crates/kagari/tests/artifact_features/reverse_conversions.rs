@@ -1,4 +1,6 @@
 //! Source-enabled runs emit then decode. The independent consumer only reads producer bytes.
+#[cfg(feature = "source")]
+use crate::standard_library;
 use kagari::{
     engine::{EngineConfig, KagariEngine},
     program::Program,
@@ -20,7 +22,7 @@ use kagari_contract::types::{InterfaceTable, PublicItem, named::NamedContract};
 use kagari_runtime::module::entry::ProgramEntry;
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+
 use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::sync::OnceLock;
 #[cfg(not(feature = "source"))]
@@ -31,8 +33,11 @@ fn fixture_bytes() -> Vec<u8> {
     let source = include_str!(
         "../fixtures/language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr"
     );
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("reverse-conversions.kgr", source),
@@ -60,7 +65,11 @@ fn decoded_reverse_conversions_execute_once_with_exact_payloads() {
         Program::from_artifact(artifact(), &Default::default(), &Default::default()).unwrap();
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::with_native_modules(config, stdlib::modules().unwrap()).unwrap();
+    #[cfg(feature = "source")]
+    let library = standard_library();
+    #[cfg(not(feature = "source"))]
+    let library = crate::standard::from_fixture("reverse_conversions.kbc");
+    let engine = KagariEngine::with_native_modules(config, library.modules().unwrap()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     for entry in [ProgramEntry::Main, ProgramEntry::Export("checked_scalars")] {

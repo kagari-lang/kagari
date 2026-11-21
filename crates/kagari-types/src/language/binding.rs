@@ -42,6 +42,40 @@ pub fn result_declaration() -> DefinitionPath {
     declaration("result", "Result")
 }
 
+/// Branch keeps the error type when making a residual. FromResidual can change
+/// the error type, but only when the input's success type is Infallible.
+pub fn result_origin_carriers_valid(
+    original: &Ty,
+    destination: &Ty,
+    table: &DefinitionTable,
+) -> bool {
+    let (Ty::Enum(source), Ty::Enum(target)) = (original, destination) else {
+        return false;
+    };
+    let ([success, error], [output, converted]) =
+        (source.arguments.as_slice(), target.arguments.as_slice())
+    else {
+        return false;
+    };
+    let residual = |ty: &Ty| {
+        let Ty::Enum(nominal) = ty else {
+            return false;
+        };
+        nominal.arguments.is_empty()
+            && nominal.associated_types.is_empty()
+            && matches(&nominal.declaration, &infallible_declaration(), table)
+    };
+    source.declaration == target.declaration
+        && source.associated_types.is_empty()
+        && target.associated_types.is_empty()
+        && matches(&source.declaration, &result_declaration(), table)
+        && (residual(success) || (residual(output) && error == converted))
+}
+
+pub fn infallible_declaration() -> DefinitionPath {
+    declaration("convert", "Infallible")
+}
+
 pub fn ordering_declaration() -> DefinitionPath {
     declaration("cmp", "Ordering")
 }

@@ -1,5 +1,6 @@
 use std::{fs, path::Path, sync::Arc};
 
+use crate::tests::standard::standard_modules;
 use crate::{
     AnalysisResult, AnalyzedModule,
     analysis::{AnalysisDatabase, AnalysisSnapshot, FileAnalysis},
@@ -12,7 +13,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_stdlib::catalog;
 
 #[derive(Clone, Copy)]
 pub(super) enum Environment {
@@ -33,8 +33,7 @@ impl Fixture {
         let captured = SourceSnapshot::single_file(source);
         let mut database = AnalysisDatabase::default();
         if matches!(environment, Environment::Standard) {
-            database
-                .set_native_modules(catalog::shared().expect("installed standard declarations"));
+            database.set_native_modules(standard_modules());
         }
         let snapshot = database
             .snapshot(captured.clone(), &Default::default())

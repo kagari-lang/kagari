@@ -1,5 +1,6 @@
 #![cfg(feature = "source")]
 
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     engine::{KagariEngine, packages::PackageBuildSet, source::CheckedModule},
@@ -23,8 +24,6 @@ use kagari_runtime::{
         builder::ModuleBuilder, context::NativeCall, declarations::FunctionDecl, types::Type,
     },
 };
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
     fs,
     path::PathBuf,
@@ -135,8 +134,11 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
     let memory = capture(&virtual_inputs(42), "app");
     assert_eq!(inputs.root(), memory.root());
     assert_eq!(inputs.fingerprint(), memory.fingerprint());
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let cancel = CancellationToken::default();
     let initial = PackageBuildSet::capture(&engine, &project, &cancel).unwrap();
     let original = engine.compile_package(inputs, &cancel).unwrap();
@@ -345,11 +347,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
             .unwrap(),
         44
     );
-    let mut builder = ModuleBuilder::new(
-        "unused",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("unused", standard_library().declarations().catalog()).unwrap();
     let number = builder
         .define_function(FunctionDecl::new("number").returns(Type::i32()))
         .unwrap();
@@ -358,7 +357,8 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         .unwrap();
     let configured = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![builder.finish().unwrap()])
@@ -385,8 +385,11 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
 
 #[test]
 fn selected_root_changes_follow_transitive_inputs_and_provider_contracts() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let capture = |files: Vec<(&str, String)>| {
         let input = VirtualSources::new(
             files

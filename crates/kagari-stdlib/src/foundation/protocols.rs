@@ -18,7 +18,7 @@ use kagari_runtime::native::{
     types::Type,
 };
 use kagari_types::{
-    declaration::{AssociatedTypeDef, FnDecl, conversion::ConversionAdapter},
+    declaration::{AssociatedTypeDef, FnDecl},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -75,44 +75,6 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
     ),
     (
         "core",
-        "cmp",
-        &[
-            (
-                "PartialEq",
-                0,
-                (
-                    "Equality comparison. Implementations should be symmetric and transitive where defined. Equal keys must also have equal hashes when used in a hash collection.",
-                    "fn same(left: i32, right: i32) -> bool { left == right }",
-                ),
-            ),
-            (
-                "Eq",
-                0,
-                (
-                    "Marks reflexive equality in addition to `PartialEq`. It has no additional methods. Implementations must satisfy the equality laws relied on by collection algorithms.",
-                    "fn unique(values: Vec<i32>) -> std::collections::List<i32> { values.distinct() }",
-                ),
-            ),
-            (
-                "PartialOrd",
-                0,
-                (
-                    "A partial ordering consistent with equality. `partial_cmp` returns `None` for incomparable values; floating-point NaN is incomparable.",
-                    "fn before(left: i32, right: i32) -> bool { left < right }",
-                ),
-            ),
-            (
-                "Ord",
-                0,
-                (
-                    "A total ordering consistent with `Eq` and `PartialOrd`. `cmp` returns Less, Equal or Greater. Sorting relies on a consistent comparator.",
-                    "fn ordered(values: Vec<i32>) -> std::collections::List<i32> { values.sorted() }",
-                ),
-            ),
-        ],
-    ),
-    (
-        "core",
         "hash",
         &[(
             "Hash",
@@ -147,186 +109,6 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
     ),
     (
         "core",
-        "ops",
-        &[
-            (
-                "Add",
-                1,
-                (
-                    "Addition with an explicitly declared output type. Built-in integer arithmetic traps on overflow; a user implementation defines its own behavior.",
-                    "fn plus(left: i32, right: i32) -> i32 { left + right }",
-                ),
-            ),
-            (
-                "Sub",
-                1,
-                (
-                    "Subtraction with an explicitly declared output type. Built-in integer subtraction traps on overflow.",
-                    "fn difference(left: i32, right: i32) -> i32 { left - right }",
-                ),
-            ),
-            (
-                "Mul",
-                1,
-                (
-                    "Multiplication with an explicitly declared output type. Built-in integer multiplication traps on overflow.",
-                    "fn doubled(value: i32) -> i32 { value * 2 }",
-                ),
-            ),
-            (
-                "Div",
-                1,
-                (
-                    "Division. Built-in integer division traps for zero divisors and signed overflow; floating-point division follows its specified numeric semantics.",
-                    "fn half(value: i32) -> i32 { value / 2 }",
-                ),
-            ),
-            (
-                "Rem",
-                1,
-                (
-                    "The remainder of division. Built-in integer remainder traps for zero divisors and signed overflow.",
-                    "fn parity(value: i32) -> i32 { value % 2 }",
-                ),
-            ),
-            (
-                "BitAnd",
-                1,
-                (
-                    "Bitwise conjunction, with an explicitly declared output type.",
-                    "fn low_bits(value: i32) -> i32 { value & 15 }",
-                ),
-            ),
-            (
-                "BitOr",
-                1,
-                (
-                    "Bitwise disjunction, with an explicitly declared output type.",
-                    "fn set_bit(value: i32) -> i32 { value | 1 }",
-                ),
-            ),
-            (
-                "BitXor",
-                1,
-                (
-                    "Bitwise exclusive disjunction, with an explicitly declared output type.",
-                    "fn toggle(value: i32) -> i32 { value ^ 1 }",
-                ),
-            ),
-            (
-                "Shl",
-                1,
-                (
-                    "Left shift. Built-in integer shifts validate the shift count and checked result.",
-                    "fn shift(value: i32) -> i32 { value << 1 }",
-                ),
-            ),
-            (
-                "Shr",
-                1,
-                (
-                    "Right shift. Built-in integer shifts validate the shift count.",
-                    "fn shift(value: i32) -> i32 { value >> 1 }",
-                ),
-            ),
-            (
-                "Neg",
-                0,
-                (
-                    "Arithmetic negation. Negating the minimum signed integer traps on overflow.",
-                    "fn negative(value: i32) -> i32 { -value }",
-                ),
-            ),
-            (
-                "Not",
-                0,
-                (
-                    "Logical or bitwise inversion, depending on the receiver type. The output is declared by the implementation.",
-                    "fn invert(value: bool) -> bool { !value }",
-                ),
-            ),
-            (
-                "Index",
-                1,
-                (
-                    "Indexed read access. Built-in sequence indexing traps when the index is out of bounds; `get` provides an optional result instead.",
-                    "fn head(values: Vec<i32>) -> i32 { values[0] }",
-                ),
-            ),
-            (
-                "Fn",
-                1,
-                (
-                    "A checked callable signature. Calls evaluate arguments left to right exactly once. Stored callable values retain their selected generation across reload.",
-                    "fn apply<F: Fn(i32) -> i32>(f: F, value: i32) -> i32 { f(value) }",
-                ),
-            ),
-            (
-                "RangeBounds",
-                1,
-                (
-                    "Exposes the start and end bounds of a range as Included, Excluded or Unbounded. Constructing bounds does not iterate the range.",
-                    "fn bounds() -> core::ops::Bound<i32> { (1..4).start_bound() }",
-                ),
-            ),
-            (
-                "Try",
-                0,
-                (
-                    "Defines the successful Output and distinct Residual of a carrier. Question-mark evaluates the value and branch once: Continue produces Output, while Break passes Residual to the enclosing return type's FromResidual implementation. Traps are not converted to residuals.",
-                    "fn unwrap(value: Option<i32>) -> Option<i32> { Some(value?) }",
-                ),
-            ),
-            (
-                "FromResidual",
-                1,
-                (
-                    "Constructs the enclosing return value on early propagation. Residual types distinguish Option, Result and ControlFlow. Result converts only the error through one infallible From implementation, preserving its original failure trace.",
-                    "fn forward(value: Result<i32, String>) -> Result<i64, String> { Ok(i64::from(value?)) }",
-                ),
-            ),
-        ],
-    ),
-    (
-        "core",
-        "convert",
-        &[
-            (
-                "From",
-                1,
-                (
-                    "Constructs a target value from a source. The conversion is infallible in its declared signature. Result propagation can use `From` to convert an error type.",
-                    "fn widen(value: i32) -> i64 { i64::from(value) }",
-                ),
-            ),
-            (
-                "Into",
-                1,
-                (
-                    "Converts the receiver into a target. The blanket implementation calls the target's `From` method.",
-                    "fn widen(value: i32) -> i64 { value.into() }",
-                ),
-            ),
-            (
-                "TryFrom",
-                1,
-                (
-                    "A checked conversion returning `Result<Self, Error>`. An unrepresentable numeric value returns an error; it does not silently truncate.",
-                    "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }",
-                ),
-            ),
-            (
-                "TryInto",
-                1,
-                (
-                    "A checked conversion of the receiver into a target. The blanket implementation returns the target's `TryFrom` result with its associated error type.",
-                    "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { value.try_into() }",
-                ),
-            ),
-        ],
-    ),
-    (
-        "core",
         "str",
         &[(
             "FromStr",
@@ -334,18 +116,6 @@ pub(super) const INVENTORY: &[ModuleInventory] = &[
             (
                 "Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.",
                 "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
-            ),
-        )],
-    ),
-    (
-        "core",
-        "default",
-        &[(
-            "Default",
-            0,
-            (
-                "Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.\n\n# Standard implementations\n\nUnit returns (); bool returns false. The eight integer types i8, i16, i32, i64, u8, u16, u32 and u64 return correctly typed zero; f32 and f64 return positive zero. String returns an empty string. Vec<T> returns fresh empty mutable storage on every call; Option<T> returns None. Neither container requires T: Default. Tuples, builtin arrays, maps, sets, ranges, Result, other enums and Host values have no standard implementation.",
-                "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }\nstruct Element {}\nfn empty_vec() -> Vec<Element> { Vec<Element>::default() }\nfn absent() -> Option<Element> { Option<Element>::default() }\nfn zero() -> i32 { Default::default() }\nfn empty_string() -> String { String::default() }",
             ),
         )],
     ),
@@ -414,7 +184,6 @@ struct Contract {
     methods: Vec<FnDecl>,
     associated: Vec<AssociatedTypeDef>,
     supertraits: Vec<NominalTy>,
-    conversion: Option<ConversionAdapter>,
 }
 
 impl Contract {
@@ -433,7 +202,6 @@ impl Contract {
             methods: vec![],
             associated: vec![],
             supertraits: vec![],
-            conversion: None,
         })
     }
 
@@ -509,7 +277,6 @@ impl Contract {
             record.methods = self.methods;
             record.associated_types = self.associated;
             record.supertraits = self.supertraits;
-            record.conversion_adapter = self.conversion;
             Ok(())
         })?;
         Ok(())
@@ -534,36 +301,24 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 "List" | "MutableList" | "Map" | "MutableMap" | "Set" | "MutableSet" => {
                     collections::configure(module, &mut contract)?
                 }
-                "From" | "Into" | "TryFrom" | "TryInto" | "FromStr" | "Default"
-                | "FromIterator" | "Sum" | "Product" => {
-                    conversion::configure(module, &mut contract)?
+                "FromStr" => conversion::from_str(module, &mut contract)?,
+                "FromIterator" | "Sum" | "Product" => {
+                    conversion::aggregation(module, &mut contract)?
                 }
                 "Iterator" | "Iterable" => iteration(module, &mut contract)?,
-                "Try" | "FromResidual" => propagation(module, &mut contract)?,
-                "RangeBounds" => {
-                    let result =
-                        enumeration(module, "Bound", 1)?.apply([contract.owner.parameter(0)?])?;
-                    for (name, description) in [
-                        (
-                            "start_bound",
-                            "Return the lower bound with its inclusion policy.",
-                        ),
-                        (
-                            "end_bound",
-                            "Return the upper bound with its inclusion policy.",
-                        ),
-                    ] {
-                        contract.method(
-                            module,
-                            MethodDecl::instance(name).returns(result.clone()),
-                            description,
-                        )?;
-                    }
+                "Hash" | "Debug" | "Display" => {
+                    let (method, result) = match name {
+                        "Hash" => ("hash", Type::i64()),
+                        "Debug" => ("debug", Type::scalar(BuiltinType::String)),
+                        _ => ("display", Type::scalar(BuiltinType::String)),
+                    };
+                    contract.method(
+                        module,
+                        MethodDecl::instance(method).returns(result),
+                        overview.0,
+                    )?;
                 }
-                "PartialEq" | "Eq" | "PartialOrd" | "Ord" | "Hash" | "Debug" | "Display" => {
-                    comparison(module, &mut contract)?
-                }
-                _ => operator(module, &mut contract)?,
+                _ => unreachable!("unknown native trait recipe"),
             }
             contract.finish(module)?;
         }
@@ -604,117 +359,6 @@ fn iteration(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRes
     Ok(())
 }
 
-fn comparison(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeResult<()> {
-    let receiver = contract.owner.receiver()?;
-    let (parents, method, binary, result) = match contract.name {
-        "PartialEq" => (&[][..], "eq", true, Type::bool()),
-        "Eq" => (&["PartialEq"][..], "", false, Type::unit()),
-        "Hash" => (&[][..], "hash", false, Type::i64()),
-        "Debug" => (&[][..], "debug", false, Type::scalar(BuiltinType::String)),
-        "Display" => (&[][..], "display", false, Type::scalar(BuiltinType::String)),
-        "PartialOrd" => {
-            let ordering = enumeration(module, "Ordering", 0)?.apply([])?;
-            (
-                &["PartialEq"][..],
-                "partial_cmp",
-                true,
-                enumeration(module, "Option", 1)?.apply([ordering])?,
-            )
-        }
-        "Ord" => (
-            &["Eq", "PartialOrd"][..],
-            "cmp",
-            true,
-            enumeration(module, "Ordering", 0)?.apply([])?,
-        ),
-        _ => unreachable!("comparison trait"),
-    };
-    for name in parents {
-        contract.parent(interface(module, name, 0)?.apply([])?);
-    }
-    if !method.is_empty() {
-        let mut declaration = MethodDecl::instance(method).returns(result);
-        if binary {
-            declaration = declaration.parameter("arg1", receiver);
-        }
-        contract.method(module, declaration, contract.overview.0)?;
-    }
-    Ok(())
-}
-
-fn operator(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeResult<()> {
-    let member = match contract.name {
-        "Add" => "add",
-        "Sub" => "sub",
-        "Mul" => "mul",
-        "Div" => "div",
-        "Rem" => "rem",
-        "BitAnd" => "bitand",
-        "BitOr" => "bitor",
-        "BitXor" => "bitxor",
-        "Shl" => "shl",
-        "Shr" => "shr",
-        "Neg" => "neg",
-        "Not" => "not",
-        "Index" => "index",
-        "Fn" => "call",
-        _ => unreachable!("operator trait"),
-    };
-    let output = contract.associated(
-        module,
-        "Output",
-        vec![],
-        "The result type of the declared operation.",
-    )?;
-    let mut declaration = MethodDecl::instance(member).returns(contract.projection(&output)?);
-    if contract.arity == 1 {
-        declaration = declaration.parameter("arg1", contract.owner.parameter(0)?);
-    }
-    contract.method(module, declaration, contract.overview.0)
-}
-
-fn propagation(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeResult<()> {
-    if contract.name == "FromResidual" {
-        return contract.method(
-            module,
-            MethodDecl::static_method("from_residual")
-                .parameter("residual", contract.owner.parameter(0)?)
-                .returns(contract.owner.receiver()?),
-            "Construct the enclosing early-return value from a compatible Residual.",
-        );
-    }
-    let output = contract.associated(
-        module,
-        "Output",
-        vec![],
-        "The result type of the declared operation.",
-    )?;
-    let residual = contract.associated(module, "Residual", vec![],
-"The distinct early-return type passed to FromResidual; successful Output values are not residuals.",
-)?;
-    let output = contract.projection(&output)?;
-    let residual = contract.projection(&residual)?;
-    contract.parent(interface(module, "FromResidual", 1)?.apply([residual.clone()])?);
-    contract.method(
-        module,
-        MethodDecl::static_method("from_output")
-            .parameter("output", output.clone())
-            .returns(contract.owner.receiver()?),
-        "Construct a successful carrier from Output.",
-    )?;
-    let result = enumeration(module, "ControlFlow", 2)?.apply([residual, output])?;
-    contract.method(
-        module,
-        MethodDecl::instance("branch").returns(result),
-        "Consume the carrier once and return Continue(Output) or Break(Residual).",
-    )
-}
-
-pub(super) const CMP_MODULE_DOCS: (&str, &str) = (
-    "Equality and ordering contracts. Comparisons must obey the laws required by collection algorithms.",
-    "fn same(left: i32, right: i32) -> bool { left == right }",
-);
-
 pub(super) const HASH_MODULE_DOCS: (&str, &str) = (
     "Hash contracts used by key-based collections. Equal keys must hash equally, and key lookup blocks recursive structural mutation.",
     "fn lookup(values: std::collections::HashMap<i32, i32>) -> Option<i32> { values.get(7) }",
@@ -723,16 +367,6 @@ pub(super) const HASH_MODULE_DOCS: (&str, &str) = (
 pub(super) const FMT_MODULE_DOCS: (&str, &str) = (
     "Diagnostic and display formatting through declared interfaces.",
     "fn render<T: core::fmt::Debug>(value: T) -> String { value.debug() }",
-);
-
-pub(super) const CONVERT_MODULE_DOCS: (&str, &str) = (
-    "Explicit infallible and checked conversions, including blanket forwarding methods and error conversion.",
-    "fn widen(value: i32) -> i64 { i64::from(value) }",
-);
-
-pub(super) const DEFAULT_MODULE_DOCS: (&str, &str) = (
-    "Explicit implementation-defined construction through the ordinary Default trait. No automatic struct, field or enum initialization is implied.",
-    "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }\nstruct Element {}\nfn empty_vec() -> Vec<Element> { Vec<Element>::default() }\nfn absent() -> Option<Element> { Option<Element>::default() }\nfn zero() -> i32 { Default::default() }\nfn empty_string() -> String { String::default() }",
 );
 
 pub(super) const STR_MODULE_DOCS: (&str, &str) = (

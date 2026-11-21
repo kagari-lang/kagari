@@ -9,6 +9,7 @@ blake3 = "1"
 bincode.workspace = true
 kagari-types.workspace = true
 kagari-source.workspace = true
+kagari-core-source.workspace = true
 kagari-common.workspace = true
 kagari-syntax.workspace = true
 serde.workspace = true
@@ -17,6 +18,8 @@ smallvec.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+kagari-runtime.workspace = true
+kagari-bytecode.workspace = true
 kagari-analyzer.workspace = true
 kagari-stdlib.workspace = true
 kagari-contract.workspace = true

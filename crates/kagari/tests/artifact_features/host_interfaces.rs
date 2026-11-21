@@ -1,7 +1,7 @@
+use crate::standard_library;
 #[cfg(feature = "native")]
 use bytecode::load_bytecode;
 use kagari::program::native::NativeCompiler;
-use kagari_stdlib as stdlib;
 // Share the Runtime-owned verified bytecode preparation helper.
 #[path = "../../../kagari-runtime/tests/support/bytecode.rs"]
 mod bytecode;
@@ -34,7 +34,6 @@ use kagari_runtime::{
     value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     declaration::host::{
         HostCallPolicy, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy,
@@ -408,8 +407,8 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         [contract.records().program.root.index()]
     .identity
     .clone();
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("demo", &catalog).unwrap();
+    let catalog = standard_library().declarations().catalog();
+    let mut module = ModuleBuilder::new("demo", catalog).unwrap();
     let reader = common::reference_trait(&mut module, &contract, "Reader");
     let describe = common::reference_trait(&mut module, &contract, "Describe");
     let mut counter = module.define_type("Counter").unwrap();
@@ -456,7 +455,8 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
         .unwrap();
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        standard_library()
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module.finish().unwrap()])

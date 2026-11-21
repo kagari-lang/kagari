@@ -1,12 +1,10 @@
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{
-            compile_program,
-            native_boundary_functions::{fixture, fixture_without_foundation},
-        },
-        support::bytecode::reload_bytecode,
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{
+        compile_program,
+        native_boundary_functions::{fixture, fixture_without_foundation},
     },
+    support::bytecode::reload_bytecode,
 };
 
 #[cfg(test)]
@@ -395,11 +393,8 @@ fn enum_bindings_reject_unwitnessed_bounds_and_incompatible_payload_scopes() {
 
 #[test]
 fn registered_variant_identities_bind_directly_and_move_with_the_runtime() {
-    let mut module = ModuleBuilder::new(
-        "example::events",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::events", test_library::standard().catalog()).unwrap();
     let mut builder = module.define_enum("Event").unwrap();
     let element = builder.type_parameter("T").unwrap();
     let data = builder.variant("Data", [element.ty()]).unwrap();

@@ -1,11 +1,14 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn string_method_signatures_are_statically_checked() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for expression in [
         "\"text\".slice(true, 1u64)",
         "\"text\".contains(1)",

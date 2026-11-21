@@ -18,6 +18,7 @@ use kagari_common::{
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
+use kagari_stdlib::namespaces;
 use kagari_syntax::parser::{ParseOptions, parse};
 use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
@@ -223,13 +224,18 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
 #[test]
 fn source_less_reexport_resolves_without_physical_import_sites() {
     let mut sources = SourceDatabase::default();
-    let text = "use core::option::Some;";
+    let text = "use std::prelude::Some;";
     let root = insert(&mut sources, "root", text);
     let snapshot = analyze(&sources);
     let graph = snapshot.module_graph();
-    let owner = kagari_stdlib::namespaces::type_owner("Option");
+    let owner = namespaces::type_owner("Option");
     let owner = graph.catalog.definitions.lookup_module(&owner).unwrap();
-    let provider = graph.node(&owner).unwrap();
+    let prelude = graph
+        .catalog
+        .definitions
+        .lookup_module(&namespaces::prelude())
+        .unwrap();
+    let provider = graph.node(&prelude).unwrap();
     let analysis = snapshot.file(provider.file).unwrap();
     let lowered = &analysis.result().facts().lowered;
     assert!(lowered.source_surface().is_none());
@@ -238,7 +244,7 @@ fn source_less_reexport_resolves_without_physical_import_sites() {
         .imports
         .directives
         .iter()
-        .find(|directive| directive.segments == ["self", "Option", "Some"])
+        .find(|directive| directive.segments == ["core", "option", "Option", "Some"])
         .expect("structured re-export of Option::Some");
     assert_eq!(reexport.span, None);
     assert_eq!(reexport.root_span, None);
@@ -252,7 +258,13 @@ fn source_less_reexport_resolves_without_physical_import_sites() {
     };
     assert_eq!(binding.resolution.target(), Some(target));
     assert_eq!(binding.location, None);
-    let declared = LocalName::new("Option").unwrap();
+    let iterator = graph
+        .catalog
+        .definitions
+        .lookup_module(&namespaces::trait_owner("Iterator"))
+        .unwrap();
+    let provider = graph.node(&iterator).unwrap();
+    let declared = LocalName::new("Iterator").unwrap();
     let [declaration] = provider.imports.scope.entries[&declared][NameNamespace::Type]
         .strong
         .as_slice()

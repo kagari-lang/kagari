@@ -1,5 +1,6 @@
 use super::program_for_source;
 use crate::bytecode_fixture::load_bytecode;
+use crate::standard_library::STANDARD;
 use kagari_derive::KagariValue;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -15,7 +16,6 @@ use kagari_runtime::{
         types::Type,
     },
 };
-use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::ty::Ty;
 
 kagari_runtime::native_data! { struct GameConfig { power: i32 } }
@@ -29,8 +29,8 @@ struct BattleInput {
 
 #[test]
 fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
-    let providers = StandardDeclarations::default().catalog().unwrap();
-    let mut builder = ModuleBuilder::new("game::mixed", &providers).unwrap();
+    let providers = STANDARD.declarations().catalog();
+    let mut builder = ModuleBuilder::new("game::mixed", providers).unwrap();
     builder.register_type::<BattleInput>().unwrap();
     assert!(builder.register_type::<Opaque<GameConfig>>().is_err());
     let module = builder.finish().unwrap();
@@ -46,7 +46,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
         },
         ..Default::default()
     });
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "mixed", program).unwrap();

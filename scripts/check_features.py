@@ -20,7 +20,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 
 
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
-    source = {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
+    source = {"kagari-core-source", "kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     execution = {"kagari-runtime", "kagari", "kagari-bytecode"}
     constraints = {
@@ -91,11 +91,7 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
     print("ABI/contract build graphs are independent of source analysis and execution", flush=True)
 
 
-def run(async_only: bool = False, numeric_only: bool = False, conversions_only: bool = False) -> None:
-    output = OUTPUT / "numeric" if numeric_only else OUTPUT
-    output.mkdir(parents=True, exist_ok=True)
-    if not numeric_only and not conversions_only:
-        check_crate_boundaries(output)
+def write_consumer_manifest(output: Path, numeric_only: bool) -> Path:
     lines = [
         '[workspace]', '[package]', 'name = "kagari-feature-consumer"',
         'version = "0.0.0"', 'edition = "2024"', '[features]', 'default = []',
@@ -106,7 +102,7 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
             'native = ["kagari/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         ]
     lines.append('[dependencies]')
-    dependencies = ["kagari", "kagari-runtime"] if numeric_only else [
+    dependencies = ["kagari", "kagari-runtime", "kagari-common", "kagari-stdlib"] if numeric_only else [
         "kagari", "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
         "kagari-stdlib", "kagari-bytecode", "kagari-common", "kagari-runtime", "kagari-gc",
         "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
@@ -119,7 +115,10 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
             options.append('optional = true')
         lines.append(f'{name} = {{ {", ".join(options)} }}')
     if not numeric_only:
-        lines += ['[dev-dependencies]', 'tokio = { version = "1", features = ["rt"] }']
+        lines += [
+            '[dev-dependencies]', 'tokio = { version = "1", features = ["rt"] }',
+            'rstest = { version = "0.28.0", default-features = false }',
+        ]
     targets = {"numeric_artifact": "artifact_features/numeric.rs"} if numeric_only else {
         "artifact_features": "artifact_features.rs", "async_execution": "async_execution.rs",
     }
@@ -129,6 +128,15 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
     lines += ['[profile.dev]', 'opt-level = 1']
     manifest = output / "Cargo.toml"
     manifest.write_text("\n".join(lines) + "\n")
+    return manifest
+
+
+def run(async_only: bool = False, numeric_only: bool = False, conversions_only: bool = False) -> None:
+    output = OUTPUT / "numeric" if numeric_only else OUTPUT
+    output.mkdir(parents=True, exist_ok=True)
+    if not numeric_only and not conversions_only:
+        check_crate_boundaries(output)
+    manifest = write_consumer_manifest(output, numeric_only)
     # Keep the repository's external dependency resolutions. Cargo may prune unused
     # packages and add the local consumer, but must not upgrade external packages.
     (output / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
@@ -184,14 +192,14 @@ def run(async_only: bool = False, numeric_only: bool = False, conversions_only: 
         packages = {line.split()[0] for line in graph.splitlines() if line}
         forbidden = {"kagari-format", "kagari-lint"}
         if "source" not in features:
-            forbidden |= {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
+            forbidden |= {"kagari-core-source", "kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
         if not features:
             forbidden |= {"kagari-compiler", "kagari-mir", "kagari-codegen", "kagari-codegen-cranelift"}
         if features == "source":
             forbidden |= {"kagari-codegen", "kagari-codegen-cranelift"}
         assert not packages & forbidden, (label, packages & forbidden)
         if "source" in features:
-            assert {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"} <= packages, label
+            assert {"kagari-core-source", "kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"} <= packages, label
         log_label = label
         if numeric_only:
             log_label += "-numeric"

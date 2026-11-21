@@ -6,6 +6,7 @@ use crate::source::{
     lower::{MirLoweringError, state::FunctionLowerer},
 };
 use kagari_abi::representation::ValueType;
+use kagari_contract::standard::RuntimePrimitive;
 use kagari_hir::{
     builtin::BuiltinFunction, hir::ids::ExprId, typeck::scalar::ScalarValue, types::TypeId,
 };
@@ -130,6 +131,10 @@ impl FunctionLowerer<'_, '_> {
         args: &[ExprId],
     ) -> Result<ControlFlow<MirValue, (CallTarget, ValueBuffer)>, MirLoweringError> {
         let (target, operands): (_, SmallVec<[ExprId; 3]>) = match (helper, args) {
+            (BuiltinFunction::ForwardErrOrigin, [original, destination]) => (
+                CallTarget::RuntimePrimitive(RuntimePrimitive::ForwardErrOrigin),
+                smallvec::smallvec![*original, *destination],
+            ),
             (BuiltinFunction::TypeOf, [value]) => (
                 CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
                 smallvec::smallvec![*value],

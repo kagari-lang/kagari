@@ -3,10 +3,12 @@
 //! managed_objects_delta is the net number of resident managed allocations at
 //! observation, including unswept garbage; it is not a cumulative allocation count.
 // Shared preparation keeps verifier and linker failures observable.
+mod standard_library;
+use crate::standard_library::STANDARD;
+use kagari_stdlib::StandardLibrary;
 #[path = "../../kagari-runtime/tests/support/bytecode.rs"]
 mod bytecode_fixture;
 use crate::bytecode_fixture::load_bytecode;
-use kagari_stdlib::catalog as foundation_catalog;
 #[path = "../../kagari-runtime/tests/native_allocations_counter.rs"]
 mod native_allocations_counter;
 use kagari_common::identity::table::DefinitionId;
@@ -57,7 +59,7 @@ fn setup() -> Fixture {
     config.gc.collection_threshold = Some(4096);
     let mut runtime = Runtime::new(config);
     kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
+        &STANDARD.modules().unwrap(),
         &mut runtime,
     )
     .unwrap();
@@ -241,6 +243,6 @@ fn compare_rust_native_and_script_stable_sorting() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(STANDARD.declarations().declarations().to_vec());
     database
 }

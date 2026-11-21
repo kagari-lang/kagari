@@ -1,3 +1,4 @@
+use crate::test_support::standard::standard_library;
 use crate::{
     engine::{
         KagariEngine,
@@ -25,13 +26,14 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
-use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{sync::Arc, thread};
 
 fn engine() -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     builder.source_root("/source-updates").unwrap();
     builder.build().unwrap()
 }

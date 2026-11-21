@@ -1,4 +1,5 @@
 use crate::program::native::NativeCompiler;
+use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -29,7 +30,6 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 use rstest::rstest;
 use std::{
     sync::{
@@ -95,7 +95,9 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         let second_value = Arc::new(AtomicI32::new(201));
         let first_host = Arc::downgrade(&first_value);
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         let first_provider = player_module(builder.declarations(), first_value.clone());
         let second_provider = player_module(builder.declarations(), second_value.clone());
         builder.install(first_provider).unwrap();
@@ -136,7 +138,7 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
             ..Default::default()
         };
         let mut first = engine.runtime(context.clone());
-        let mut modules = stdlib::modules().unwrap();
+        let mut modules = standard_library().modules().unwrap();
         modules.push(second_provider);
         let mut second = {
             let mut runtime = NativeInstallation::prepare(&modules)
@@ -339,8 +341,11 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
     #[case] source: &str,
     #[case] expected: i32,
 ) {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     // Preserve unsupported MIR operations for this backend-boundary fixture.
     // The native test above separately covers default constant folding.
     let mut options = ArtifactOptions::default();
@@ -390,8 +395,11 @@ fn unsupported_mir_selects_interpreter_before_any_script_instruction(
 #[test]
 fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints() {
     use kagari_runtime::{Runtime as CoreRuntime, RuntimeConfig, execution::memory::GcHeapConfig};
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let prepare = |value| {
         let artifact = engine
             .compile_to_artifact(
@@ -425,7 +433,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
                 ..Default::default()
             });
             kagari_runtime::native::module::NativeModule::install_all(
-                &stdlib::modules().unwrap(),
+                &standard_library().modules().unwrap(),
                 &mut registered,
             )
             .unwrap();

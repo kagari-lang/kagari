@@ -95,3 +95,43 @@ required-features = ["source"]
 [[example]]
 name = "enum_layout_baseline"
 required-features = ["source", "kagari-runtime/execution-diagnostics"]
+
+[[example]]
+name = "architecture_baseline"
+required-features = ["source", "native"]
+
+[[example]]
+name = "foundation_baseline"
+required-features = ["source"]
+
+[[example]]
+name = "host_interfaces"
+required-features = ["source"]
+
+[[example]]
+name = "host_reentry"
+required-features = ["source"]
+
+[[example]]
+name = "offline_compile"
+required-features = ["source"]
+
+[[example]]
+name = "scoped_execution"
+required-features = ["source"]
+
+[[example]]
+name = "source_modules"
+required-features = ["source"]
+
+[[example]]
+name = "source_queries"
+required-features = ["source"]
+
+[[example]]
+name = "typed_native"
+required-features = ["source"]
+
+[[example]]
+name = "value_interop"
+required-features = ["source"]

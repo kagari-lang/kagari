@@ -12,6 +12,15 @@ pub enum RangeKind {
 }
 
 impl RangeKind {
+    pub const ALL: [Self; 6] = [
+        Self::Exclusive,
+        Self::Inclusive,
+        Self::From,
+        Self::To,
+        Self::ToInclusive,
+        Self::Full,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             Self::Exclusive => "Range",

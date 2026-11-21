@@ -3,18 +3,19 @@
 use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{Runtime, native::installation::NativeInstallation};
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
+use kagari_stdlib::StandardLibrary;
 use std::{env, hint::black_box, time::Instant};
-use stdlib::modules;
 
 const BATCH: usize = 128;
 const SAMPLES: usize = 11;
 
 fn measure_compiled<T>(name: &str, mut create: impl FnMut(&KagariEngine) -> T) {
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     let source = include_str!("../../../benchmarks/lua-comparison/workloads/calls.kgr")
         .replace("__N__", "10000");
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let prepared = engine
         .compile_to_program(
             SourceFile::new("benchmark_calls.kgr", source),
@@ -54,6 +55,8 @@ fn measure<T>(name: &str, mut create: impl FnMut() -> T) {
 }
 
 fn main() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     let mut reverse = false;
     let mut compiled = false;
     for argument in env::args().skip(1) {
@@ -79,10 +82,10 @@ fn main() {
         }
         return;
     }
-    let modules = modules().unwrap();
+    let modules = library.modules().unwrap();
     let installation = NativeInstallation::prepare(&modules).unwrap();
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let context = ExecutionContext::default();
     let mut routes = ["bare", "installed", "sdk"];
     if reverse {

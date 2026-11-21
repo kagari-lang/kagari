@@ -1,6 +1,7 @@
 //! Host identity/access semantics must not turn into owning Native objects offline.
 
 use super::{ExternalType, foundation::exported};
+use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{AnalysisDatabase, error::AnalysisError},
     types::TypeId,
@@ -86,7 +87,7 @@ fn provider() -> Arc<DefinitionMetadata<ModuleDecl>> {
 
 #[test]
 fn host_exports_preserve_identity_paths_async_and_reference_restrictions() {
-    let mut providers = kagari_stdlib::catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(provider());
     let exports = exported(&providers);
     let mut direct = AnalysisDatabase::new("/project").unwrap();

@@ -164,6 +164,7 @@ pub(super) fn seal(
             .chain(dependencies.traits.ids())
             .chain(dependencies.declarations.ids())
             .chain(dependencies.implementations.ids())
+            .chain(dependencies.source_impls.ids())
             .chain(module.exports.values().copied())
             .chain(draft.references.iter().map(|reference| reference.id))
             .chain(draft.members.iter().map(|member| member.id))

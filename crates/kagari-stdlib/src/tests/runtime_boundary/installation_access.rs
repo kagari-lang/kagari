@@ -1,11 +1,13 @@
 use super::support;
+use crate::test_library;
 use crate::tests::support::bytecode::load_bytecode;
+use kagari_hir::analysis::AnalysisDatabase;
 use rstest::rstest;
 
+use crate::namespaces;
 use crate::tests::support::native::invoke::invoke;
 use crate::tests::support::native::program::ProgramFixture;
 use crate::tests::support::native::program::free_function_program;
-use crate::{declarations::StandardDeclarations, namespaces};
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -13,7 +15,7 @@ use kagari_common::{
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::{PublicItem, TraitContract};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -142,11 +144,8 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
 #[case::private_contract(true)]
 fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] private: bool) {
     let context = DefinitionContext::new().unwrap();
-    let mut builder = ModuleBuilder::new(
-        "example::plain",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::plain", test_library::standard().catalog()).unwrap();
     let mut interface = builder.define_trait("Read").unwrap();
     interface
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
@@ -206,11 +205,8 @@ fn ordinary_installed_traits_require_exact_contracts_without_calls(#[case] priva
 #[test]
 fn native_declarations_require_exact_installation_without_calls() {
     let context = DefinitionContext::new().unwrap();
-    let mut builder = ModuleBuilder::new(
-        "example::unused",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::unused", test_library::standard().catalog()).unwrap();
     let function = builder
         .define_function(FunctionDecl::new("answer").returns(Type::i32()))
         .unwrap();
@@ -272,10 +268,10 @@ fn native_declarations_require_exact_installation_without_calls() {
 #[test]
 fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     let context = DefinitionContext::new().unwrap();
-    let foundation = StandardDeclarations::default();
+    let foundation = test_library::standard();
     // Use the normal producer for the complete default/template proof closure;
     // runtime installation and reload consume only the resulting bytecode.
-    let declarations = foundation.declarations().unwrap();
+    let declarations = foundation.declarations();
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("installation.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -303,13 +299,6 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .enumerate()
         .filter(|(_, module)| namespaces::is_language_module(&module.identity))
     {
-        let definition = declarations
-            .iter()
-            .find(|definition| definition.records().identity == module.identity)
-            .unwrap()
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
         let base = modules[index].clone();
         let program = |module| {
             // Retain the producer's complete proof/evidence closure rather than
@@ -321,9 +310,9 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         };
         let mut runtime = Runtime::default();
         assert!(load_bytecode(&mut runtime, "uninstalled_core", program(base.clone())).is_err());
-        NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+        NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
         load_bytecode(&mut runtime, "core", program(base.clone()))
-            .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
+            .unwrap_or_else(|error| panic!("{:?}: {error}", module.identity));
         let missing_name = base
             .public_items
             .iter()
@@ -372,7 +361,7 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
     };
     VerifiedProgram::new(program(base.clone()), &context).unwrap();
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     let active = load_bytecode(&mut runtime, "public_core", program(base.clone())).unwrap();
     let _active_program = active;
     let mut forged = base;
@@ -428,7 +417,7 @@ fn standard_code(text: &str) -> VerifiedProgram {
         .set("exports.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(crate::catalog::shared().unwrap());
+    analysis.set_native_modules(test_library::standard().declarations().to_vec());
     let checked = analysis
         .snapshot(source.snapshot(), &Default::default())
         .unwrap()
@@ -447,7 +436,7 @@ fn standard_code(text: &str) -> VerifiedProgram {
 
 fn standard_runtime() -> Runtime {
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&test_library::modules().unwrap(), &mut runtime).unwrap();
     runtime
 }
 

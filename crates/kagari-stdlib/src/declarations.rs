@@ -1,5 +1,5 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::{assembly, catalog::semantic::Semantic, identity};
+use crate::{catalog::semantic::Semantic, identity};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::native::{
     binding::NativeResult,
@@ -11,43 +11,32 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct StandardDeclarations {
-    semantic: NativeResult<Arc<Semantic>>,
-}
-
-impl Default for StandardDeclarations {
-    fn default() -> Self {
-        Self {
-            semantic: assembly::semantic(),
-        }
-    }
+    semantic: Arc<Semantic>,
 }
 
 impl StandardDeclarations {
-    /// Borrow the retained scoped inputs, reporting any foundation construction error.
-    pub fn declarations(&self) -> NativeResult<&[Arc<DefinitionMetadata<ModuleDecl>>]> {
-        self.semantic
-            .as_ref()
-            .map(|semantic| semantic.shared())
-            .map_err(Clone::clone)
+    pub(crate) fn new(semantic: Arc<Semantic>) -> Self {
+        Self { semantic }
     }
 
-    pub fn catalog(&self) -> NativeResult<DeclarationCatalog> {
-        self.semantic
-            .as_ref()
-            .map(|semantic| semantic.snapshot().catalog().clone())
-            .map_err(Clone::clone)
+    /// Native owner and facade inputs. Authored owners remain ordinary source modules.
+    pub fn declarations(&self) -> &[Arc<DefinitionMetadata<ModuleDecl>>] {
+        self.semantic.shared()
+    }
+
+    /// Scoped mixed authoring contracts; this view installs no implementation.
+    pub fn catalog(&self) -> &DeclarationCatalog {
+        self.semantic.catalog()
     }
 
     pub fn protocol(&self, protocol: Protocol) -> TraitRef {
         self.catalog()
-            .expect("checked standard providers")
             .trait_reference(&language::identity(protocol))
             .expect("declared standard protocol")
     }
 
     fn library_trait(&self, name: &str) -> TraitRef {
         self.catalog()
-            .expect("checked standard providers")
             .trait_reference(&identity::trait_id(name))
             .expect("declared standard library trait")
     }
@@ -101,15 +90,15 @@ impl StandardDeclarations {
     }
 
     /// Retrieve a library enum's ordinary authoring handle.
-    pub fn enumeration(name: &str) -> NativeResult<TypeRef> {
-        assembly::semantic()?.enumeration_named(name).cloned()
+    pub fn enumeration(&self, name: &str) -> NativeResult<TypeRef> {
+        self.semantic.enumeration_named(name).cloned()
     }
 
     pub fn option(&self, item: Type) -> NativeResult<Type> {
-        Self::enumeration("Option")?.apply([item])
+        self.enumeration("Option")?.apply([item])
     }
 
     pub fn ordering(&self) -> NativeResult<Type> {
-        Self::enumeration("Ordering")?.apply([])
+        self.enumeration("Ordering")?.apply([])
     }
 }

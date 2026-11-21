@@ -42,7 +42,8 @@ export async function digest(files, root) {
 // files. Checking a site needs no installed Rust tools: their verified identity is
 // retained in the build record, while source/toolchain configuration is hashed here.
 export async function rustInputFiles(root = repositoryRoot) {
-  const files = (await walk(join(root, 'crates'), new Set(['target', '.git'])))
+  const trees = await Promise.all(['crates', 'library'].map((name) => walk(join(root, name), new Set(['target', '.git']))));
+  const files = trees.flat()
     .filter((path) => /\.(rs|kgr)$/u.test(path) || basename(path) === 'Cargo.toml');
   for (const name of ['Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml', '.cargo/config', '.cargo/config.toml']) {
     const path = join(root, name);

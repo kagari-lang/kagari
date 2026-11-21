@@ -1,10 +1,10 @@
 //! Same recurrence through concrete and dynamic boundaries, plus bounded byte state.
 #[cfg(feature = "diagnostics")]
 use crate::diagnostics;
-use kagari_stdlib as stdlib;
 
+use crate::standard_builder;
 use crate::{Options, profile};
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::Program};
+use kagari::{context::ExecutionContext, program::Program};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_runtime::{
     native::{
@@ -161,8 +161,7 @@ fn lua_source(name: &str) -> String {
 }
 
 pub(super) fn run(options: &Options) {
-    let mut builder = KagariEngine::builder().expect("standard engine");
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    let mut builder = standard_builder();
     let mut native = ModuleBuilder::new("bench::numeric", builder.declarations())
         .expect("benchmark native module");
     let step = native

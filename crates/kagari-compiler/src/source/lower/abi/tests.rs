@@ -1,6 +1,7 @@
 use super::{collect_module_abi, const_abi_value};
 use crate::source::lower::support::lower_scalar;
 use crate::tests::common::compilation;
+use crate::tests::standard::standard_modules;
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_contract::{
     types as abi,
@@ -11,7 +12,6 @@ use kagari_hir::{
 };
 use kagari_mir::instruction::Constant;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::validate_native_declarations},
@@ -221,8 +221,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
         if declared.source().module_identity() == &Protocol::From.module() {
             // The declaration of TryInto retains Self::Error even though its blanket
             // implementation returns the destination's TryFrom::Error.
-            let installed = foundation_catalog::shared()
-                .unwrap()
+            let installed = standard_modules()
                 .into_iter()
                 .find(|provider| provider.records().identity == Protocol::From.module())
                 .unwrap()
@@ -394,6 +393,6 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     database
 }

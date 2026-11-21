@@ -1,11 +1,9 @@
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{
-            compile_program, native_boundary_functions::fixture, publish_unused_version,
-        },
-        support::bytecode::reload_bytecode,
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{
+        compile_program, native_boundary_functions::fixture, publish_unused_version,
     },
+    support::bytecode::reload_bytecode,
 };
 
 #[cfg(test)]
@@ -50,14 +48,11 @@ struct Registration {
 }
 
 fn registration() -> Registration {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap()).unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::managed", language.catalog()).unwrap();
     let mut storage = ManagedStorage::<State>::new();
     let name = storage
-        .field::<String>(
-            "name",
-            String::kagari_type(&language.catalog().unwrap()).unwrap(),
-        )
+        .field::<String>("name", String::kagari_type(language.catalog()).unwrap())
         .unwrap();
     assert!(storage.field::<String>("name", Type::i32()).is_err());
     let callback = storage
@@ -70,10 +65,7 @@ fn registration() -> Registration {
         .define_function(
             FunctionDecl::new("new")
                 .parameter("hp", Type::i32())
-                .parameter(
-                    "name",
-                    String::kagari_type(&language.catalog().unwrap()).unwrap(),
-                )
+                .parameter("name", String::kagari_type(language.catalog()).unwrap())
                 .parameter("callback", Type::function([], Type::i32()).unwrap())
                 .returns(ty.apply([]).unwrap()),
         )
@@ -469,17 +461,14 @@ impl IntoKagari for Converted {
 
 #[test]
 fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
-    let language = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("example::managed", &language.catalog().unwrap()).unwrap();
+    let language = test_library::standard();
+    let mut module = ModuleBuilder::new("example::managed", language.catalog()).unwrap();
     let mut storage = ManagedStorage::<()>::new();
     let callback_token = storage
         .field::<Callback>("callback", Type::function([], Type::i32()).unwrap())
         .unwrap();
     let text_token = storage
-        .field::<Converted>(
-            "text",
-            String::kagari_type(&language.catalog().unwrap()).unwrap(),
-        )
+        .field::<Converted>("text", String::kagari_type(language.catalog()).unwrap())
         .unwrap();
     let mut ty = module.define_type("Holder").unwrap();
     ty.native_storage(storage.finish()).unwrap();
@@ -605,11 +594,8 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
 #[test]
 fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bindings() {
     type Boxed = Opaque<Managed<()>>;
-    let mut module = ModuleBuilder::new(
-        "example::managed",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut module =
+        ModuleBuilder::new("example::managed", test_library::standard().catalog()).unwrap();
     let mut ty = module.define_type("Boxed").unwrap();
     let parameter = ty.type_parameter("T").unwrap();
     let mut storage = ManagedStorage::<()>::new();

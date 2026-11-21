@@ -1,12 +1,10 @@
 use super::{compile_without_foundation, fixture, fixture_without_foundation};
-use crate::{
-    declarations::StandardDeclarations,
-    tests::{
-        execution::native_boundary::{
-            native_boundary_interfaces::generic_identity_module, support::declaration_query,
-        },
-        support::bytecode::reload_bytecode,
+use crate::test_library;
+use crate::tests::{
+    execution::native_boundary::{
+        native_boundary_interfaces::generic_identity_module, support::declaration_query,
     },
+    support::bytecode::reload_bytecode,
 };
 
 use kagari_runtime::{
@@ -169,7 +167,7 @@ fn generic_native_calls_return_retained_objects_tuples_and_closures() {
 fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
     let mut builder = ModuleBuilder::new(
         "example::generic_helper",
-        &StandardDeclarations::default().catalog().unwrap(),
+        test_library::standard().catalog(),
     )
     .unwrap();
     let identity = builder
@@ -285,11 +283,8 @@ fn generic_bindings_keep_type_evidence_without_pinning_ordinary_code() {
 
 #[test]
 fn bound_native_application_uses_the_compilers_selected_trait_operation() {
-    let mut builder = ModuleBuilder::new(
-        "example::bound",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::bound", test_library::standard().catalog()).unwrap();
     let mut step = builder.define_trait("Step").unwrap();
     step.define_method(
         MethodDecl::instance("step")
@@ -364,11 +359,8 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
 
 #[test]
 fn admitted_native_retains_its_frame_while_selected_callbacks_use_current_code() {
-    let mut builder = ModuleBuilder::new(
-        "example::admitted",
-        &StandardDeclarations::default().catalog().unwrap(),
-    )
-    .unwrap();
+    let mut builder =
+        ModuleBuilder::new("example::admitted", test_library::standard().catalog()).unwrap();
     let mut step = builder.define_trait("Step").unwrap();
     step.define_method(MethodDecl::instance("step").returns(Type::i32()))
         .unwrap();

@@ -16,8 +16,7 @@ use kagari_runtime::{
     value::{kind::ObjectKind, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
-use kagari_stdlib as stdlib;
-use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_stdlib::StandardLibrary;
 use kagari_types::declaration::host::{
     HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
     HostTypePolicy, PathAccess,
@@ -27,10 +26,12 @@ const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");
 const SOURCE_URI: &str = "mem://host-interface";
 
 fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
+    let mut builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     // Read the trait's checked ABI independently of its host implementation.
     // The source owns this private trait; Rust does not declare or export it.
-    let author =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    builder.install_all(library.modules().unwrap()).unwrap();
+    let author = builder.build().unwrap();
     let contract_source = SOURCE
         .split("\nfn read<")
         .next()
@@ -64,8 +65,8 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         &Default::default(),
     )
     .unwrap();
-    let catalog = StandardDeclarations::default().catalog().unwrap();
-    let mut module = ModuleBuilder::new("demo", &catalog).unwrap();
+    let catalog = library.declarations().catalog();
+    let mut module = ModuleBuilder::new("demo", catalog).unwrap();
     let reader = module.reference_trait(&path, reader).unwrap();
     let mut counter = module.define_type("Counter").unwrap();
     counter
@@ -138,7 +139,8 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     // consumes the cold declarations and never executes either callback.
     let engine = KagariEngine::with_native_modules(
         Default::default(),
-        stdlib::modules()
+        library
+            .modules()
             .unwrap()
             .into_iter()
             .chain(vec![module.finish().unwrap()])

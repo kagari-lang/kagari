@@ -233,6 +233,7 @@ impl Context<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::standard::standard_modules;
     use crate::{tests::test_analysis, types::NominalType};
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity,
@@ -242,7 +243,7 @@ mod tests {
     use kagari_source::{
         diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceSnapshot,
     };
-    use kagari_stdlib::{catalog, identity as library};
+    use kagari_stdlib::identity as library;
     use kagari_types::scalar::BuiltinType;
     use std::sync::Arc;
 
@@ -359,7 +360,7 @@ fn make<T: Eq>() -> Cell<T> { loop {} }
         ] {
             let source =
                 SourceFile::new("interface-inference.kgr", format!("{declarations}\n{body}"));
-            let analysis = crate::analyze_source(&source, catalog::shared().unwrap()).unwrap();
+            let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
             if accepted {
                 assert!(
                     analysis.diagnostics().is_empty(),

@@ -1,6 +1,6 @@
 //! Installed forward conversion metadata and admission of library forwarding impls.
 use crate::{
-    declaration::TraitDef,
+    declaration::{TraitDef, script::ScriptExpr},
     language::Protocol,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
@@ -108,6 +108,33 @@ pub fn is_library_forwarding_trait(definitions: &DefinitionTable, id: Definition
     ["Into", "TryInto"]
         .iter()
         .any(|name| definitions.lookup_child(root, DefinitionKind::Trait, name, 0) == Some(id))
+}
+
+/// Required expression of a validated library blanket. The destination bound,
+/// not executable metadata, selects the forward operation.
+pub fn forwarding_expression(
+    definitions: &DefinitionTable,
+    bound: &GenericBound,
+    fallible: bool,
+) -> Option<ScriptExpr> {
+    let [forward] = bound.constraints.as_slice() else {
+        return None;
+    };
+    let target = if fallible { "try_from" } else { "from" };
+    Some(ScriptExpr::Call {
+        callee: Box::new(ScriptExpr::TraitMethod {
+            receiver: bound.ty.clone(),
+            interface: forward.clone(),
+            member: definitions.lookup_child(
+                forward.declaration,
+                DefinitionKind::Method,
+                target,
+                0,
+            )?,
+        }),
+        arguments: vec![ScriptExpr::Name("self".into())],
+        type_arguments: vec![],
+    })
 }
 
 /// Check a reserved forwarding header. Only the library's own two-binder impl with

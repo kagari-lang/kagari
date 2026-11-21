@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_support::standard::standard_library;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     module::BytecodeModule,
@@ -13,15 +14,17 @@ use kagari_runtime::{
     module::{ModuleEpochRetention, retention::RetentionOrigin},
     session::TraceValue,
 };
-use kagari_stdlib as stdlib;
 
 use crate::program::Program;
 use std::num::NonZeroUsize;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let dependency = insert(
         &engine,
         "dependency",
@@ -109,10 +112,12 @@ fn dependency_bindings_are_checked_before_execution() {
             .native_imports
             .is_empty()
     );
-    let mut missing =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-            .unwrap()
-            .runtime(context.clone());
+    let mut missing = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap()
+    .runtime(context.clone());
     assert!(
         missing
             .load_program(
@@ -150,8 +155,11 @@ fn dependency_bindings_are_checked_before_execution() {
 
 #[test]
 fn reload_rejects_same_named_dependency_type_changes_before_publication() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     for name in ["left", "right"] {
         insert(&engine, name, "pub struct Item { val value: i32 }");
     }
@@ -211,8 +219,11 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
 
 #[test]
 fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     let prepare = |engine: &KagariEngine, root| {
         let checked = engine
             .compile_snapshot(engine.source_snapshot(), root, &Default::default())
@@ -340,8 +351,11 @@ fn selected_program_bodies_call_current_dependencies_and_reject_stale_reload() {
 
 #[test]
 fn malformed_programs_are_rejected_before_any_member_is_published() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap()).unwrap();
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        standard_library().modules().unwrap(),
+    )
+    .unwrap();
     insert(
         &engine,
         "dependency",

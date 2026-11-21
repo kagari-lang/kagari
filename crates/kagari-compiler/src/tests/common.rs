@@ -1,3 +1,4 @@
+use crate::tests::standard::standard_modules;
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -22,7 +23,7 @@ use kagari_mir::{
     verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
+use kagari_stdlib::{identity as library, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, module::ImplDecl},
@@ -36,7 +37,7 @@ fn standard_method_binding(
     name: &str,
     matches: impl Fn(&ImplDecl, &FnDecl, &DefinitionTable) -> bool,
 ) -> DefinitionPath {
-    let providers = foundation_catalog::declarations().unwrap();
+    let providers = standard_modules();
     let provider = providers
         .iter()
         .find(|module| module.records().identity == owner)
@@ -245,7 +246,7 @@ pub fn bytecode_with_edited_root(
 
 fn analysis_database() -> AnalysisDatabase {
     let mut database = AnalysisDatabase::default();
-    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database.set_native_modules(standard_modules());
     database
 }
 

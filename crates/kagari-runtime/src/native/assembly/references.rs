@@ -1,6 +1,9 @@
 //! Forward references carry identity and expected shape, never fabricated contracts.
 use crate::native::{
-    assembly::conflict, binding::NativeResult, catalog::DeclarationCatalog, types::Type,
+    assembly::conflict,
+    binding::NativeResult,
+    catalog::DeclarationCatalog,
+    types::{Type, constructor_type},
 };
 use kagari_common::identity::{
     DefinitionKind,
@@ -8,11 +11,7 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::{
-        TypeDefKind, native::NativeTypeConstructor, requirement::NativeCallableRequirement,
-    },
-    range::RangeKind,
-    scalar::BuiltinType,
+    declaration::{TypeDefKind, requirement::NativeCallableRequirement},
     ty::{NominalTy, Ty},
 };
 use std::collections::BTreeMap;
@@ -337,21 +336,4 @@ impl DraftCallableRequirement {
                 .collect::<NativeResult<_>>()?,
         })
     }
-}
-
-fn constructor_type(
-    constructor: NativeTypeConstructor,
-    mut arguments: Vec<Ty>,
-) -> NativeResult<Ty> {
-    if arguments.len() != constructor.arity() {
-        return Err(conflict("constructor reference argument count"));
-    }
-    Ok(match constructor {
-        NativeTypeConstructor::String => Ty::Builtin(BuiltinType::String),
-
-        NativeTypeConstructor::Range(RangeKind::Full) => {
-            Ty::Range(Box::new(Ty::Builtin(BuiltinType::Unit)), RangeKind::Full)
-        }
-        NativeTypeConstructor::Range(kind) => Ty::Range(Box::new(arguments.remove(0)), kind),
-    })
 }

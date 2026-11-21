@@ -1,5 +1,8 @@
 //! Nominal DTO schemas share ordinary declarations and transactional installation.
 // Shared preparation keeps verifier and linker failures observable.
+mod standard_library;
+use crate::standard_library::STANDARD;
+use kagari_stdlib::StandardLibrary;
 #[path = "../../kagari-runtime/tests/support/bytecode.rs"]
 mod bytecode_fixture;
 use crate::bytecode_fixture::load_bytecode;
@@ -56,10 +59,8 @@ enum Choice {
 }
 
 fn module(name: &str) -> NativeModule {
-    let providers = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
-    let mut builder = ModuleBuilder::new(name, &providers).unwrap();
+    let providers = STANDARD.declarations().catalog();
+    let mut builder = ModuleBuilder::new(name, providers).unwrap();
     builder.register_type::<Tree>().unwrap();
     builder.register_type::<Choice>().unwrap();
     assert!(builder.register_type::<Leaf>().is_err());
@@ -101,7 +102,7 @@ fn catalog_local_rust_identity_rejects_duplicate_module_install_atomically() {
     };
     assert_ne!(owner(&first_type), owner(&second_type));
     let mut runtime = Runtime::default();
-    let providers = kagari_stdlib::modules().unwrap();
+    let providers = STANDARD.modules().unwrap();
     NativeModule::install_all(&providers, &mut runtime).unwrap();
     assert!(NativeModule::install_all(&[first.clone(), second], &mut runtime).is_err());
     // The rejected batch did not install the first module either.
@@ -113,15 +114,10 @@ fn program(module: &NativeModule) -> DefinitionMetadata<BytecodeProgram> {
 }
 
 fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    let mut modules = kagari_stdlib::modules().unwrap();
-    modules.push(module.clone());
+    let mut declarations = STANDARD.declarations().declarations().to_vec();
+    declarations.push(Arc::new(module.to_declaration()));
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        modules
-            .iter()
-            .map(|m| Arc::new(m.to_declaration()))
-            .collect(),
-    );
+    analysis.set_native_modules(declarations);
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("schema.kgr", text.into(), SourceLayer::Base)
@@ -164,7 +160,7 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
     let module = module("game::data");
     let program = program(&module);
     let mut runtime = Runtime::default();
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     load_bytecode(&mut runtime, "valid", program.clone()).unwrap();
@@ -181,12 +177,10 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
         .unwrap()
         .fields[0]
         .mutable = false;
-    let providers = kagari_stdlib::declarations::StandardDeclarations::default()
-        .catalog()
-        .unwrap();
+    let providers = STANDARD.declarations().catalog();
     let altered = ModuleBuilder::from_declaration(
         DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap(),
-        &providers,
+        providers,
         BTreeMap::new(),
     )
     .unwrap()
@@ -247,7 +241,7 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::ExecutableModule) {
         },
         ..Default::default()
     });
-    let mut modules = kagari_stdlib::modules().unwrap();
+    let mut modules = STANDARD.modules().unwrap();
     modules.push(module);
     NativeModule::install_all(&modules, &mut runtime).unwrap();
     let owner_program = load_bytecode(&mut runtime, "dto", program).unwrap();

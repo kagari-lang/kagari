@@ -1,5 +1,5 @@
 #![cfg(feature = "source")]
-use kagari_stdlib as stdlib;
+use crate::test_support::standard::standard_library;
 #[path = "../../../../tests/support/provider_contracts.rs"]
 mod contracts;
 mod external;
@@ -34,10 +34,12 @@ use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
 fn engine(config: EngineConfig) -> KagariEngine {
     {
         let mut builder = KagariEngine::builder().unwrap();
-        builder.install_all(stdlib::modules().unwrap()).unwrap();
+        builder
+            .install_all(standard_library().modules().unwrap())
+            .unwrap();
         builder.config(config);
         builder
-            .install(provider::module(Default::default()))
+            .install(provider::module(builder.declarations(), Default::default()))
             .unwrap();
         builder.build().unwrap()
     }
@@ -219,7 +221,9 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         }
     }
     let mut builder = KagariEngine::builder().unwrap();
-    builder.install_all(stdlib::modules().unwrap()).unwrap();
+    builder
+        .install_all(standard_library().modules().unwrap())
+        .unwrap();
     let mut module = ModuleBuilder::new("fixture", builder.declarations()).unwrap();
     let function = module
         .define_function(FunctionDecl::new("number").returns(Type::scalar(BuiltinType::U8)))

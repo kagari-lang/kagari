@@ -7,9 +7,7 @@ mod future;
 
 mod iteration;
 mod numeric;
-mod propagation;
 mod protocols;
-mod ranges;
 pub(crate) mod string;
 mod tasks;
 
@@ -66,14 +64,6 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     if owner == namespaces::module("core", "array") {
         arrays::declare(module)?;
     }
-    if owner == namespaces::module("core", "ops") {
-        ranges::declare(module)?;
-    }
-    for name in ["Option", "Result", "ControlFlow"] {
-        if owner == namespaces::type_owner(name) {
-            propagation::declare(module, name)?;
-        }
-    }
     Ok(())
 }
 
@@ -118,13 +108,6 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
         )
     }));
 
-    types.extend(ranges::KINDS.iter().map(|kind| {
-        (
-            namespaces::type_owner(kind.name()),
-            DefinitionKind::AssociatedType,
-            kind.name().into(),
-        )
-    }));
     types.push((
         namespaces::type_owner("SpawnError"),
         DefinitionKind::Enum,
@@ -241,22 +224,16 @@ fn conflict(error: impl ToString) -> RuntimeError {
     RuntimeError::metadata_conflict(error.to_string())
 }
 
-/// Canonical module inventory; facades reuse their owner documentation.
+/// Native canonical owners only; std facades reuse their documentation.
 pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "array", arrays::MODULE_DOCS),
     ("core", "char", character::MODULE_DOCS),
     ("core", "iter", iteration::MODULE_DOCS),
-    ("core", "ops", ranges::MODULE_DOCS),
-    ("core", "cmp", protocols::CMP_MODULE_DOCS),
     ("core", "hash", protocols::HASH_MODULE_DOCS),
     ("core", "fmt", protocols::FMT_MODULE_DOCS),
     ("core", "future", future::MODULE_DOCS),
     ("core", "task", tasks::MODULE_DOCS),
-    ("core", "convert", protocols::CONVERT_MODULE_DOCS),
-    ("core", "default", protocols::DEFAULT_MODULE_DOCS),
     ("core", "num", numeric::MODULE_DOCS),
-    ("core", "option", enumerations::OPTION_MODULE_DOCS),
-    ("core", "result", enumerations::RESULT_MODULE_DOCS),
     ("core", "str", protocols::STR_MODULE_DOCS),
     ("alloc", "string", string::MODULE_DOCS),
     (

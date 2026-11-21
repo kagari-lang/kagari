@@ -1,9 +1,9 @@
 //! Retained identity prefixes, fixed-ID remapping and analysis-local binding ownership.
 use crate::analysis::*;
+use crate::tests::standard::standard_modules;
 use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::catalog as foundation_catalog;
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -20,11 +20,11 @@ fn checked_analysis_retains_compact_named_and_generic_metadata() {
         "compact.kgr",
         "struct Player { var hp: i32 } fn identity<T>(value: T) -> T { value }",
     );
-    let first = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let first = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_codegen()
         .unwrap();
-    let second = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
+    let second = crate::analyze_source(&source, standard_modules())
         .expect("installed declaration analysis")
         .into_codegen()
         .unwrap();

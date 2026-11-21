@@ -5,7 +5,7 @@ use kagari_runtime::{
     Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_stdlib as standard;
+use kagari_stdlib::StandardLibrary;
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     hint::black_box,
@@ -101,6 +101,8 @@ fn measure_setup<S, T>(
 }
 
 fn main() {
+    let builder = KagariEngine::builder().unwrap();
+    let library = StandardLibrary::new(builder.declarations()).unwrap();
     let mut source = "struct Player { var hp: i32 }\n".to_owned();
     for index in 0..32 {
         source.push_str(&format!("fn f{index}(p: Player) -> Player {{ p }}\n"));
@@ -110,7 +112,7 @@ fn main() {
     );
     let analyzed = measure("fresh_analysis", || {
         let engine =
-            KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+            KagariEngine::with_native_modules(Default::default(), library.modules().unwrap())
                 .unwrap();
         let file = engine
             .set_source("identity-benchmark.kgr", source.clone(), SourceLayer::Base)
@@ -130,7 +132,7 @@ fn main() {
     });
     drop(analyzed);
     let artifact = measure("compile_artifact", || {
-        KagariEngine::with_native_modules(Default::default(), standard::modules().unwrap())
+        KagariEngine::with_native_modules(Default::default(), library.modules().unwrap())
             .unwrap()
             .compile_to_artifact(
                 SourceFile::new("identity-benchmark.kgr", source.clone()),
@@ -153,16 +155,19 @@ fn main() {
         VerifiedProgram::new(program.clone(), &definitions).unwrap()
     });
     drop(measure("runtime_creation", Runtime::default));
-    let (first_runtime, first) =
-        measure_setup("runtime_import", standard_runtime, |mut runtime| {
+    let (first_runtime, first) = measure_setup(
+        "runtime_import",
+        || standard_runtime(&library),
+        |mut runtime| {
             let loaded = runtime
                 .load_verified_program("identity-benchmark", verified.clone())
                 .unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();
             (runtime, loaded)
-        });
-    let mut second_runtime = standard_runtime();
+        },
+    );
+    let mut second_runtime = standard_runtime(&library);
     let second = second_runtime
         .load_verified_program("identity-benchmark", verified)
         .unwrap();
@@ -184,8 +189,8 @@ fn main() {
 }
 
 // Standard installation is explicit setup, outside the executable import measurement.
-fn standard_runtime() -> Runtime {
+fn standard_runtime(library: &StandardLibrary) -> Runtime {
     let mut runtime = Runtime::default();
-    NativeModule::install_all(&standard::modules().unwrap(), &mut runtime).unwrap();
+    NativeModule::install_all(&library.modules().unwrap(), &mut runtime).unwrap();
     runtime
 }

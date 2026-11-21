@@ -1,6 +1,6 @@
 use crate::engine::KagariEngine;
+use crate::test_support::standard::standard_library;
 use kagari_source::source::SourceFile;
-use kagari_stdlib as stdlib;
 
 #[test]
 fn callable_errors_are_reported_before_codegen() {
@@ -13,9 +13,11 @@ fn callable_errors_are_reported_before_codegen() {
         "fn bad<F: Fn(i32)->i32>(f:F){ f(1,2); }",
         "fn bad<F: Fn(i32)->i32>(f:F){ f(true); }",
     ] {
-        let engine =
-            KagariEngine::with_native_modules(Default::default(), stdlib::modules().unwrap())
-                .unwrap();
+        let engine = KagariEngine::with_native_modules(
+            Default::default(),
+            standard_library().modules().unwrap(),
+        )
+        .unwrap();
         assert!(
             engine
                 .compile_to_artifact(

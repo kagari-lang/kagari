@@ -279,6 +279,7 @@ impl PreparedSignatures {
         let mut diagnostics = DiagnosticBuffer::new();
         let definitions = self.record.declarations.definitions();
         language_items::validate_shapes(
+            &self.lowered,
             &self.record.declarations,
             aggregates,
             &mut diagnostics,
@@ -571,7 +572,7 @@ fn analyze_prepared(
     })
 }
 
-/// Analyzes one source with explicitly installed native/foundation providers.
+/// Analyzes one source with packaged core and the explicitly supplied Native providers.
 ///
 /// Returns recoverable facts and source diagnostics. This convenience entrypoint
 /// creates a fresh database; use [`AnalysisDatabase`] to retain caches across edits.
@@ -588,7 +589,7 @@ fn analyze_prepared(
 /// use kagari_types::scalar::BuiltinType;
 ///
 /// let source = SourceFile::new("add.kgr", "fn add(x: i32) -> i32 { val y = x + 1; y }");
-/// let analysis = analyze_source(&source, kagari_stdlib::catalog::shared().unwrap()).unwrap();
+/// let analysis = analyze_source(&source, vec![]).unwrap();
 /// let facts = analysis.facts();
 /// let (sum, _) = facts.lowered.module.nodes.expressions()
 ///     .find(|(_, expr)| matches!(expr.kind, ExprKind::Binary { .. })).unwrap();

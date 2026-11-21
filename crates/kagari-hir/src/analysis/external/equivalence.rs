@@ -323,18 +323,11 @@ pub(super) fn constructor_registration() -> Arc<DefinitionMetadata<ModuleDecl>> 
     let context = DefinitionContext::new().unwrap();
     let root = context.intern_root(&identity("api")).unwrap();
     let mut module = ModuleDecl::new(identity("api"));
-    let providers = kagari_stdlib::catalog::shared().unwrap();
-    let providers =
-        crate::native::adoption::adopt(&providers, &context, &Default::default()).unwrap();
     for (name, package, path) in [("String", "alloc", "string"), ("Range", "core", "ops")] {
         let identity = kagari_stdlib::namespaces::module(package, path);
-        let provider = providers
-            .iter()
-            .find(|provider| provider.records().identity == identity)
-            .unwrap();
-        let target = provider
-            .records()
-            .definition(DefinitionKind::AssociatedType, name, provider.definitions())
+        let owner = context.intern_root(&identity).unwrap();
+        let target = context
+            .intern_child(owner, DefinitionKind::AssociatedType, name, 0)
             .unwrap();
         module.dependencies.insert(identity);
         module

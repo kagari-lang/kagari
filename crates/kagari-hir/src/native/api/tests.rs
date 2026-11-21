@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::standard::standard_modules;
 use crate::{
     hir::origin::NodeOrigin,
     native::{adoption::adopt, render::declaration_source},
@@ -9,7 +10,6 @@ use kagari_common::identity::{
     table::DefinitionTableError,
 };
 use kagari_source::source::SourceFile;
-use kagari_stdlib::{catalog as foundation_catalog, catalog};
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::{
     declaration::requirement::NativeCallableRequirement,
@@ -19,9 +19,9 @@ use kagari_types::{
 #[test]
 fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility() {
     let module = module();
-    let mut providers = catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(module.clone());
-    let original = declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
+    let original = declaration_source(&module, &standard_modules()).unwrap();
     for (from, to) in [
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
@@ -100,7 +100,7 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     let module = Arc::new(
         DefinitionMetadata::checked(definitions, definition, &Default::default()).unwrap(),
     );
-    let mut providers = catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(module);
     let providers = adopt(
         &providers,
@@ -276,7 +276,7 @@ fn one_source_analysis_reports_invalid_registration_as_an_error() {
 
 #[test]
 fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
-    let providers = catalog::shared().unwrap();
+    let providers = standard_modules();
     let module = providers
         .iter()
         .find(|module| {
@@ -348,17 +348,17 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
 
 #[test]
 fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
-    let providers = catalog::shared().unwrap();
+    let providers = standard_modules();
     let module = providers
         .iter()
         .find(|module| {
             module.records().identity.package.0 == "kagari-core"
-                && module.records().identity.path == ["cmp"]
+                && module.records().identity.path == ["hash"]
         })
         .unwrap();
     let original = declaration_source(module, &providers).unwrap();
     for text in [
-        original.text.replace("fn eq", "fn unequal"),
+        original.text.replace("fn hash", "fn other_hash"),
         format!("{}\npub trait Broken {{", original.text),
     ] {
         let source = DeclarationSource {
@@ -379,6 +379,7 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
     }
 }
 
+mod authored_facade;
 mod exact;
 mod forwarding;
 mod host;
@@ -405,7 +406,7 @@ fn native_trait_defaults_remain_native_without_script_bodies() {
             .iter()
             .any(|declaration| declaration.declaration == method)
     );
-    let mut providers = catalog::shared().unwrap();
+    let mut providers = standard_modules();
     providers.push(metadata.clone());
     let source = declaration_source(&metadata, &providers).unwrap();
     for supplied in [None, Some(&source)] {
