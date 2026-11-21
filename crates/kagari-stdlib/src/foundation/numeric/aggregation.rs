@@ -1,5 +1,5 @@
 //! Numeric reductions use checked iterator calls and source-width arithmetic.
-use crate::foundation::{enumerations::value::EnumSymbols, iteration::traversal::for_each};
+use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_contract::numeric::NumericOperation;
 use kagari_runtime::{
@@ -9,6 +9,7 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_types::{integer::IntegerOp, scalar::BuiltinType, ty::Ty};
+use std::slice;
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("foundation construction contract")
@@ -46,7 +47,7 @@ fn aggregate<'call>(
         BuiltinType::F64 => ValueView::from(identity as f64),
         _ => ValueView::from(i64::from(identity)),
     };
-    for_each(symbols, cx, 0, |_, item| {
+    for_each(symbols, cx, |item| {
         result = if kind.integer_layout().is_some() {
             numeric::fixed_integer(
                 NumericOperation {
@@ -75,4 +76,29 @@ fn aggregate<'call>(
         Ok(())
     })?;
     Ok(result)
+}
+
+fn for_each(
+    symbols: &EnumSymbols,
+    cx: &mut NativeCall<'_>,
+    mut visit: impl FnMut(ValueView<'_>) -> NativeResult<()>,
+) -> NativeResult<()> {
+    let source = cx.argument(0)?;
+
+    let iter = cx.selected_at(0)?;
+    let next = cx.selected_at(1)?;
+    let cursor = cx.call_values(iter, &[source])?;
+    loop {
+        let done = cx.with_temporaries(|cx| {
+            let value = cx.call_values(next, slice::from_ref(&cursor))?;
+            let Some(item) = enums::read_option(symbols, cx, &value)? else {
+                return Ok(true);
+            };
+            visit(item)?;
+            Ok(false)
+        })?;
+        if done {
+            return Ok(());
+        }
+    }
 }

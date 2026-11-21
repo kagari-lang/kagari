@@ -6,6 +6,7 @@ use crate::{
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
         names::{ExportName, NameNamespace},
+        ownership::owns_inherent_methods,
         requirement::NativeCallableRequirement,
         verify::{
             Parameters, function_valid, native_bounds_valid, trait_reference_valid, trait_valid,
@@ -128,14 +129,13 @@ impl ModuleDecl {
             <= 4096
     }
 
-    /// Inherent declarations are owned by the receiver's defining module.
-    /// Built-in value families use their canonical core/alloc/std declaration owner.
+    /// Checks the receiver's permitted inherent implementation module.
     pub fn owns_inherent_receiver(
         &self,
         receiver: &Ty,
         owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
     ) -> bool {
-        owner(receiver).is_some_and(|owner| owner == self.identity)
+        owns_inherent_methods(&self.identity, receiver, owner(receiver))
     }
 
     /// Resolve registered native templates in this module's retained identity scope.
@@ -468,7 +468,10 @@ impl ModuleDecl {
                 || !(1..=2).contains(&segments.len())
                 || !matches!(
                     segments[0].kind,
-                    DefinitionKind::Trait | DefinitionKind::Enum | DefinitionKind::AssociatedType
+                    DefinitionKind::Trait
+                        | DefinitionKind::Struct
+                        | DefinitionKind::Enum
+                        | DefinitionKind::AssociatedType
                 )
                 || segments
                     .iter()

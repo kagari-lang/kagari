@@ -26,25 +26,24 @@ impl Iterable for Values {
 
 struct Override {}
 
-impl Iterable for Override {
+impl Iterator for Override {
     type Item = i32;
-    type Iter = Cursor;
-    fn iter(self) -> Cursor {
-        Cursor { position: 0 }
+    fn next(self) -> Option<i32> {
+        None
     }
     fn map<U>(self, mapper: fn(i32) -> U) -> core::iter::MapIterator<i32, U> {
-        Vec::from([10]).map(mapper)
+        Vec::from([10]).iter().map(mapper)
     }
 }
 
 fn total<I: Iterable<Item = i32>>(values: I) -> i32 {
-    values.map(|x| x * 2).filter(|x| x > 2).take(1u64).sum()
+    values.iter().map(|x| x * 2).filter(|x| x > 2).take(1u64).sum()
 }
 
 fn main() -> i32 {
     val custom = Override {};
-    val overridden: Iterable<Item = i32, Iter = Cursor> = custom;
-    if total(custom) != 20 || total(overridden) != 20 {
+    val overridden: Iterator<Item = i32> = custom;
+    if custom.map(|x| x * 2).next() != Some(20) || overridden.map(|x| x * 2).next() != Some(20) {
         return 0;
     }
     val values: Iterable<Item = i32, Iter = Cursor> = Values {};

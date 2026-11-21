@@ -16,13 +16,60 @@ use kagari_mir::{
     program as mir_program,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::{language::Protocol, scalar::BuiltinType, ty::Ty};
 
 fn script_target(target: CallableTarget) -> FunctionRef {
     let CallableTarget::Script(function) = target else {
         panic!("expected script slot")
     };
     function
+}
+
+#[test]
+fn erased_iterator_identity_uses_only_next_from_the_cursor_vtable() {
+    let cancel = Default::default();
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(
+            "advance.kgr",
+            include_str!(
+                "../../../tests/fixtures/language_foundation/erased-iterator-identity.kgr"
+            )
+            .into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(sources.snapshot(), &cancel)
+        .unwrap();
+    let checked = snapshot.check_program(root, &cancel).unwrap();
+    let mir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
+    let bytecode = crate::bytecode::lower_program_to_bytecode(&mir, &cancel).unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let program = common::adopt(&context, bytecode.into_unverified());
+    let function = program.modules[program.root.index()]
+        .functions
+        .iter()
+        .find(|f| f.name == "advance")
+        .unwrap();
+    let dynamic: Vec<_> = function
+        .instructions
+        .iter()
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::Call {
+                callee: KagaribytecodeCallTarget::InterfaceMethod { contract, .. },
+                ..
+            } => Some((contract.interface.declaration, contract.method_slot)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        dynamic,
+        [(
+            Protocol::Iterator.definition(&context.snapshot()).unwrap(),
+            0
+        )]
+    );
 }
 
 #[test]

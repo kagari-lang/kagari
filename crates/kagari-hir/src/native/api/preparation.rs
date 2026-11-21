@@ -19,6 +19,9 @@ use kagari_types::declaration::{
 };
 use std::sync::{Arc, Weak};
 
+#[cfg(test)]
+use crate::analysis::core_source::packaged_modules;
+
 type AttachedRegistration = (Option<Parse>, Arc<LoweredModule>);
 
 /// Validated owned inputs. No lowering-local IDs or graph-bearing facts belong here.
@@ -41,7 +44,7 @@ impl PreparedRegistration {
         limits: ParseLimits,
         cancel: &CancellationToken,
     ) -> Result<Self, DeclarationError> {
-        let paths = Arc::new(LibraryPaths::new(&providers, &[]));
+        let paths = Arc::new(LibraryPaths::new(&providers, packaged_modules()));
         Self::prepare(
             metadata,
             providers,
@@ -112,7 +115,7 @@ impl PreparedRegistration {
                     parsed.diagnostics().first()
                 )));
             }
-            let expected = render_with_paths(&metadata, &providers, &paths)?;
+            let expected = render_with_paths(&metadata, &paths)?;
             validate_view(&expected, &parsed, definition, cancel)?;
             Some(parsed)
         } else {

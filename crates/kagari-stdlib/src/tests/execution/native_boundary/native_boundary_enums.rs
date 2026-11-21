@@ -14,7 +14,6 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     native::{
-        assembly::{ModuleDefinition, ModuleSetBuilder},
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
@@ -26,37 +25,14 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 
-use kagari_common::identity::{ModuleIdentity, PackageId};
-
-use kagari_types::{declaration::native::NativeTypeConstructor, language::binding};
+use kagari_types::language::binding;
 use std::{slice, thread};
 
 const SOURCE: &str = include_str!("../../../../tests/fixtures/core_enum_payloads.kgr");
 
 #[test]
 fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction() {
-    let mut providers = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
-    providers
-        .add(ModuleDefinition::new(
-            ModuleIdentity {
-                package: PackageId("kagari-alloc".into()),
-                path: vec!["string".into()],
-            },
-            |module| {
-                module.package_alias("alloc");
-                module.define_constructor("String", NativeTypeConstructor::String)?;
-                Ok(())
-            },
-        ))
-        .unwrap();
-    let strings = providers
-        .finish()
-        .unwrap()
-        .into_modules()
-        .unwrap()
-        .pop()
-        .unwrap();
-    let (mut vm, owner) = fixture_without_foundation(SOURCE, Some(&strings));
+    let (mut vm, owner) = fixture_without_foundation(SOURCE, None);
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
     vm.collect_garbage().unwrap();
@@ -123,15 +99,29 @@ fn enum_factories_preserve_nominal_identity_payloads_and_empty_unit_distinction(
     assert_eq!(cx.runtime_mut().call(&read, (value.clone(),)).unwrap(), 43);
     assert_eq!(cx.runtime_mut().call(&read, (zero,)).unwrap(), 0);
     assert_eq!(cx.runtime_mut().call(&read, (one,)).unwrap(), 1);
-    let other = ConversionContext::new(cx.runtime_mut(), &owner)
+    let integer = ConversionContext::new(cx.runtime_mut(), &owner)
         .unwrap()
         .type_for::<i32>()
         .unwrap();
+    let integer_packet = cx
+        .runtime_mut()
+        .bind_enum_type(&_owner_program.root(), "Packet", &[integer])
+        .unwrap();
+    // Empty has no payload to distinguish the two applications; read must check its nominal type.
+    let integer_empty = cx
+        .runtime_mut()
+        .bind_enum_variant::<()>(&integer_packet, "Empty")
+        .unwrap()
+        .create(&mut cx, ())
+        .unwrap();
+    let error = cx.runtime_mut().call(&read, (integer_empty,)).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     assert!(
-        cx.runtime_mut()
-            .bind_enum_type(&_owner_program.root(), "Packet", &[other])
-            .is_err()
+        error
+            .to_string()
+            .contains("script value declared type differs from its destination")
     );
+    drop(integer_packet);
     let (mut foreign, foreign_owner) = fixture("pub fn main() {}", None);
     let _foreign_owner_program = foreign_owner;
     let foreign_owner = foreign.select_program(&_foreign_owner_program).unwrap();

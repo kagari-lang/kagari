@@ -33,8 +33,9 @@ source-free. CS01 reproduced core-only HIR checking. The planned iteration API k
 `for` on both containers and iterators. Core adapters use ordinary `.kgr` implementations;
 reentry policy belongs to the concrete iterator. CS02 delivered six authored modules,
 including comparisons, ordinary conversion, `Option`/`Result` propagation and ranges.
-The zero-provider SDK executes script-defined equality. CS03 owns the remaining groups
-and iterator API; CS04 owns final packaging and tooling acceptance.
+CS03 delivered the remaining traits and script iterators: a two-module third-party
+collection can iterate, map and collect with no providers. CS04 owns final packaging,
+tooling and standalone execution acceptance.
 
 ## Strongly typed syntax CI acceptance
 

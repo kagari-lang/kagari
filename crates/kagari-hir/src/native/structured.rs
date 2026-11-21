@@ -38,7 +38,7 @@ impl RegistrationMap {
 struct StructuredLowerer<'a> {
     lowerer: Lowerer,
     declaration: &'a ModuleDecl,
-    providers: &'a [Arc<DefinitionMetadata<ModuleDecl>>],
+
     paths: &'a LibraryPaths,
     definitions: &'a DefinitionTable,
     correspondence: RegistrationMap,
@@ -47,7 +47,7 @@ struct StructuredLowerer<'a> {
 
 pub(crate) fn lower(
     metadata: &DefinitionMetadata<ModuleDecl>,
-    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+
     paths: &LibraryPaths,
     source: Arc<SourceFile>,
     cancel: &CancellationToken,
@@ -55,7 +55,7 @@ pub(crate) fn lower(
     let mut builder = StructuredLowerer {
         lowerer: Lowerer::new(cancel.clone()),
         declaration: metadata.records(),
-        providers,
+
         paths,
         definitions: metadata.definitions(),
         correspondence: RegistrationMap::default(),

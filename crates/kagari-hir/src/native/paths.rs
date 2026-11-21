@@ -1,28 +1,14 @@
 //! Source spellings of explicit library owners, independent of registration authority.
 use crate::{analysis::external::ExternalModule, imports::LocalName};
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
-    metadata::DefinitionMetadata, table::DefinitionView,
+    ModuleIdentity, PackageId, metadata::DefinitionMetadata, table::DefinitionView,
 };
-use kagari_types::{declaration::module::ModuleDecl, language::binding, range::RangeKind};
+use kagari_types::declaration::module::ModuleDecl;
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
     sync::Arc,
 };
-
-/// Portable range types implicitly name the constructor in the authored operations module.
-/// This is a reference: only the actual accessible declaration can satisfy it.
-pub(super) fn range_declaration(kind: RangeKind) -> DefinitionPath {
-    DefinitionPath {
-        module: binding::bound_declaration().module,
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::AssociatedType,
-            name: kind.name().into(),
-            occurrence: 0,
-        }],
-    }
-}
 
 /// Spell a standalone source's encoded family inside generated native declarations.
 /// Only an explicitly dependent native importer resolves this spelling.

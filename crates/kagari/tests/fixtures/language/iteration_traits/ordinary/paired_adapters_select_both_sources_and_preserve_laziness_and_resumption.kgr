@@ -39,13 +39,13 @@ impl Iterator for Cursor {
 }
 
 fn pairs<L: Iterable<Item = i32>, R: Iterable>(left: L, right: R) -> u64 {
-    left.zip(right).enumerate().count()
+    left.iter().zip(right).enumerate().count()
 }
 
 fn main() -> i32 {
     val log = Vec::new();
-    val zipped = make(log, 1).zip(make(log, 2));
-    if log.len() != 4u64 || log[0] != 1 || log[1] != 2 || log[2] != 11 || log[3] != 12 {
+    val zipped = make(log, 1).iter().zip(make(log, 2));
+    if log.len() != 4u64 || log[0] != 1 || log[1] != 11 || log[2] != 2 || log[3] != 12 {
         return 0;
     }
     val alias = zipped;
@@ -107,7 +107,7 @@ fn main() -> i32 {
         return 0;
     }
     val list: List<i32> = Vec::from([10, 20]);
-    val output: Vec<(u64, (i32, String))> = list.zip(["a", "b"]).enumerate().collect();
+    val output: Vec<(u64, (i32, String))> = list.iter().zip(["a", "b"]).enumerate().collect();
     if output[0][0] != 0u64 || output[1][0] != 1u64 || output[1][1][0] != 20 ||
         output[1][1][1] != "b" {
         return 0;

@@ -26,7 +26,7 @@ fn main() -> i32 {
     if xs[0] != 1 || xs[2] != 3 {
         return 0;
     }
-    val mapped = xs.map(Increment {});
+    val mapped = xs.iter().map(Increment {});
     if mapped.next() != Some(2) {
         return 0;
     }

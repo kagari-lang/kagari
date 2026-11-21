@@ -1,13 +1,24 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{ HashMap, HashSet };
 // Default containers and algorithms are always available as ordinary native bindings.
 use std::collections;
-fn main()->i32 {
-    val values=Vec::from([22,20]);
+
+fn main() -> i32 {
+    val values = Vec::from([22, 20]);
     values.sort();
-    val mapped=values.map(|value|value);
-    var sum=0;for value in mapped{sum+=value;}
-    val map=HashMap::new();map.insert("answer",sum);
-    val set=HashSet::new();set.insert(sum);
-    if !set.contains(42){return 0;}
-    match map.get("answer"){Some(answer)=>answer,None=>0}
+    val mapped = values.iter().map(|value| value);
+    var sum = 0;
+    for value in mapped {
+        sum += value;
+    }
+    val map = HashMap::new();
+    map.insert("answer", sum);
+    val set = HashSet::new();
+    set.insert(sum);
+    if !set.contains(42) {
+        return 0;
+    }
+    match map.get("answer") {
+        Some(answer) => answer,
+        None => 0
+    }
 }

@@ -66,11 +66,15 @@ pub(super) fn collect(seed: &DeclarationCatalog) -> NativeResult<ModuleAssembly>
         }
     }
     for facade in authored::FACADES {
-        let owner = namespaces::module("core", facade.path);
+        let owner = facade.owner();
         if seed.authored_origin(&owner).is_none() {
             return Err(conflict(format!("missing verified standard owner {owner}")));
         }
         canonical.push(owner.clone());
+        if facade.path == "string" {
+            // Selecting the standard prelude also selects the optional text operations.
+            canonical.push(namespaces::module("std", "string"));
+        }
         let mut declaration = Composition {
             documentation: documentation::markdown(facade.docs),
             ..Default::default()

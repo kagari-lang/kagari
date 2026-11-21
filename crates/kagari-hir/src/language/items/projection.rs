@@ -13,7 +13,7 @@ use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, TypeDef, TypeDefKind, VariantDef},
-    ty::{GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 
 fn parameters(inputs: &[GenericParameterType]) -> Vec<GenericParam> {
@@ -49,7 +49,6 @@ fn method(
         || actual.slot != slot
         || table.lookup_child(enclosing.id, DefinitionKind::Method, &actual.name, 0)
             != Some(actual.id)
-        || actual.bounds.values().any(|bounds| !bounds.is_empty())
     {
         return None;
     }
@@ -70,7 +69,17 @@ fn method(
         host_policy,
         method_policy: actual.policy,
         generic_params: parameters(local),
-        bounds: vec![],
+        bounds: actual
+            .bounds
+            .iter()
+            .filter(|(_, bounds)| !bounds.is_empty())
+            .map(|(subject, bounds)| {
+                Some(GenericBound {
+                    ty: ty(subject)?,
+                    constraints: bounds.iter().map(nominal).collect::<Option<_>>()?,
+                })
+            })
+            .collect::<Option<_>>()?,
         params: actual
             .params
             .iter()
@@ -86,9 +95,9 @@ fn method(
     })
 }
 
-/// Comparison and static conversion both require unconstrained binders, with
-/// no associated constants or generic families. Reject unsupported HIR facts
-/// rather than erasing them to make a declaration fit the portable check.
+/// Project roles with unconstrained trait binders and no associated constants
+/// or generic families. Method-local bounds (e.g. `Iterator::collect`) remain
+/// part of the header; never erase facts to make a declaration fit.
 pub(super) fn simple_trait(actual: &TraitSignature, table: &DefinitionTable) -> Option<TraitDef> {
     if !actual.associated_consts.is_empty()
         || !actual.associated_type_parameters.is_empty()

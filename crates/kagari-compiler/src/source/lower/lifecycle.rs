@@ -128,6 +128,7 @@ impl ModuleLowering {
     fn drain_bodies(&mut self, planner: &mut InstancePlanner<'_>) -> Result<(), MirLoweringError> {
         while let Some(instance) = planner.instances.get(self.functions.len()).cloned() {
             planner.check()?;
+            planner.span_origin = instance.origin;
             let origin = planner.origin(&instance);
             let identity = instance.lower(
                 planner.catalog,
@@ -185,6 +186,7 @@ impl ModuleLowering {
                 }
             };
             planner.check()?;
+            planner.span_origin = planner.owner_handle();
             debug_assert_eq!(function.id.index(), self.functions.len());
             self.classifications
                 .push((identity.clone(), classification));

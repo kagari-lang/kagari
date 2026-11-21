@@ -51,8 +51,8 @@ name being imported; writing that trait's bound or implementation requires the
 name in scope.
 
 The example also imports the `std::collections` module. That is not a special
-switch enabling `map`: transformation methods belong to the ordinary `Iterable`
-API, which is already in the prelude.
+switch enabling `map`: `values.iter()` obtains the cursor, and `map` is a method
+of `Iterator`, which is already in the prelude.
 
 ## Paths are names, not ownership rules
 

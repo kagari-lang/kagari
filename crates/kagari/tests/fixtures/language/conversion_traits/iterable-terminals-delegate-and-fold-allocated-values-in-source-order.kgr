@@ -29,39 +29,39 @@ impl FromIterator<i32> for Destination {
 }
 
 fn collect<I: Iterable<Item = i32>, C: FromIterator<i32>>(source: I) -> C {
-    source.collect()
+    source.iter().collect()
 }
 
 fn sum<I: Iterable<Item = i32>, S: Sum<i32>>(source: I) -> S {
-    source.sum()
+    source.iter().sum()
 }
 
 fn main() -> i32 {
     val calls = Vec::from([0]);
     val counted = Counted { calls };
-    val requested: Destination = counted.collect();
+    val requested: Destination = counted.iter().collect();
     if calls[0] != 1 || requested.result != 12 {
         return 0;
     }
     val source = Vec::from([1, 2, 3]);
-    val cursor = source.map(|x| x * 2);
+    val cursor = source.iter().map(|x| x * 2);
     val selected: Destination = collect(cursor);
     source.push(4);
     if selected.result != 12 {
         return 0;
     }
-    val values: Vec<i32> = (1..4).map(|x| x * 2).collect();
+    val values: Vec<i32> = (1..4).iter().map(|x| x * 2).collect();
     if values.len() != 3u64 || values[0] != 2 || values[1] != 4 || values[2] != 6 {
         return 0;
     }
     val total: i32 = sum(values);
-    val multiplied: i32 = Vec::from([2, 3]).product();
+    val multiplied: i32 = Vec::from([2, 3]).iter().product();
     val empty: Vec<i32> = Vec::from([]);
-    val zero: i32 = empty.sum();
-    val one: i32 = empty.product();
+    val zero: i32 = empty.iter().sum();
+    val one: i32 = empty.iter().product();
     val erased: Iterator<Item = Vec<i32>> = Vec::from([Vec::from([10]), Vec::from([11])]).iter();
     val folded = erased.fold(Vec::from([0]), |acc, item| Vec::from([acc[0] + item[0]]));
-    val untouched = empty.fold(
+    val untouched = empty.iter().fold(
         Vec::from([7]),
         |acc, item| {
             acc.push(item);

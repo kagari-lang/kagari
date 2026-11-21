@@ -1,9 +1,10 @@
 //! Declaration requirements of source-owned operations. Callers establish public
 //! membership and reachability; IDs here always belong to the declaration's table.
-use super::{Protocol, binding};
+use super::{Protocol, binding, iteration};
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{FnDecl, TraitDef},
+    scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
 use kagari_common::identity::{
@@ -41,8 +42,12 @@ pub(super) fn required_method(
 pub fn companions(module: &ModuleIdentity) -> &'static [&'static str] {
     if *module == Protocol::From.module() {
         &["Into", "TryFrom", "TryInto"]
+    } else if *module == Protocol::Iterator.module() {
+        &["FromIterator", "Sum", "Product"]
     } else if *module == Protocol::Try.module() {
         &["RangeBounds"]
+    } else if module.package.0 == "kagari-core" && module.path == ["str"] {
+        &["FromStr"]
     } else if module.package.0 == "kagari-core" && module.path == ["default"] {
         &["Default"]
     } else {
@@ -70,7 +75,13 @@ fn check(owner: DefinitionId, actual: &TraitDef, table: &DefinitionTable) -> Opt
     {
         return None;
     }
-    let generic = !matches!(name, "Try" | "Neg" | "Not" | "Default");
+    if view.module() == &Protocol::Iterator.module() {
+        return iteration::valid(owner, actual, table);
+    }
+    let generic = !matches!(
+        name,
+        "Try" | "Neg" | "Not" | "Default" | "Debug" | "Display" | "Hash" | "FromStr"
+    );
     let param = GenericParam { owner, position: 0 };
     let argument = param.as_type();
     if actual
@@ -101,6 +112,7 @@ fn check(owner: DefinitionId, actual: &TraitDef, table: &DefinitionTable) -> Opt
     let associated: &[&str] = match name {
         "Try" => &["Output", "Residual"],
         "TryFrom" | "TryInto" => &["Error"],
+        "FromStr" => &["Err"],
         _ if role.is_some_and(Protocol::operator) => &["Output"],
         _ => &[],
     };
@@ -160,6 +172,22 @@ fn check(owner: DefinitionId, actual: &TraitDef, table: &DefinitionTable) -> Opt
         );
     }
     let (selector, params, result) = match name {
+        "Hash" => ("hash", vec![("self", this)], Ty::Builtin(BuiltinType::I64)),
+        "Debug" => (
+            "debug",
+            vec![("self", this)],
+            Ty::Builtin(BuiltinType::String),
+        ),
+        "Display" => (
+            "display",
+            vec![("self", this)],
+            Ty::Builtin(BuiltinType::String),
+        ),
+        "FromStr" => (
+            "from_str",
+            vec![("text", Ty::Builtin(BuiltinType::String))],
+            binding::result(table, this.clone(), projection("Err")?)?,
+        ),
         "Default" => ("default", vec![], this),
         "From" => ("from", vec![("value", argument)], this),
         "FromResidual" => ("from_residual", vec![("residual", argument)], this),

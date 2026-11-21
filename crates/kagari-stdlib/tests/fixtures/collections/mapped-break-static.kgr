@@ -1,6 +1,6 @@
 fn main() -> i32 {
     val values = Vec::from([10, 20, 30]);
-    val mapped = values.map(|item| item + 1);
+    val mapped = values.iter().map(|item| item + 1);
     var first = 0;
     for item in mapped {
         first = item;

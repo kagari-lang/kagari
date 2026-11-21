@@ -30,8 +30,13 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
     let library = StandardLibrary::new(&seed).unwrap();
     let standard = library.declarations();
     let bundle = &library.bundle;
-    for path in ["cmp", "convert", "default", "ops", "option", "result"] {
-        let owner = namespaces::module("core", path);
+    for owner in [
+        "cmp", "convert", "default", "ops", "option", "result", "fmt", "hash", "str", "iter",
+    ]
+    .map(|path| namespaces::module("core", path))
+    .into_iter()
+    .chain([namespaces::type_owner("String")])
+    {
         assert!(seed.authored_origin(&owner).is_some());
         assert_eq!(
             standard.catalog().authored_origin(&owner),

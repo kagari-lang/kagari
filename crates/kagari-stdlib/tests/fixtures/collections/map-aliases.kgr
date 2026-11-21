@@ -1,7 +1,7 @@
 fn main() -> bool {
     val calls = Vec::from([0]);
     val offset = Vec::from([1]);
-    val mapped = Vec::from([10, 20, 30]).map(
+    val mapped = Vec::from([10, 20, 30]).iter().map(
         |item| {
             calls[0] += 1;
             Vec::from([item + offset[0]])

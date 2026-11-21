@@ -4,7 +4,7 @@
 use crate::declaration::TypeDef;
 use crate::range::RangeKind;
 use kagari_common::identity::{
-    DefinitionKind,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId,
     table::{DefinitionId, DefinitionTable},
 };
 use serde::{Deserialize, Serialize};
@@ -62,6 +62,25 @@ pub fn language_type(
 }
 
 impl NativeTypeConstructor {
+    /// The source spelling behind a portable String or range in a registered signature.
+    pub fn declaration(self) -> DefinitionPath {
+        let (package, module, name) = match self {
+            Self::String => ("kagari-alloc", "string", "String"),
+            Self::Range(kind) => ("kagari-core", "ops", kind.name()),
+        };
+        DefinitionPath {
+            module: ModuleIdentity {
+                package: PackageId(package.into()),
+                path: vec![module.into()],
+            },
+            path: vec![DefinitionPathSegment {
+                kind: self.declaration_kind(),
+                name: name.into(),
+                occurrence: 0,
+            }],
+        }
+    }
+
     /// Language constructors have fixed declaration owners, independent of registration.
     pub fn from_definition(id: DefinitionId, definitions: &DefinitionTable) -> Option<Self> {
         if language_type(id, definitions, "kagari-alloc", "string", "String") {

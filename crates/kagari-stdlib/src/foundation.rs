@@ -5,7 +5,6 @@ mod comparison;
 pub(crate) mod enumerations;
 mod future;
 
-mod iteration;
 mod numeric;
 mod protocols;
 pub(crate) mod string;
@@ -38,7 +37,7 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;
     enumerations::declare(module)?;
     let owner = module.identity().clone();
-    if owner == namespaces::module("alloc", "string") {
+    if owner == namespaces::module("std", "string") {
         string::declare(module)?;
     }
     if owner == namespaces::module("std", "collections") {
@@ -51,9 +50,6 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     }
     if owner == namespaces::module("core", "task") {
         tasks::declare(module)?;
-    }
-    if owner == namespaces::module("core", "iter") {
-        iteration::declare(module)?;
     }
     if owner == namespaces::module("core", "char") {
         character::declare(module)?;
@@ -92,19 +88,6 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             namespaces::type_owner(name),
             DefinitionKind::AssociatedType,
             name.into(),
-        )
-    }));
-
-    types.push((
-        namespaces::type_owner("String"),
-        DefinitionKind::AssociatedType,
-        "String".into(),
-    ));
-    types.extend(iteration::ADAPTERS.iter().map(|(name, _, _)| {
-        (
-            namespaces::type_owner(name),
-            DefinitionKind::AssociatedType,
-            (*name).into(),
         )
     }));
 
@@ -228,14 +211,9 @@ fn conflict(error: impl ToString) -> RuntimeError {
 pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "array", arrays::MODULE_DOCS),
     ("core", "char", character::MODULE_DOCS),
-    ("core", "iter", iteration::MODULE_DOCS),
-    ("core", "hash", protocols::HASH_MODULE_DOCS),
-    ("core", "fmt", protocols::FMT_MODULE_DOCS),
     ("core", "future", future::MODULE_DOCS),
     ("core", "task", tasks::MODULE_DOCS),
     ("core", "num", numeric::MODULE_DOCS),
-    ("core", "str", protocols::STR_MODULE_DOCS),
-    ("alloc", "string", string::MODULE_DOCS),
     (
         "std",
         "collections",

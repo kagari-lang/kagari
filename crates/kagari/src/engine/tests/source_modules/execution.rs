@@ -19,6 +19,44 @@ use crate::program::Program;
 use std::num::NonZeroUsize;
 
 #[test]
+fn independent_bag_library_iterates_and_collects_without_stdlib() {
+    let engine = KagariEngine::default();
+    assert!(engine.native_declaration_sources().is_empty());
+    insert(
+        &engine,
+        "bag",
+        include_str!("../../../../tests/fixtures/embedding/installation/bag.kgr"),
+    );
+    let root = insert(
+        &engine,
+        "consumer",
+        include_str!("../../../../tests/fixtures/embedding/installation/bag-consumer.kgr"),
+    );
+    let checked = engine
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
+        .unwrap();
+    let prepared = engine.prepare(&checked, Default::default()).unwrap();
+    let mut runtime = engine.runtime(Default::default());
+    let loaded = runtime
+        .load_program(prepared.program(), Default::default())
+        .unwrap();
+    type Traversal = (i32, i32, i32);
+    let (direct, iter_calls, first, remainder, collected) = runtime
+        .execute_typed::<(), (Traversal, i32, Option<i32>, (i32, i32), Traversal)>(
+            &loaded,
+            "main",
+            (),
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(direct, (2, 2, 5), "for must yield both items in order");
+    assert_eq!(iter_calls, 1, "for must obtain the Bag cursor exactly once");
+    assert_eq!(first, Some(4));
+    assert_eq!(remainder, (1, 10), "for must continue the same map cursor");
+    assert_eq!(collected, (2, 4, 10), "collect must preserve mapped order");
+}
+
+#[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),

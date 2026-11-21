@@ -1,22 +1,47 @@
-use core::iter::MapIterator;
+use core::iter::{ Iterator, MapIterator };
+
+use core::option::{ Option, Some, None };
+
+struct Source {
+    var current: i32
+}
+
+impl Iterator for Source {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        self.current += 1;
+        if self.current <= 2 {
+            Some(self.current)
+        } else {
+            None
+        }
+    }
+}
 
 struct Holder {
     var cursor: Option<MapIterator<i32, i32>>
 }
 
-fn main() {
+fn main() -> i32 {
     val holder = Holder { cursor: None };
-    val mapped = Vec::from([1, 2]).map(
+    val mapped = Source { current: 0 }.map(
         |item| {
-            match holder.cursor {
-                Some(cursor) => {
-                    cursor.next();
-                },
-                None => {}
-            };
+            if item == 1 {
+                if val Some(cursor) = holder.cursor {
+                    if val Some(nested) = cursor.next() {
+                        return item * 10 + nested;
+                    }
+                }
+            }
             item
         }
     );
     holder.cursor = Some(mapped);
-    mapped.next();
+    val first = mapped.next();
+    if val Some(value) = first {
+        if val None = mapped.next() {
+            return value;
+        }
+    }
+    0
 }

@@ -25,6 +25,10 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
     for (from, to) in [
         ("-> i32", "-> i64"),
         ("pub trait NativeRead", "trait NativeRead"),
+        (
+            "pub trait NativeRead",
+            "#[ lang = \"debug\" ]\npub trait NativeRead",
+        ),
         ("fn fixed", "fn different"),
         ("default_read::<Self>(self)", "default_fixed::<Self>(self)"),
         ("default_read::<Self>(self)", "default_read::<Self>()"),
@@ -110,7 +114,10 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
     .unwrap();
     let module = providers.last().unwrap();
     let mut source = declaration_source(module, &providers).unwrap();
-    source.text = format!("// Tooling overlay.\n{}", source.text);
+    source.text = format!(
+        "//! Tooling overlay: #[lang = \"debug\"] inside documentation.\n// #[lang = \"hash\"] in trivia.\n{}",
+        source.text
+    );
     for supplied in [None, Some(&source)] {
         // A source-less registration must not consume parser budgets at all.
         let limits = ParseLimits {
@@ -275,108 +282,24 @@ fn one_source_analysis_reports_invalid_registration_as_an_error() {
 }
 
 #[test]
-fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
-    let providers = standard_modules();
-    let module = providers
-        .iter()
-        .find(|module| {
-            module.records().identity.package.0 == "kagari-core"
-                && module.records().identity.path == ["iter"]
-        })
-        .unwrap();
-    let mut source = declaration_source(module, &providers).unwrap();
-    source.text = source
-        .text
-        .replace("#[lang = \"iterator\"]", "#[ lang\n = \"iterator\" ]");
-    source.text = source.text.replace(
-        "pub trait Iterator {",
-        "pub trait Iterator {\n\n    // #[lang = \"forged\"] in a comment is not an attribute.\n",
-    );
-    source.text = format!(
-        "//! # Module\n//!\n//! ```kgr\n//! #[lang = \"comment_only\"]\n//! ```\n{}",
-        source.text
-    );
-    let prepared = PreparedRegistration::new(
-        module.clone(),
-        providers.clone().into(),
-        Some(&source),
-        "/native-declarations",
-        Default::default(),
-        &Default::default(),
-    )
-    .unwrap();
-    let _parsed = prepared.parsed();
-    let lowered = prepared.attach(&Default::default()).unwrap();
-
-    let iterator = lowered
-        .module
-        .traits
-        .iter()
-        .find(|item| item.name == "Iterator")
-        .unwrap();
-    assert!(iterator.methods.iter().any(|method| method.name == "next"));
-    let id = module
-        .records()
-        .definition(DefinitionKind::Trait, "Iterator", module.definitions())
-        .unwrap();
-    assert_eq!(
-        module
-            .definitions()
-            .resolve(id)
-            .unwrap()
-            .last()
-            .unwrap()
-            .name,
-        iterator.name
-    );
-    let forged = source.text.replace("\"iterator\"", "\"iterable\"");
-    source.text = forged;
+fn malformed_registered_source_never_installs_a_native_parse() {
+    let module = module();
+    let providers = vec![module.clone()];
+    let mut source = declaration_source(&module, &providers).unwrap();
+    source.text.push_str("\npub trait Broken {");
     assert!(
         PreparedRegistration::new(
-            module.clone(),
-            providers.clone().into(),
+            module,
+            providers.into(),
             Some(&source),
             "/native-declarations",
             Default::default(),
-            &Default::default()
+            &Default::default(),
         )
         .unwrap_err()
         .0
-        .contains("differs from authoritative registration")
+        .contains("invalid native declaration syntax")
     );
-}
-
-#[test]
-fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
-    let providers = standard_modules();
-    let module = providers
-        .iter()
-        .find(|module| {
-            module.records().identity.package.0 == "kagari-core"
-                && module.records().identity.path == ["hash"]
-        })
-        .unwrap();
-    let original = declaration_source(module, &providers).unwrap();
-    for text in [
-        original.text.replace("fn hash", "fn other_hash"),
-        format!("{}\npub trait Broken {{", original.text),
-    ] {
-        let source = DeclarationSource {
-            text,
-            ..original.clone()
-        };
-        assert!(
-            PreparedRegistration::new(
-                module.clone(),
-                providers.clone().into(),
-                Some(&source),
-                "/native-declarations",
-                Default::default(),
-                &Default::default()
-            )
-            .is_err()
-        );
-    }
 }
 
 mod authored_facade;

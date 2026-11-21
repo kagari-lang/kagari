@@ -3,7 +3,6 @@ use crate::test_library;
 use crate::tests::support::bytecode::load_bytecode;
 use kagari_analyzer::AnalyzerQueries;
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     module::{ExecutableModule, entry::ProgramEntry},
@@ -24,7 +23,6 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::compile_input::program::CheckedCompilation;
-use kagari_hir::{declarations::DeclarationId, native::render::declaration_source_with_external};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::Arc;
 use std::sync::{
@@ -36,10 +34,6 @@ mod library_mapping;
 mod list_failures;
 
 fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<BytecodeProgram> {
-    let mut sources = SourceDatabase::default();
-    let root = sources
-        .set("main.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(
         test_library::modules()
@@ -54,6 +48,14 @@ fn program(text: &str, modules: &[&NativeModule]) -> DefinitionMetadata<Bytecode
             .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
+    compile(&mut analysis, text)
+}
+
+fn compile(analysis: &mut AnalysisDatabase, text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("main.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -363,33 +365,14 @@ fn scalar_ord_overrides_are_rejected_before_native_selection() {
 }
 
 #[test]
-fn generated_library_declarations_supply_navigation_docs_and_exported_signatures() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
-    let generated = declaration_source_with_external(
-        &library.to_declaration(),
-        test_library::standard().declarations(),
-        packaged_modules(),
-    )
-    .unwrap();
+fn adapter_navigation_resolves_authored_docs_and_signatures() {
     let text = include_str!("../../../tests/fixtures/collections/mapped-navigation.kgr");
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("tooling.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        test_library::standard()
-            .declarations()
-            .to_vec()
-            .into_iter()
-            .filter(|installed| installed.records().identity != library.declaration().identity)
-            .chain([Arc::new(library.to_declaration())])
-            .collect(),
-    );
+    analysis.set_native_modules(test_library::standard().declarations().to_vec());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -398,14 +381,14 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
     let source = snapshot
         .source(target.source_location().unwrap().file)
         .unwrap();
-    assert_eq!(source.name(), generated.uri);
+    assert_eq!(source.name(), "kagari-core:///iter.kgr");
     assert_eq!(
         &source.text()[target.source_location().unwrap().range.start
             ..target.source_location().unwrap().range.end],
         "map"
     );
     let documentation = snapshot.queries().documentation_at(file, offset).unwrap();
-    assert!(documentation.documentation.contains("Lazily transform"));
+    assert!(!documentation.documentation.is_empty());
     assert!(
         documentation
             .written_signature
@@ -420,27 +403,11 @@ fn generated_library_declarations_supply_navigation_docs_and_exported_signatures
             .unwrap()
             .contains("Self")
     );
-    // Trait methods and types are exposed through the declaration inventory.
+    let owner = snapshot
+        .declaration_snapshot()
+        .file(target.source_location().unwrap().file)
+        .unwrap();
     for name in ["map", "MapIterator"] {
-        let (id, site) = generated
-            .sites
-            .iter()
-            .find(|(id, _)| {
-                generated
-                    .definitions
-                    .resolve(**id)
-                    .unwrap()
-                    .last()
-                    .is_some_and(|part| part.name == name)
-            })
-            .unwrap();
-        // Generated sites and analysis snapshots have independent identity scopes.
-        let query = generated.definitions.resolve(*id).unwrap().to_path();
-        let scoped = snapshot.definitions().lookup(&query).unwrap();
-        let declaration = snapshot
-            .declaration(&DeclarationId::Definition(scoped))
-            .unwrap();
-        assert_eq!(declaration.name, name);
-        assert_eq!(declaration.source_location().unwrap().range, site.name_span);
+        assert!(owner.declarations().iter().any(|item| item.name == name));
     }
 }

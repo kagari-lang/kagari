@@ -9,14 +9,18 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 
-/// A range constructor is a language type, not an external storage provider.
-pub fn range_shape_valid(owner: DefinitionId, actual: &TypeDef, table: &DefinitionTable) -> bool {
-    let Some(constructor @ NativeTypeConstructor::Range(kind)) =
-        NativeTypeConstructor::from_definition(owner, table)
-    else {
+/// Authored String and range constructors name value families, not external storage.
+pub fn constructor_shape_valid(
+    owner: DefinitionId,
+    actual: &TypeDef,
+    table: &DefinitionTable,
+) -> bool {
+    let Some(constructor) = NativeTypeConstructor::from_definition(owner, table) else {
         return false;
     };
-    actual.name == kind.name()
+    table
+        .resolve(owner)
+        .is_ok_and(|view| view.last().is_some_and(|part| part.name == actual.name))
         && actual.kind == TypeDefKind::Native(constructor)
         && constructor.shape_valid(actual)
         && actual.bounds.is_empty()

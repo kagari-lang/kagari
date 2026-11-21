@@ -1,10 +1,13 @@
 //! Import a provider batch once before attaching its records to source lowering.
-use crate::{collections::HashSet, native::paths::range_declaration};
+use crate::collections::HashSet;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{map::DefinitionContext, metadata::DefinitionMetadata},
 };
-use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
+use kagari_types::declaration::{
+    module::{DeclarationError, ModuleDecl},
+    native::NativeTypeConstructor,
+};
 use kagari_types::range::RangeKind;
 use std::sync::Arc;
 
@@ -33,9 +36,13 @@ pub(crate) fn adopt(
         .check()
         .map_err(|_| DeclarationError("native provider adoption cancelled".into()))?;
     if !records.is_empty() {
-        for kind in RangeKind::ALL {
+        for constructor in RangeKind::ALL
+            .into_iter()
+            .map(NativeTypeConstructor::Range)
+            .chain([NativeTypeConstructor::String])
+        {
             context
-                .intern(&range_declaration(kind))
+                .intern(&constructor.declaration())
                 .map_err(|error| invalid(error.into()))?;
         }
     }

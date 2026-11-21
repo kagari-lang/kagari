@@ -19,7 +19,10 @@ use kagari_types::declaration::verify::{
 
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
+    declaration::{
+        FnDecl, TraitDef, TypeDefKind,
+        ownership::{ReceiverOwners, owns_inherent_methods},
+    },
     decode_limits,
     language::Protocol,
     scalar::BuiltinType,
@@ -122,7 +125,11 @@ pub fn validate(
                 params.is_some_and(|params| {
                     let mut names = HashSet::new();
                     !table.methods.is_empty()
-                        && receivers.owner(&table.for_type, definitions).as_ref() == Some(module)
+                        && owns_inherent_methods(
+                            module,
+                            &table.for_type,
+                            receivers.owner(&table.for_type, definitions),
+                        )
                         && bounds_valid(&table.bounds, &params, cancel, definitions)
                         && type_valid(&table.for_type, &params, None, cancel, definitions)
                         && table.methods.iter().all(|method| {

@@ -1,0 +1,7 @@
+//! The source name for immutable UTF-8 text.
+/// The type of a string literal, including the empty literal `""`. Passing a
+/// String does not give the callee permission to change its contents. A byte
+/// offset need not be a character boundary; String has no indexing operator.
+/// Import `alloc::string::String` to name the type without the standard
+/// prelude. Importing it does not install methods such as `trim` or `slice`.
+pub native type String;

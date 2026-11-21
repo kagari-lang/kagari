@@ -176,17 +176,23 @@ pub trait RangeBounds<T> {
     /// Returns the upper bound, or `Unbounded` if there is no upper limit.
     fn end_bound(self) -> Bound<T>;
 }
-
+/// The half-open range `start..end`: includes `start` and excludes `end`.
+/// For example, `2..5` describes the integers `2`, `3`, and `4`.
 pub native type Range<T>;
-
+/// The closed range `start..=end`: includes both endpoints. Use `2..=5`
+/// rather than `2..5` when `5` itself belongs in the interval.
 pub native type RangeInclusive<T>;
-
+/// The range `start..` includes `start` and has no upper bound. For example,
+/// `2..` describes an interval starting at `2` without specifying its end.
 pub native type RangeFrom<T>;
-
+/// The range `..end` has no lower bound and excludes `end`. It describes
+/// a prefix, not an iterator starting at zero.
 pub native type RangeTo<T>;
-
+/// The range `..=end` has no lower bound and includes `end`. Use `..=4`
+/// rather than `..4` when the prefix should include `4`.
 pub native type RangeToInclusive<T>;
-
+/// The range `..` leaves both endpoints unbounded. It stores no endpoint
+/// value and can be used as `RangeBounds<T>` for any endpoint type `T`.
 pub native type RangeFull;
 
 impl<T> RangeBounds<T> for Range<T> {

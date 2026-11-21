@@ -895,7 +895,7 @@ Such APIs need concrete demand and traced lifetime/partial-consumption contracts
 
 ### Iteration and construction
 
-**Implemented** — [iteration](../crates/kagari-stdlib/src/foundation/iteration.rs):
+**Implemented** — [iteration](../library/core/iter.kgr):
 
 ```text
 trait Iterator {
@@ -921,10 +921,10 @@ trait Product<T> {
 Iterator receives identity Iterable. Generic iterables do not have to return
 CollectionCursor. In the blocks below, `T` abbreviates `Self::Item`.
 
-**Implemented** — shared Iterable adapters and consumers:
+**Implemented** — shared Iterator adapters and consumers. Call `iter()` first on an Iterable container:
 
 ```text
-Iterable<Item = T> {
+Iterator<Item = T> {
     map<U>(self, transform: fn(T) -> U) -> MapIterator<T, U>
     filter(self, predicate: fn(T) -> bool) -> FilterIterator<T>
     filter_map<U>(self, transform: fn(T) -> Option<U>) -> FilterMapIterator<T, U>

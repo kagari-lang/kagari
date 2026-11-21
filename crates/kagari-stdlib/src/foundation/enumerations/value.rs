@@ -116,19 +116,6 @@ pub(crate) fn pending(
     })
 }
 
-pub(crate) fn option<'call>(
-    symbols: &EnumSymbols,
-    cx: &mut NativeCall<'call>,
-    value: Option<ValueView<'call>>,
-) -> NativeResult<ValueView<'call>> {
-    let (some, none) = symbols.option_members()?;
-    cx.allocate_enum(
-        &cx.result_type_argument()?,
-        if value.is_some() { some } else { none },
-        value.as_slice(),
-    )
-}
-
 pub(crate) fn allocate<'call>(
     symbols: &EnumSymbols,
     cx: &mut NativeCall<'call>,

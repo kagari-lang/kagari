@@ -1,0 +1,62 @@
+use core::iter::{ FromIterator, Iterable, Iterator };
+
+use core::option::{ None, Option, Some };
+
+struct Node {
+    val item: i32,
+    var next: Option<Node>,
+}
+
+pub struct Bag {
+    val sentinel: Node,
+    var tail: Node,
+    pub var iter_calls: i32,
+}
+
+impl Bag {
+    pub fn new() -> Bag {
+        val sentinel = Node { item: 0, next: None };
+        Bag { sentinel, tail: sentinel, iter_calls: 0 }
+    }
+    pub fn push(self, item: i32) {
+        val node = Node { item, next: None };
+        self.tail.next = Some(node);
+        self.tail = node;
+    }
+}
+
+pub struct BagCursor {
+    var remaining: Option<Node>,
+}
+
+impl Iterable for Bag {
+    type Item = i32;
+    type Iter = BagCursor;
+    fn iter(self) -> BagCursor {
+        self.iter_calls += 1;
+        BagCursor { remaining: self.sentinel.next }
+    }
+}
+
+impl Iterator for BagCursor {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        match self.remaining {
+            Some(node) => {
+                self.remaining = node.next;
+                Some(node.item)
+            },
+            None => None,
+        }
+    }
+}
+
+impl FromIterator<i32> for Bag {
+    fn from_iter<I: Iterable<Item = i32>>(source: I) -> Bag {
+        val bag = Bag::new();
+        for item in source {
+            bag.push(item);
+        }
+        bag
+    }
+}

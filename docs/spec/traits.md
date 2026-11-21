@@ -100,7 +100,8 @@ this does not make a trait eligible for dynamic dispatch. Installed native
 implementations may also define protocols on nominal interface values. Their
 signatures, type-owned protocol ownership and executable targets are checked by
 the same declaration/proof owners. The standard library uses this registration
-path for Iterator's Iterable adapter and collection-interface Debug.
+path for collection-interface Debug. Identity `Iterable` for `Iterator` is an
+ordinary Script implementation in [core::iter](../../library/core/iter.kgr).
 No collection name grants the implementation or its methods.
 
 ## Accepted interface conversion context

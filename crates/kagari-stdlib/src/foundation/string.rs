@@ -1,5 +1,5 @@
-//! String owns its constructor, complete method definitions and scoped UTF-8 bodies.
-use crate::foundation::{arrays::operations::index_argument, default_impl, enumeration, type_docs};
+//! Optional methods and scoped UTF-8 bodies for the packaged String constructor.
+use crate::foundation::{arrays::operations::index_argument, default_impl, enumeration};
 use kagari_runtime::{
     error::{RuntimeError, reason::IndexError},
     native::{
@@ -13,21 +13,14 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 
-use kagari_types::{declaration::native::NativeTypeConstructor, scalar::BuiltinType};
+use kagari_types::scalar::BuiltinType;
 type Entry = for<'call> fn(&mut NativeCall<'call>) -> NativeResult<()>;
-
-pub(crate) const TYPE_DOCS: (&str, &str) = (
-    "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver. String has no indexing operator; concrete traversal providers are installed separately.",
-    "fn greeting() -> String { \"  hello  \".trim() }",
-);
 
 fn documented(method: MethodDecl, text: &str, name: &str, arguments: &str) -> MethodDecl {
     method.documentation(format!("{text}\n\n# Examples\n\n```kgr\nfn example(values: String) {{ val result = values.{name}({arguments}); }}\n```"))
 }
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
-    let reference = module.define_constructor("String", NativeTypeConstructor::String)?;
-    type_docs(module, &reference, "String", TYPE_DOCS, &[])?;
     let string = Type::scalar(BuiltinType::String);
     let option = enumeration(module, "Option", 1)?.apply([Type::u64()])?;
     module.inherent(string.clone(), |methods| {
@@ -133,8 +126,3 @@ fn replace(cx: &mut NativeCall<'_>) -> NativeResult<()> {
     let result = text(cx, [0, 1, 2], |[text, from, to]| text.replace(from, to))?;
     cx.encode_result(result)
 }
-
-pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries. Concrete traversal and split providers are installed separately.",
-    "fn clean(text: String) -> String { text.trim() }",
-);

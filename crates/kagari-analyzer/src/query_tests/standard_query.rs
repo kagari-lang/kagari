@@ -166,12 +166,12 @@ mod trait_tests {
             .declaration(&DeclarationId::Definition(*member))
             .unwrap();
         assert_eq!(declaration.name, "Item");
-        assert!(
+        assert_eq!(
             snapshot
                 .source(declaration.source_location().unwrap().file)
                 .unwrap()
-                .name()
-                .ends_with("kagari-core/iter.kgr")
+                .name(),
+            "kagari-core:///iter.kgr"
         );
     }
 }

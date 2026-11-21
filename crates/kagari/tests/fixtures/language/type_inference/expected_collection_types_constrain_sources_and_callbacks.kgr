@@ -2,7 +2,7 @@ use std::collections;
 
 fn main() -> i32 {
     val source = Vec::from([20, 22]);
-    val selected: core::iter::MapIterator<i32, Result<i32, String>> = source.map(|x| Ok(x));
+    val selected: core::iter::MapIterator<i32, Result<i32, String>> = source.iter().map(|x| Ok(x));
     var total = 0;
     for item in selected {
         match item {

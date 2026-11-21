@@ -10,6 +10,7 @@ use kagari_common::identity::{
 pub mod adapter;
 pub mod binding;
 pub mod comparison;
+mod iteration;
 pub mod requirements;
 pub mod role;
 pub mod schema;
@@ -184,7 +185,17 @@ impl Protocol {
     }
 
     pub fn source_operation(self) -> bool {
-        self.operator() || matches!(self, Self::From | Self::Try | Self::FromResidual)
+        self.iteration()
+            || self.operator()
+            || matches!(
+                self,
+                Self::From
+                    | Self::Try
+                    | Self::FromResidual
+                    | Self::Debug
+                    | Self::Display
+                    | Self::Hash
+            )
     }
 
     pub fn host_implementable(self) -> bool {

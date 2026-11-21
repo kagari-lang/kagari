@@ -1,9 +1,7 @@
 use super::*;
 use crate::{
     analysis::{
-        AnalysisDatabase,
-        core_source::packaged_modules,
-        external::foundation::{change_export, exported},
+        AnalysisDatabase, core_source::packaged_modules, external::foundation::change_export,
     },
     declare_analysis, lower,
     tests::standard::standard_modules,
@@ -17,15 +15,7 @@ use std::sync::Arc;
 
 fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let mut db = AnalysisDatabase::default();
-    let mut native = exported(&standard_modules());
-    for input in &mut native {
-        change_export(input, |source| {
-            let mut text = source.to_owned();
-            mutate_source(&mut text);
-            text
-        });
-    }
-    db.set_external_modules(native);
+
     for input in packaged_modules() {
         let mut text = input.source.text().to_owned();
         mutate_source(&mut text);
@@ -93,6 +83,16 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
         ("pub trait Hash", "trait Hash", "hash"),
         ("pub trait Add<Rhs>", "pub trait Add<Rhs, Extra>", "add"),
         ("pub trait Eq: PartialEq", "pub trait Eq", "eq"),
+        (
+            "fn next(self) -> Option<Self::Item>;",
+            "fn before(self) {} fn next(self) -> Option<Self::Item>;",
+            "iterator",
+        ),
+        (
+            "type Iter: Iterator<Item = Self::Item>;",
+            "type Iter: Iterator;",
+            "iterable",
+        ),
         (
             "pub trait PartialEq {",
             "pub trait PartialEq { type Extra<T>;",

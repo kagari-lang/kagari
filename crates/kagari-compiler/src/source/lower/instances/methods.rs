@@ -164,9 +164,9 @@ impl InstancePlanner<'_> {
             .iter()
             .map(|param| instantiate(&param.ty))
             .collect::<Vec<_>>();
-        if matches!(receiver, TypeId::Generic(_) | TypeId::Trait(_))
-            || (native_default.is_none() && parents.contains(&interface))
-        {
+        // An interface value can itself implement another trait (e.g. identity
+        // Iterable for Iterator). Only its own inherited slots use its vtable.
+        if matches!(receiver, TypeId::Generic(_)) || parents.contains(&interface) {
             let evidence = self.method_evidence(method, &interface, &receiver, arguments, span)?;
             let normalizations =
                 self.method_normalizations(method, &interface, &receiver, arguments)?;

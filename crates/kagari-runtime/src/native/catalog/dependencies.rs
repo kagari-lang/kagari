@@ -8,10 +8,10 @@ use kagari_common::{
     identity::{DefinitionKind, scoped::DefinitionReferences, table::DefinitionId},
 };
 use kagari_types::{
+    declaration::native::NativeTypeConstructor,
     declaration::path::HostPathSegmentDeclaration,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
-    language::Protocol,
-    range::RangeKind,
+    scalar::BuiltinType,
     ty::{
         GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_header, match_pattern},
@@ -29,7 +29,7 @@ enum Reference {
     Obligation(Ty, NominalTy),
     Implementation(DefinitionId),
     SourceImpl(DefinitionId),
-    Range(RangeKind),
+    Constructor(NativeTypeConstructor),
 }
 
 #[derive(Default)]
@@ -98,7 +98,8 @@ impl References {
                 }
                 Ty::Array(item) => pending.push(item),
                 Ty::Range(item, kind) => {
-                    self.pending.push(Reference::Range(*kind));
+                    self.pending
+                        .push(Reference::Constructor(NativeTypeConstructor::Range(*kind)));
                     pending.push(item);
                 }
 
@@ -107,6 +108,9 @@ impl References {
                     pending.extend(params);
                     pending.push(result);
                 }
+                Ty::Builtin(BuiltinType::String) => self
+                    .pending
+                    .push(Reference::Constructor(NativeTypeConstructor::String)),
                 Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
             }
         }
@@ -367,24 +371,12 @@ impl DeclarationCatalog {
                         .pending
                         .push(Reference::Type(applied.declaration));
                 }
-                Reference::Range(kind) => {
-                    let owner = Protocol::Add.module();
-                    if self.authored_origin(&owner).is_some() {
-                        let id = definitions
-                            .lookup_root(&owner)
-                            .and_then(|root| {
-                                definitions.lookup_child(
-                                    root,
-                                    DefinitionKind::AssociatedType,
-                                    kind.name(),
-                                    0,
-                                )
-                            })
-                            .ok_or_else(|| {
-                                RuntimeError::metadata_conflict(
-                                    "missing authored range constructor",
-                                )
-                            })?;
+                Reference::Constructor(constructor) => {
+                    let path = constructor.declaration();
+                    if self.authored_origin(&path.module).is_some() {
+                        let id = definitions.lookup(&path).ok_or_else(|| {
+                            RuntimeError::metadata_conflict("missing authored language constructor")
+                        })?;
                         references.pending.push(Reference::Type(id));
                     }
                 }

@@ -55,7 +55,7 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
 fn builtin_inherent_methods_require_the_language_owner_even_for_raw_declarations() {
     let context = DefinitionContext::new().unwrap();
     let string = Ty::Builtin(BuiltinType::String);
-    let mut owner = ModuleDecl::new(namespaces::type_owner("String"));
+    let mut owner = ModuleDecl::new(namespaces::module("std", "string"));
     assert!(
         owner.owns_inherent_receiver(&string, &|ty| namespaces::receiver_owner(
             ty,

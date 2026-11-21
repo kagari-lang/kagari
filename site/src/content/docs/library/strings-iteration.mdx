@@ -215,8 +215,8 @@ traversal contract</a> for the ownership and failure rules.
   result="The mapper runs zero times during construction and twice during the loop; main returns 42 without the default runner printing it."
 />
 
-Sorting puts the two values in order. Calling `map` obtains a source cursor, but
-does not pull an item or invoke the closure, so `calls` is still zero. The `for`
+Sorting puts the two values in order. `values.iter()` obtains the cursor and `map` wraps it
+without pulling an item or invoking the closure, so `calls` is still zero. The `for`
 loop advances the saved iterator, invoking the mapper once for each item; it ends
 with `calls == 2` and `total == 42`.
 
@@ -231,11 +231,9 @@ an extra pull after the answer is known.
 host has narrower addresses. Taking a large prefix of a short iterator does not
 allocate a buffer of that size; collection and allocation remain separate steps.
 
-These are ordinary methods of `Iterable`, available on containers, constrained
-generic values and custom implementations. `Iterator` itself requires only
-`next`; an iterator automatically acts as its own iterable and gets the same
-method chains. There is no separate query syntax or special compiler-only
-pipeline API.
+These are ordinary `Iterator` methods. A container that implements `Iterable`
+starts the chain with `values.iter().map(f)`; a cursor calls `map(f)` directly.
+Calling `iter()` on a cursor returns the same iterator at its current position.
 
 ## Implement ordinary iteration
 

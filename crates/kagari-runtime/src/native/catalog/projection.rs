@@ -12,8 +12,8 @@ use kagari_common::{
 use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TypeDefKind, native::NativeTypeConstructor},
-    language::{Protocol, requirements},
+    declaration::{FnDecl, TypeDefKind},
+    language::{Protocol, requirements, schema::constructor_shape_valid},
 };
 use std::collections::HashSet;
 
@@ -34,16 +34,7 @@ pub(super) fn nominal(
                 TypeDefKind::Struct | TypeDefKind::Enum => {
                     ty.fields.iter().all(|f| f.host_policy.is_none())
                 }
-                TypeDefKind::Native(constructor @ NativeTypeConstructor::Range(_)) => {
-                    NativeTypeConstructor::from_definition(id, defs) == Some(constructor)
-                        && constructor.shape_valid(ty)
-                        && ty.bounds.is_empty()
-                        && ty
-                            .generic_params
-                            .iter()
-                            .enumerate()
-                            .all(|(index, param)| param.owner == id && param.position == index)
-                }
+                TypeDefKind::Native(_) => constructor_shape_valid(id, ty, defs),
                 _ => false,
             };
             allowed.then_some(id)

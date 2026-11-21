@@ -89,8 +89,8 @@ to its Rust storage descriptor, validating exact declaration/layout agreement an
 rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
 factory, payload or completion endpoint.
 
-List/MutableList declare common algorithms directly. The bundled
-`core::iter` module owns all seventeen Iterable defaults, including lazy
+List/MutableList declare common algorithms directly. The authored
+`core::iter::Iterator` trait owns all seventeen defaults, including lazy
 transformations, paired traversal and terminal consumption.
 
 These interface declarations do not restore a concrete collection constructor.
@@ -111,17 +111,16 @@ methods with ordinary Script defaults calling declared Native helpers. Concrete
 collection overrides are not evidence of
 current Vec availability. Custom providers can reuse the defaults through their
 selected iterator and set/remove operations.
-`Iterable.map<U>` accepts `fn(Self::Item) -> U` and returns
+`Iterator.map<U>` accepts `fn(Self::Item) -> U` and returns
 `core::iter::MapIterator<Self::Item, U>`. Filter, take, filter_map, skip,
 enumerate, zip and chain return element-only adapters in the same module; the full signatures and consumption rules are in
-[builtins](builtins.md#iteration-protocols). Iterator retains only next; identity Iterable
-adaptation gives cursors the same defaults with shared progress. Containers,
-generic receivers, custom Iterable implementations and interface values reuse
-checked iter/next selections. The former collections map function is removed.
+[builtins](builtins.md#iteration-protocols). An `Iterable` supplies only `iter`: a collection or generic iterable calls
+`iter().map(f)`, while a cursor uses `map(f)` directly. Identity iteration
+preserves the current progress of a cursor.
 Collect, sum and product delegate to FromIterator, Sum and Product on the
 requested destination. Fold consumes one cursor in source order and returns its
-initial accumulator on empty input. Native terminal consumption uses
-revision checks that reject stale reads after structural writes.
+initial accumulator on empty input. Concrete collection cursors remain
+responsible for rejecting stale reads after structural writes.
 
 String and the numeric scalars also supply finite inherent methods; see the
 [String surface](builtins.md#primitive-operations-and-formatting) and
@@ -590,25 +589,13 @@ internal bookkeeping; all original elements survive, but their order can change.
 Length-changing algorithms preserve completed removals. Custom set/remove failures
 can leave earlier writes or removals. Comparison counts are unspecified.
 
-Only genuinely retained computations need state. Lazy adapters retain
-source values, checked stored next selections, any callbacks, progress state and
-a reentry guard. Zip and chain retain both selected cursors; concrete cursors
-keep their checked concrete types. Construction performs no next or callback
-calls. Aliases share progress. Map next consumes one source item before invoking
-the mapper; a mapper failure does not cause that item to be processed again.
-The public Option is allocated once for a successful next result.
-
-`allocate_result_payload(payload, slots)` retains the requested selected-call
-metadata on the native object. `call_stored_values` validates and invokes those
-original selections after the construction call ends. Stored selections and
-callbacks are GC metadata edges, preserving supplying generations without host
-root cycles. Generic callers carry the immediate associated cursor operations
-promised by their bounds; runtime consumption does not infer types again.
-
-A payload traces every retained source cursor and callback through `trace`.
-Native adapters retain no collection iteration leases. Base cursors validate
-source revisions on reads; early termination needs no resource-graph cleanup.
-Reentrant next on the same adapter is rejected. The generic execution loop does
+Core adapters store cursors, callbacks and progress in ordinary Script objects
+and closures. Zip and chain retain both cursors. Construction performs no
+`next` or callback calls. Aliases share progress; map consumes its input before
+invoking the mapper, even if the mapper traps or advances the same cursor.
+There is no adapter-wide reentry guard. Normal cancellation, call depth and
+concrete source checks apply. Base collection cursors still validate revisions
+on reads; early termination needs no iteration lease. The generic execution loop does
 not identify an adapter by its library name.
 
 Numeric `TryFrom` pairs are ordinary registered implementations with declared
@@ -667,7 +654,8 @@ Changing a view's URI changes its presentation location, while its registered
 module and callable identities remain unchanged. Native registration does not infer
 a Rust implementation source location or use a URI to grant native authority.
 Other generated views include library-owned types,
-inherent methods and trait impl methods, including MapIterator.next.
+inherent methods and Native trait implementations. `MapIterator.next` instead
+navigates to its ordinary Script implementation in `core::iter`.
 
 Current direct/offline equivalence and static-authority coverage lives in
 [HIR external tests](../../crates/kagari-hir/src/analysis/external/tests.rs) and

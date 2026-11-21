@@ -13,7 +13,7 @@ fn cancellation_during_callbacks_restores_storage_and_releases_roots() {
             false,
         ),
         (
-            "filter_map(|value| { visit(); if value == 99 { Some(value) } else { None } }).count()",
+            "iter().filter_map(|value| { visit(); if value == 99 { Some(value) } else { None } }).count()",
             vec![1, 3, 2, 0],
             true,
         ),

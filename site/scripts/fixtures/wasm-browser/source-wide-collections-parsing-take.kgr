@@ -17,11 +17,11 @@ fn main() -> u64 {
     }
     val values = Vec::from([maximum]);
     values.sort();
-    if values.take(4294967296u64).count() != 1u64 {
+    if values.iter().take(4294967296u64).count() != 1u64 {
         return 0u64;
     }
-    if values.skip(4294967296u64).count() != 0u64 {
+    if values.iter().skip(4294967296u64).count() != 0u64 {
         return 0u64;
     }
-    values.take(18446744073709551615u64).sum()
+    values.iter().take(18446744073709551615u64).sum()
 }

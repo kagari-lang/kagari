@@ -234,6 +234,7 @@ pub(super) struct CallableInstance {
 
 #[derive(Clone)]
 pub(super) struct InterfaceBridgeRequest {
+    pub origin: ModuleHandle,
     pub declaration: DefinitionId,
     pub parameters: Vec<GenericParam>,
     pub receiver: TypeId,
@@ -243,6 +244,8 @@ pub(super) struct InterfaceBridgeRequest {
 
 pub(super) struct InstancePlanner<'a> {
     module: &'a CheckedModule<'a>,
+    // A default body's spans belong to its trait, not its impl-owned placement.
+    pub span_origin: ModuleHandle,
     pub context: &'a DefinitionContext,
     pub bridge_identities: &'a mut BridgeIdentities,
     pub catalog: &'a AggregateCatalog,
@@ -342,6 +345,7 @@ impl<'a> InstancePlanner<'a> {
             context: inputs.context,
             catalog: inputs.catalog,
             modules: &inputs.modules_by_handle,
+            span_origin: module.handle(),
             native_declarations: &inputs.native_declarations,
             module,
             options,
@@ -385,8 +389,12 @@ impl<'a> InstancePlanner<'a> {
         }
     }
 
+    pub fn source_module(&self, origin: ModuleHandle) -> &'a CheckedModule<'a> {
+        self.modules[&origin]
+    }
+
     pub fn origin(&self, instance: &Instance) -> &'a CheckedModule<'a> {
-        self.modules[&instance.origin]
+        self.source_module(instance.origin)
     }
 
     pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
@@ -722,6 +730,7 @@ impl<'a> InstancePlanner<'a> {
             BridgeKey::Intrinsic(receiver.clone(), interface.clone()),
         )?;
         self.interface_bridges.push(InterfaceBridgeRequest {
+            origin: self.span_origin,
             declaration: id,
             parameters: Vec::new(),
             receiver: receiver.clone(),

@@ -239,7 +239,7 @@ selected iterator into typed working storage; sorting and reversal write through
 set, while retain and dedup remove rejected elements as they proceed. No atomic
 bulk commit or rollback-only storage buffer is required.
 
-Iterable owns the finite transformation and terminal API described in
+Call `iter()` on a collection to use the `Iterator` transformation and terminal API described in
 [builtins](builtins.md#iteration-protocols). MapIterator retains its source cursor and mapper. Constructing it does not call
 the mapper. Aliases share progress, and next consumes its input before invoking
 the mapper. Source cursors remain ordinary GC edges, including through erased Iterator

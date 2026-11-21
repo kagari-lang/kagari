@@ -1,25 +1,26 @@
 # Language Foundation and Native Libraries
 
-The installed `core`/`alloc`/`std` foundation defines complete language types and
-protocols. Its 26 language traits and 15 other foundation traits are explicit
-standard-library registrations. Structured records lower directly into shared HIR checking;
-explicit offline or materialized `.kgr` views use the same parser and checker with static
-language-role evidence. Text alone supplies no executable binding. The installed providers
+The foundation combines authored core modules with explicitly installed Native
+providers. For example, `core::iter` declares its traits, adapter types and Script
+implementations in [iter.kgr](../../library/core/iter.kgr); using them on a
+script-defined cursor requires no Native provider. Structured Native records
+lower into the same HIR checks, but declaration text alone grants no Native
+binding. The installed providers
 supply their checked native implementations; Runtime owns
 only builtin values and execution/safety mechanisms. Optional
 library modules and application modules use the same explicit registration API;
 see [native declarations](standard-declarations.md). Generated `.kgr` serves tooling
 and is not an executable standard library.
 
-Foundation installation is explicit: Runtime and SDK builders start empty.
-The current bundle retains language declarations, scalar/String methods, arrays and
-generic protocol algorithms. Vec/HashMap/HashSet and CollectionCursor providers,
+Native installation is explicit: Runtime and SDK builders start without Native
+providers. The optional bundle supplies scalar/String methods, arrays and
+Native implementations of core protocols. Vec/HashMap/HashSet and CollectionCursor providers,
 List algorithms needing detached edits, String split/traversal and builtin
 array/range iteration are withdrawn pending [NC reconstruction](../native-collections-plan.md).
 The collection/traversal inventories below record their retained semantic design,
 not currently callable implementations. No compatibility aliases are installed. List/MutableList own common algorithm methods,
 String owns its inherent methods, `core::num` owns the finite scalar numeric
-methods below, and `core::iter::Iterable` owns the finite lazy transformation and
+methods below, and `core::iter::Iterator` owns the finite lazy transformation and
 terminal API. The [collection contract](collection-access.md) defines the collection
 surface. Predecessor APIs outside these inventories, including enum combinators,
 extended iterator algorithms, collection snapshots and additional container classes,
@@ -38,7 +39,7 @@ constructors and tooling navigation.
 | `core::hash` | Hash |
 | `core::fmt` | Debug and Display |
 | `core::convert` | From, Into, TryFrom, TryInto and Infallible |
-| `core::iter` | Iterator, Iterable, FromIterator, Sum, Product, CollectionCursor and eight lazy adapter types |
+| `core::iter` | Iterator, Iterable, FromIterator, Sum, Product and eight authored lazy adapter types |
 | `core::str` | FromStr |
 | `core::default` | Default |
 | `core::num` | ParseError, TryFromIntError, scalar numeric inherent methods and numeric native implementations |
@@ -633,10 +634,10 @@ trait Iterable {
 }
 ```
 
-Iterable supplies these default methods, with `T = Self::Item`. Iterator keeps
-only next and obtains this same API through identity Iterable. Containers,
-constrained generic receivers, custom Iterable implementations and interface
-values support the same method chains; explicit overrides retain precedence.
+`Iterator` supplies these default methods, with `T = Self::Item`. An `Iterable`
+container supplies `iter()`, not the adapters: use `values.iter().map(f)`.
+A cursor, including an `Iterator` interface value, can call `map(f)` directly.
+Iterator method overrides retain precedence.
 
 | Method | Result |
 | --- | --- |
@@ -655,9 +656,10 @@ values support the same method chains; explicit overrides retain precedence.
 | `any(fn(T) -> bool)` / `all(fn(T) -> bool)` | bool |
 | `for_each(fn(T) -> ())` | () |
 
-The adapter types belong to core::iter and have no public constructor. Calling a
-transformation obtains each selected source cursor once, after left-to-right
-argument evaluation; it does not advance a cursor or invoke a callback. Copies
+The adapters in [core::iter](../../library/core/iter.kgr) are shared Script
+objects. They wrap the receiver without advancing it or invoking a callback.
+`left.iter().zip(right)` evaluates `left.iter()` before `right`, then obtains
+the right cursor once. `chain` follows the same construction order. Copies
 share source progress and adapter state. An item stays consumed if its callback
 fails. Filter and filter_map skip rejected items in source order. They do not
 fuse a resumable source after None. Skip discards only its initial allowance;
@@ -675,13 +677,13 @@ Terminal methods stop at the first None. Find, any and all short-circuit without
 an extra pull. Empty find returns None, any returns false, all returns true,
 count returns zero, for_each returns unit and fold returns its initial value.
 Count uses checked u64 addition. Collect, sum and product call the requested
-destination's existing constructor/reducer with the original source; they do not
-obtain an unused extra cursor. Destination context or explicit method type
+destination's existing constructor/reducer with the current iterator; they do not
+restart the collection. Destination context or explicit method type
 arguments must determine the result type, for example:
 
 ```kagari
-val mapped: Vec<i32> = [1, 2, 3].map(|item| item + 1).collect();
-val total: i32 = mapped.filter(|item| item > 2).sum();
+val mapped: Vec<i32> = [1, 2, 3].iter().map(|item| item + 1).collect();
+val total: i32 = mapped.iter().filter(|item| item > 2).sum();
 ```
 
 `for pattern in expression` evaluates the expression once, calls `iter`
@@ -733,9 +735,9 @@ values.push(3);      // Commits and invalidates the existing cursor.
 cursor.next();       // Traps: invalid or structurally modified iterator.
 ```
 
-Native payload providers trace retained source cursors and callbacks through their
-GcObject scanner; NativePayload selects schema registration rather than scanning.
-The Runtime execution plan owns the open RR03 consumer migration.
+Script adapters retain cursors and callbacks through ordinary traced fields and
+closures. A callback may call `next` on the same adapter: no adapter-wide busy
+flag rejects it. Normal traps, cancellation and depth limits still apply.
 Roots, checked call routes and exact retained computation bodies preserve GC and
 reload safety independently of
 iteration validity. Native storage borrows, sorting/mutation commits and hash

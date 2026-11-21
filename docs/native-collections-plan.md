@@ -225,9 +225,9 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
 | `crates/kagari-runtime/src/native/sequence.rs` (retired), `crates/kagari-runtime/src/native/hashed.rs` (retired), `crates/kagari-runtime/src/native/hash_storage.rs` (retired) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
 | `crates/kagari-stdlib/src/foundation/hash/operations.rs` (retired), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
-| [Iterable declarations/defaults](../crates/kagari-stdlib/src/foundation/iteration.rs), [shared default lowerer](../crates/kagari-runtime/src/native/builder/default_lowering.rs), [operations](../crates/kagari-stdlib/src/foundation/iteration/operations.rs), [lazy cursors](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs) | Uniform defaults, Iterator identity adaptation and nominal lazy adapters are implemented. Reuse these algorithms and checked iter/next calls; the old Vec-only free map and NativeCursor SDK were removed. |
+| [Authored iterator defaults](../library/core/iter.kgr) | Reuse the core adapters and terminal algorithms. Concrete collection providers implement `Iterable` and their cursors implement `Iterator`. |
 | [Call context](../crates/kagari-runtime/src/native/context.rs), [stored selections](../crates/kagari-runtime/src/native/stored_selection.rs) | Payload allocation retains selected calls as metadata edges and later invokes them through the rooted receiver. Reuse this mechanism for collection key calls; public constructor/factory ergonomics still need NC01 review. |
-| `crates/kagari-stdlib/src/foundation/vector.rs` (retired), `crates/kagari-stdlib/src/foundation/hash.rs` (retired), `crates/kagari-stdlib/src/foundation/vector/operations.rs` (retired), [shared construction traversal](../crates/kagari-stdlib/src/foundation/iteration/traversal.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
+| `crates/kagari-stdlib/src/foundation/vector.rs` (retired), `crates/kagari-stdlib/src/foundation/hash.rs` (retired), `crates/kagari-stdlib/src/foundation/vector/operations.rs` (retired), [numeric construction traversal](../crates/kagari-stdlib/src/foundation/numeric/aggregation.rs) | Vec/HashMap/HashSet FromIterator and collect delegation already work. Hash construction selects insert, but still declares Ty::Map/Set and branches on Value::Map; migrate representation without replacing consumption semantics. |
 | `crates/kagari-runtime/src/gc/iter.rs` (retired) | Cursors check structural revisions on reads; wrappers retain ordinary traced edges, without iteration leases or consumer-scope traversal. Revision ownership for general library storage remains a native storage boundary. |
 
 Today map insertion passes through Value::Map and GcHeap map operations into a
@@ -277,11 +277,10 @@ explicit scope approval, not a new queue hidden inside this plan.
 
 ### Reuse the completed Iterable mechanisms
 
-For `val result: Vec<i32> = values.map(f).take(2).collect();`, the existing default calls
-the selected `iter` once. Its adapter payload stores the source and callback,
-and allocation retains the selected `next` slot. Consumption invokes that stored
-target with the original supplying generation. `collect` delegates to the
-destination's FromIterator; traversal opens the existing consumer scope.
+For `val result: Vec<i32> = values.iter().map(f).take(2).collect();`, `iter()`
+selects the source cursor once. The Script adapters retain that cursor, the
+callback and the remaining allowance; `collect` delegates to the destination's
+FromIterator. Neither adapter restarts the collection.
 
 After NC, the same flow must work when values is the migrated Vec or an external
 collection. Only the concrete source/destination storage, their methods/cursors
@@ -326,7 +325,7 @@ owner is Vec, List or Iterable. Preserve builtin Array support and justified
 shared low-level buffers without keeping a second Vec implementation in runtime.
 
 Vec/HashMap/HashSet base iterators become ordinary registered native objects;
-the lazy adapters already are. NC01 inventories CollectionCursor/Iter consumers,
+the lazy adapters remain ordinary Script objects. NC01 inventories CollectionCursor/Iter consumers,
 including builtin Array, String and Range, before removing any shared cursor tag
 or layout. Migrate the concrete collection cursor paths and leave the other
 consumers functional through their existing representation unless a bounded
@@ -880,7 +879,7 @@ Reuse existing semantic owners, extending only distinct missing contracts:
 | --- | --- |
 | [Interfaces](../crates/kagari/src/runtime/tests/language/collection_interfaces.rs), [access](../crates/kagari/src/runtime/tests/language/collection_access.rs), [arrays](../crates/kagari/src/runtime/tests/language/array_operations.rs) | Nominal distinction, generic/interface dispatch, invariance, shallow views, aliases, bounds, Array separation and once-only mutation targets. |
 | [Iteration](../crates/kagari/src/runtime/tests/language/iteration_traits.rs), [conversions](../crates/kagari/src/runtime/tests/language/conversion_traits.rs), [library collections](../crates/kagari-stdlib/src/tests/execution/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
-| [Lazy cursor boundaries](../crates/kagari-stdlib/src/tests/execution/library_collections/library_mapping.rs), [source-free pipeline fixture](../crates/kagari/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
+| [Lazy cursor boundaries](../crates/kagari-stdlib/src/tests/execution/library_collections/library_mapping.rs), [source-free pipeline fixture](../crates/kagari/tests/fixtures/feature_artifact.kgr) | Reuse `retained_zip_keeps_sources_and_closures_but_calls_current_methods` and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
 | [Native builder](../crates/kagari-stdlib/src/tests/runtime_boundary/native_builder.rs), [native boundary](../crates/kagari-stdlib/src/tests/execution/native_boundary.rs) | Public extensions, wrong nominal/payload/type/owner rejection, dynamic edges, roots, reentry/traps/cancellation, cyclic collection cleanup and host retention. |
 | [Reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs), [artifacts](../crates/kagari/tests/artifact_features.rs), [native artifacts](../crates/kagari/src/program/tests/native_artifacts.rs) | Retained type/cursor and exact computation owners, current ordinary callback bodies, source-free linking, forged storage/call evidence rejection and backend agreement. |
 

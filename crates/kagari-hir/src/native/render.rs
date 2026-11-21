@@ -1,7 +1,7 @@
 //! Complete native declaration views derived from authoritative registrations.
 use crate::{
-    analysis::external::ExternalModule,
-    native::paths::{LibraryPaths, range_declaration},
+    analysis::{core_source::packaged_modules, external::ExternalModule},
+    native::paths::LibraryPaths,
 };
 use kagari_common::{
     identity::{
@@ -83,7 +83,7 @@ pub fn declaration_source(
     module: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
 ) -> Result<DeclarationSource, DeclarationError> {
-    declaration_source_with_external(module, providers, &[])
+    declaration_source_with_external(module, providers, packaged_modules())
 }
 
 /// Renders a registration in the same spelling environment as analysis with these
@@ -94,24 +94,22 @@ pub fn declaration_source_with_external(
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     external: &[ExternalModule],
 ) -> Result<DeclarationSource, DeclarationError> {
-    render_with_paths(module, providers, &LibraryPaths::new(providers, external))
+    render_with_paths(module, &LibraryPaths::new(providers, external))
 }
 
 pub(super) fn render_with_paths(
     module: &DefinitionMetadata<ModuleDecl>,
-    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     paths: &LibraryPaths,
 ) -> Result<DeclarationSource, DeclarationError> {
     module
         .records()
         .validate_script_bodies(module.definitions(), &Default::default())?;
-    DeclarationView::new(module, providers, paths).render()
+    DeclarationView::new(module, paths).render()
 }
 
 /// Borrowed authoritative module plus provider context used to resolve rendered identities.
 struct DeclarationView<'a> {
     module: &'a ModuleDecl,
-    providers: &'a [Arc<DefinitionMetadata<ModuleDecl>>],
     paths: &'a LibraryPaths,
     definitions: &'a DefinitionTable,
     parameter_counts: BTreeMap<DefinitionId, usize>,
@@ -125,11 +123,7 @@ impl Deref for DeclarationView<'_> {
 }
 
 impl<'a> DeclarationView<'a> {
-    fn new(
-        metadata: &'a DefinitionMetadata<ModuleDecl>,
-        providers: &'a [Arc<DefinitionMetadata<ModuleDecl>>],
-        paths: &'a LibraryPaths,
-    ) -> Self {
+    fn new(metadata: &'a DefinitionMetadata<ModuleDecl>, paths: &'a LibraryPaths) -> Self {
         let module = metadata.records();
         let mut parameter_counts = BTreeMap::<DefinitionId, usize>::new();
         let parameters = module
@@ -169,7 +163,6 @@ impl<'a> DeclarationView<'a> {
         }
         Self {
             module,
-            providers,
             paths,
             definitions: metadata.definitions(),
             parameter_counts,
@@ -500,7 +493,8 @@ impl<'a> DeclarationView<'a> {
                 BuiltinType::F32 => "f32",
                 BuiltinType::F64 => "f64",
                 BuiltinType::String => {
-                    return self.representation_name(NativeTypeConstructor::String, "String");
+                    let owner = NativeTypeConstructor::String.declaration().module;
+                    return Ok(format!("{}::String", self.module_path(&owner)));
                 }
             }
             .into(),
@@ -538,7 +532,7 @@ impl<'a> DeclarationView<'a> {
                 )
             }
             Ty::Range(item, kind) => {
-                let owner = range_declaration(*kind).module;
+                let owner = NativeTypeConstructor::Range(*kind).declaration().module;
                 let name = format!("{}::{}", self.module_path(&owner), kind.name());
                 if NativeTypeConstructor::Range(*kind).arity() == 0 {
                     name
@@ -553,53 +547,6 @@ impl<'a> DeclarationView<'a> {
                 ));
             }
         })
-    }
-
-    fn representation_name(
-        &self,
-        constructor: NativeTypeConstructor,
-        fallback: &str,
-    ) -> Result<String, DeclarationError> {
-        if let Some(ty) = self
-            .types
-            .iter()
-            .find(|ty| ty.kind == TypeDefKind::Native(constructor))
-        {
-            return Ok(ty.name.clone());
-        }
-        let candidates: Vec<_> = self
-            .providers
-            .iter()
-            .map(|provider| provider.records())
-            .filter(|provider| provider.identity != self.identity)
-            .flat_map(|provider| {
-                provider
-                    .types
-                    .iter()
-                    .filter(move |ty| ty.kind == TypeDefKind::Native(constructor))
-                    .map(move |ty| (provider, ty))
-            })
-            .collect();
-        let preferred: Vec<_> = candidates
-            .iter()
-            .copied()
-            .filter(|(_, ty)| ty.name == fallback)
-            .collect();
-        let candidates = if preferred.is_empty() {
-            &candidates
-        } else {
-            &preferred
-        };
-        let [(provider, ty)] = candidates.as_slice() else {
-            return Err(DeclarationError(
-                "missing or ambiguous native representation declaration".into(),
-            ));
-        };
-        Ok(format!(
-            "{}::{}",
-            self.module_path(&provider.identity),
-            ty.name
-        ))
     }
 
     fn nominal_spelling(&self, ty: &NominalTy) -> Result<String, DeclarationError> {

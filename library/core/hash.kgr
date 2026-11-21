@@ -1,0 +1,21 @@
+//! Hash codes for key-based lookup.
+/// Supplies a hash code, not a unique ID. Equal keys must return the same code;
+/// unequal keys may collide, so callers still need to compare them. A custom
+/// implementation requires explicit `PartialEq` and `Eq` for the same receiver
+/// under the same bounds. The compiler does not prove the equality law. Do not change
+/// the part of a key used for hashing while it is stored in a hash collection.
+///
+/// ```kagari
+/// use core::cmp::{PartialEq, Eq};
+/// use core::hash::Hash;
+/// struct Key { val id: i64 }
+/// impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.id == other.id } }
+/// impl Eq for Key {}
+/// impl Hash for Key { fn hash(self) -> i64 { self.id } }
+/// fn bucket_input(key: Key) -> i64 { key.hash() }
+/// ```
+#[lang = "hash"]
+pub trait Hash {
+    /// Returns this value's hash code; it is not a cryptographic digest.
+    fn hash(self) -> i64;
+}

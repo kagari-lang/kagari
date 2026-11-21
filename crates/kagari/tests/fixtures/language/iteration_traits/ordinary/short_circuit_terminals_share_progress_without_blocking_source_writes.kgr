@@ -2,7 +2,9 @@ fn main() -> i32 {
     val left = Vec::from([1, 2, 3]);
     val right = Vec::from([10, 20, 30]);
     val calls = Vec::from([0]);
-    val pipeline: Iterator<Item = (i32, i32)> = left.map(|x| x).zip(right.filter(|x| true));
+    val pipeline: Iterator<Item = (i32, i32)> = left.iter().map(|x| x).zip(
+        right.iter().filter(|x| true)
+    );
     if !pipeline.any(
         |pair| {
             calls[0] += 1;
@@ -25,7 +27,7 @@ fn main() -> i32 {
     left.push(4);
     right.push(40);
     val values = Vec::from([1, 2, 3, 4]);
-    val cursor = values.skip(1u64);
+    val cursor = values.iter().skip(1u64);
     val alias = cursor;
     if cursor.all(
         |x| {
@@ -44,12 +46,13 @@ fn main() -> i32 {
     }
     values.push(5);
     val empty: [i32] = [];
-    if empty.any(|x| true) || !empty.all(|x| false) || empty.find(|x| true) != None ||
-        empty.count() != 0u64 {
+    if empty.iter().any(|x| true) || !empty.iter().all(|x| false) ||
+        empty.iter().find(|x| true) != None ||
+        empty.iter().count() != 0u64 {
         return 0;
     }
     val output = Vec::new();
-    val unit = values.enumerate().for_each(
+    val unit = values.iter().enumerate().for_each(
         |pair| {
             output.push(pair[1]);
         }

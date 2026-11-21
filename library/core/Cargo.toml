@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 description = "Authored Kagari core library sources for embedded frontends"
-include = ["src/lib.rs", "cmp.kgr", "option.kgr", "convert.kgr", "default.kgr", "ops.kgr", "result.kgr"]
+include = ["src/lib.rs", "*.kgr"]

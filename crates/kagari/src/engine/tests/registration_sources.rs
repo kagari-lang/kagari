@@ -48,9 +48,6 @@ static NEXT: AtomicU64 = AtomicU64::new(0);
 fn typed_registration_preserves_parameter_and_return_docs_in_materialized_navigation() {
     let cache = Cache::new();
     let mut builder = KagariEngine::builder().unwrap();
-    builder
-        .install_all(standard_library().modules().unwrap())
-        .unwrap();
     let mut module = ModuleBuilder::new("application::typed", builder.declarations()).unwrap();
     module.documentation("# Text tools\n\nOwned Unicode text conversions.");
     {
@@ -86,8 +83,7 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
     builder.install(module.finish().unwrap()).unwrap();
     builder.declaration_cache(&cache.0);
     let engine = builder.build().unwrap();
-    let text =
-        "use application::typed::duplicate; fn main() -> (String, String) { duplicate(\"雪\") }";
+    let text = "use alloc::string::String; use application::typed::duplicate; fn main() -> (String, String) { duplicate(\"雪\") }";
     let file = engine
         .set_source("memory://typed.kgr", text.into(), SourceLayer::Base)
         .unwrap();

@@ -7,14 +7,13 @@ use crate::{
         item::behavior::{GenericParam, TraitBound, TraitRef},
         ty::{TypeBuffer, TypeKind},
     },
-    native::paths::range_declaration,
 };
 use kagari_common::{
     identity::{DefinitionKind, table::DefinitionId},
     span::Span,
 };
 use kagari_types::{
-    declaration::{TypeDefKind, module::DeclarationError, native::NativeTypeConstructor},
+    declaration::{module::DeclarationError, native::NativeTypeConstructor},
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam as RegisteredParameter, NominalTy, Ty},
 };
@@ -213,52 +212,13 @@ impl StructuredLowerer<'_> {
             .collect()
     }
 
-    fn representation(
+    fn constructor(
         &self,
         constructor: NativeTypeConstructor,
-        fallback: &str,
     ) -> Result<DefinitionId, DeclarationError> {
-        if let Some(ty) = self
-            .declaration
-            .types
-            .iter()
-            .find(|ty| ty.kind == TypeDefKind::Native(constructor))
-        {
-            return self.declaration.definition(
-                ty.kind.definition_kind(),
-                &ty.name,
-                self.definitions,
-            );
-        }
-        let candidates = self
-            .providers
-            .iter()
-            .map(|provider| provider.records())
-            .filter(|provider| provider.identity != self.declaration.identity)
-            .flat_map(|provider| {
-                provider
-                    .types
-                    .iter()
-                    .filter(move |ty| ty.kind == TypeDefKind::Native(constructor))
-                    .map(move |ty| (provider, ty))
-            })
-            .collect::<Vec<_>>();
-        let preferred = candidates
-            .iter()
-            .copied()
-            .filter(|(_, ty)| ty.name == fallback)
-            .collect::<Vec<_>>();
-        let candidates = if preferred.is_empty() {
-            &candidates
-        } else {
-            &preferred
-        };
-        let [(provider, ty)] = candidates.as_slice() else {
-            return Err(DeclarationError(
-                "missing or ambiguous native representation declaration".into(),
-            ));
-        };
-        provider.definition(ty.kind.definition_kind(), &ty.name, self.definitions)
+        self.definitions
+            .lookup(&constructor.declaration())
+            .ok_or_else(|| DeclarationError("missing scoped language constructor reference".into()))
     }
 
     fn application(
@@ -302,7 +262,7 @@ impl StructuredLowerer<'_> {
             .map_err(|_| DeclarationError("native type lowering cancelled".into()))?;
         let kind = match ty {
             Ty::Builtin(BuiltinType::String) => {
-                let declaration = self.representation(NativeTypeConstructor::String, "String")?;
+                let declaration = self.constructor(NativeTypeConstructor::String)?;
                 return self.application(declaration, &[], &BTreeMap::new());
             }
             Ty::Builtin(kind) => TypeKind::Named(
@@ -341,12 +301,7 @@ impl StructuredLowerer<'_> {
             | Ty::Trait(nominal) => return self.nominal(nominal),
             Ty::Range(element, range) => {
                 let constructor = NativeTypeConstructor::Range(*range);
-                let declaration = self
-                    .definitions
-                    .lookup(&range_declaration(*range))
-                    .ok_or_else(|| {
-                        DeclarationError("missing scoped range constructor reference".into())
-                    })?;
+                let declaration = self.constructor(constructor)?;
                 let args = if constructor.arity() == 0 {
                     &[][..]
                 } else {

@@ -1,0 +1,28 @@
+//! Diagnostic and user-facing representations of values.
+use alloc::string::String;
+/// Describes a value for a developer inspecting program state. Choose `Display`
+/// instead when the text is part of a user interface. Debug output need not be
+/// stable between versions or parseable back into the value.
+#[lang = "debug"]
+pub trait Debug {
+    /// Returns the diagnostic text; does not print it.
+    fn debug(self) -> String;
+}
+/// Describes a value for a reader, rather than exposing its internal fields.
+/// The implementation chooses one representation. If it should round-trip
+/// through `FromStr`, document and implement that agreement explicitly.
+///
+/// ```kagari
+/// use alloc::string::String;
+/// use core::fmt::Display;
+/// struct Lamp { val lit: bool }
+/// impl Display for Lamp {
+///     fn display(self) -> String { if self.lit { "on" } else { "off" } }
+/// }
+/// fn label(lamp: Lamp) -> String { lamp.display() }
+/// ```
+#[lang = "display"]
+pub trait Display {
+    /// Returns the chosen user-facing text; does not write to an output stream.
+    fn display(self) -> String;
+}

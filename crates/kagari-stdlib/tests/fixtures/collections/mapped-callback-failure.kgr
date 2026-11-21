@@ -1,8 +1,24 @@
 use test::probe::tick;
 
+struct Source {
+    val scale: i32,
+    var position: i32
+}
+
+impl Iterator for Source {
+    type Item = i32;
+    fn next(self) -> Option<i32> {
+        if self.position == 2 {
+            return None;
+        }
+        self.position += 1;
+        Some(self.scale * self.position)
+    }
+}
+
 pub fn make() -> Iterator<Item = (i32, i32)> {
-    Vec::from([100, 200]).map(|item| item).zip(
-        Vec::from([10, 20]).map(
+    Source { scale: 100, position: 0 }.map(|item| item).zip(
+        Source { scale: 10, position: 0 }.map(
             |item| {
                 if tick() == 1u64 {
                     val fail = 1 / 0;

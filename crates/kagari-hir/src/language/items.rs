@@ -220,6 +220,7 @@ fn conversion_valid(
             requirements::trait_shape_valid(actual.id, &record, definitions)
         } else {
             record.supertraits.is_empty()
+                && record.methods.iter().all(|method| method.bounds.is_empty())
                 && record
                     .conversion_adapter
                     .as_ref()

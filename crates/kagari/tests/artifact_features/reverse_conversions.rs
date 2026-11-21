@@ -68,7 +68,14 @@ fn decoded_reverse_conversions_execute_once_with_exact_payloads() {
     #[cfg(feature = "source")]
     let library = standard_library();
     #[cfg(not(feature = "source"))]
-    let library = crate::standard::from_fixture("reverse_conversions.kbc");
+    let library = {
+        let library = crate::standard::from_fixture("reverse_conversions.kbc");
+        let bytecode = program.bytecode();
+        let application = &bytecode.modules()[bytecode.root().index()].identity;
+        let catalog = library.declarations().catalog();
+        assert!(catalog.authored_origin(application).is_none());
+        library
+    };
     let engine = KagariEngine::with_native_modules(config, library.modules().unwrap()).unwrap();
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

@@ -3,7 +3,7 @@ struct Calls {
 }
 
 fn scalar_count<I: Iterable<Item = char>>(values: I) -> u64 {
-    values.count()
+    values.iter().count()
 }
 
 fn byte_head<I: Iterator<Item = u8>>(values: I) -> Option<u8> {

@@ -44,6 +44,7 @@ use kagari_types::{
     declaration::{
         FnDecl, TypeDeclaration, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
+        native::NativeTypeConstructor,
     },
 };
 use std::collections::BTreeSet;
@@ -64,13 +65,7 @@ fn attach(
         let correspondence = correspondence::supplied(definition, definitions, &lowered)?;
         (lowered, correspondence)
     } else {
-        structured::lower(
-            metadata,
-            providers,
-            &prepared.paths,
-            prepared.source.clone(),
-            cancel,
-        )?
+        structured::lower(metadata, &prepared.paths, prepared.source.clone(), cancel)?
     };
     if prepared.parsed().is_some() {
         for (name, target) in &definition.exports {
@@ -416,6 +411,10 @@ pub(crate) fn dependencies(
             _ => None,
         })
         .collect();
+    let string = NativeTypeConstructor::String.declaration().module;
+    if referenced.contains(format!("{}::String", paths.module_path(&string)).as_str()) {
+        imports.insert(string);
+    }
     for provider in providers
         .iter()
         .map(|provider| provider.records())

@@ -19,7 +19,7 @@ use kagari_types::{
     },
     language::{
         Protocol, comparison, requirements,
-        schema::{CoreEnum, range_shape_valid},
+        schema::{CoreEnum, constructor_shape_valid},
     },
     range::RangeKind,
     ty::Ty,
@@ -108,7 +108,11 @@ pub(super) fn validate_installed_values(
             }
         }
         if module.identity == Protocol::Try.module() {
-            validate_ranges(module, source)?;
+            for kind in RangeKind::ALL {
+                validate_constructor(NativeTypeConstructor::Range(kind), module, source)?;
+            }
+        } else if module.identity == NativeTypeConstructor::String.declaration().module {
+            validate_constructor(NativeTypeConstructor::String, module, source)?;
         }
     }
     for required in CoreEnum::COMPARISON
@@ -174,24 +178,19 @@ pub(super) fn validate_installed_values(
     Ok(())
 }
 
-fn validate_ranges(module: &BytecodeModule, source: &DefinitionTable) -> Result<(), RuntimeError> {
-    let root = source.lookup_root(&module.identity);
-    for kind in RangeKind::ALL {
-        let constructor = NativeTypeConstructor::Range(kind);
-        if !root
-            .and_then(|root| {
-                source.lookup_child(root, constructor.declaration_kind(), kind.name(), 0)
-            })
-            .is_some_and(|owner| {
-                type_contract(&module.identity, &module.public_items, &owner, source)
-                    .is_some_and(|record| range_shape_valid(owner, record, source))
-            })
-        {
-            return Err(RuntimeError::module_validation(format!(
-                "missing or invalid public range constructor: {}",
-                kind.name()
-            )));
-        }
+fn validate_constructor(
+    constructor: NativeTypeConstructor,
+    module: &BytecodeModule,
+    source: &DefinitionTable,
+) -> Result<(), RuntimeError> {
+    let path = constructor.declaration();
+    if !source.lookup(&path).is_some_and(|owner| {
+        type_contract(&module.identity, &module.public_items, &owner, source)
+            .is_some_and(|record| constructor_shape_valid(owner, record, source))
+    }) {
+        return Err(RuntimeError::module_validation(format!(
+            "missing or invalid public language constructor: {constructor:?}"
+        )));
     }
     Ok(())
 }

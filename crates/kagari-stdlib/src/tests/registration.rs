@@ -98,7 +98,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
                 receiver => panic!("unexpected standard Default target {receiver:?}"),
             };
             let expected_owner = match name.as_str() {
-                "String" => namespaces::type_owner(&name),
+                "String" => namespaces::module("std", "string"),
                 "Char" => namespaces::module("core", "char"),
                 _ => namespaces::module("core", "num"),
             };
@@ -183,7 +183,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = test_library::standard().declarations().to_vec();
     let second = test_library::standard().declarations().to_vec();
-    assert_eq!(first.len(), 28); // Authored owners are not native providers.
+    assert_eq!(first.len(), 23); // Authored owners are not native providers.
     for retired in [
         namespaces::module("core", "host"),
         namespaces::module("std", "host"),
@@ -216,23 +216,23 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        // Six enums and six range constructors belong to authored core.
-        16
+        // Only native storage, host-facing errors and task types remain.
+        7
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().traits.len())
             .sum::<usize>(),
-        15
+        6
     );
     assert_eq!(
         first
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Range, propagation, conversion blankets and Option default are authored.
-        167
+        // Iterator adapters and identity traversal are now authored as well.
+        158
     );
     assert_eq!(
         first
@@ -252,8 +252,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
                 .filter(|requirements| !requirements.is_empty())
                 .count())
             .sum::<usize>(),
-        // Result residual conversion now calls From in authored Script.
-        41
+        // Traversal defaults no longer introduce native callable requirements.
+        24
     );
     for module in &first {
         // Concrete result metadata for the retired collection defaults is no longer published.

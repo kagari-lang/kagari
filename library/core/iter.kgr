@@ -1,0 +1,360 @@
+//! Lazy traversal of shared cursors and construction from their items.
+use core::option::{ Option, Some, None };
+/// A cursor that callers can advance one item at a time. Copies share progress;
+/// use `Iterable::iter` on a collection when you need a new traversal instead.
+/// Implement `next` and the adapters and terminals below become available.
+/// The example cursor emits one number. Constructing its mapped cursor does
+/// not advance it; after the first pull, the original is exhausted too.
+///
+/// ```kagari
+/// use core::iter::Iterator;
+/// use core::option::{Option, Some, None};
+/// struct Once { var ready: bool }
+/// impl Iterator for Once {
+///     type Item = i32;
+///     fn next(self) -> Option<i32> {
+///         if !self.ready { return None; }
+///         self.ready = false;
+///         Some(21)
+///     }
+/// }
+/// fn answer() -> Option<i32> {
+///     Once { ready: true }.map(|x| x * 2).next()
+/// }
+/// ```
+///
+/// `answer()` returns `Some(42)`.
+#[lang = "iterator"]
+pub trait Iterator {
+    /// The payload of a successful pull.
+    type Item;
+    /// Advances once. `None` ends a traversal, but a later call may yield again.
+    fn next(self) -> Option<Self::Item>;
+    /// Applies `callback` to each item as it is requested. A callback failure
+    /// does not put the input item back.
+    fn map<U>(self, callback: fn(Self::Item) -> U) -> MapIterator<Self::Item, U> {
+        MapIterator<Self::Item, U> { pull: pull::<Self::Item, Self>(self), callback: callback }
+    }
+    /// Skips items that fail the predicate, without pulling beyond a match.
+    fn filter(self, callback: fn(Self::Item) -> bool) -> FilterIterator<Self::Item> {
+        FilterIterator<Self::Item> { pull: pull::<Self::Item, Self>(self), callback: callback }
+    }
+    /// Yields at most `limit` successful pulls. A zero allowance never reads the source.
+    fn take(self, limit: u64) -> TakeIterator<Self::Item> {
+        TakeIterator<Self::Item> { pull: pull::<Self::Item, Self>(self), remaining: limit }
+    }
+    /// Applies `callback` lazily and yields only the payloads of its `Some` results.
+    fn filter_map<U>(self, callback: fn(Self::Item) -> Option<U>) -> FilterMapIterator<
+        Self::Item, U
+    > {
+        FilterMapIterator<Self::Item, U> {
+            pull: pull::<Self::Item, Self>(self), callback: callback
+        }
+    }
+    /// Discards the first `count` items, retaining the unused allowance across a `None`.
+    fn skip(self, count: u64) -> SkipIterator<Self::Item> {
+        SkipIterator<Self::Item> { pull: pull::<Self::Item, Self>(self), remaining: count }
+    }
+    /// Pairs each item with its zero-based index. Incrementing the index is checked.
+    fn enumerate(self) -> EnumerateIterator<Self::Item> {
+        EnumerateIterator<Self::Item> { pull: pull::<Self::Item, Self>(self), index: 0u64 }
+    }
+    /// Obtains the right cursor once. Each pull advances the left first, then
+    /// the right; a missing right item does not rewind the left.
+    fn zip<R: Iterable>(self, other: R) -> ZipIterator<Self::Item, R::Item> {
+        val right = other.iter();
+        ZipIterator<Self::Item, R::Item> {
+            left: pull::<Self::Item, Self>(self), right: pull::<R::Item, R::Iter>(right)
+        }
+    }
+    /// Obtains the right cursor once, then switches to it on the first left `None`.
+    fn chain<R: Iterable<Item = Self::Item>>(self, other: R) -> ChainIterator<Self::Item> {
+        val right = other.iter();
+        ChainIterator<Self::Item> {
+            left: pull::<Self::Item, Self>(self),
+            right: pull::<Self::Item, R::Iter>(right),
+            switched: false
+        }
+    }
+    /// Passes this cursor to the chosen destination. The result type selects the implementation.
+    fn collect<D: FromIterator<Self::Item>>(self) -> D {
+        <D as FromIterator<Self::Item>>::from_iter(self)
+    }
+    /// Reduces items in order, starting with `initial`. Empty input returns `initial`.
+    fn fold<A>(self, initial: A, callback: fn(A, Self::Item) -> A) -> A {
+        var result = initial;
+        for item in self {
+            result = callback(result, item);
+        }
+        result
+    }
+    /// Passes this cursor to the result type's `Sum` implementation.
+    fn sum<D: Sum<Self::Item>>(self) -> D {
+        <D as Sum<Self::Item>>::sum(self)
+    }
+    /// Passes this cursor to the result type's `Product` implementation.
+    fn product<D: Product<Self::Item>>(self) -> D {
+        <D as Product<Self::Item>>::product(self)
+    }
+    /// Counts until the first `None`, using checked addition.
+    fn count(self) -> u64 {
+        var n = 0u64;
+        for item in self {
+            n += 1u64;
+        }
+        n
+    }
+    /// Returns the first matching item, or `None`, without pulling past a match.
+    fn find(self, callback: fn(Self::Item) -> bool) -> Option<Self::Item> {
+        for item in self {
+            if callback(item) {
+                return Some(item);
+            }
+        }
+        None
+    }
+    /// Stops at the first true result; empty input returns false.
+    fn any(self, callback: fn(Self::Item) -> bool) -> bool {
+        for item in self {
+            if callback(item) {
+                return true;
+            }
+        }
+        false
+    }
+    /// Stops at the first false result; empty input returns true.
+    fn all(self, callback: fn(Self::Item) -> bool) -> bool {
+        for item in self {
+            if !callback(item) {
+                return false;
+            }
+        }
+        true
+    }
+    /// Calls the action once per item in order, stopping at the first `None`.
+    fn for_each(self, callback: fn(Self::Item) ->()) {
+        for item in self {
+            callback(item);
+        }
+    }
+}
+
+fn pull<T, I: Iterator<Item = T>>(source: I) -> fn() -> Option<T> {
+    || source.next()
+}
+/// Supplies the cursor used by `for item in source`. Implement this on a
+/// collection to separate creating a traversal from advancing it. An iterator
+/// is already iterable: its identity traversal continues at its current position.
+#[lang = "iterable"]
+pub trait Iterable {
+    /// The value bound to the loop pattern on each successful pull.
+    type Item;
+    /// The cursor returned by `iter`; its item must agree with this source's item.
+    type Iter: Iterator<Item = Self::Item>;
+    /// Obtains a cursor without requesting its first item.
+    fn iter(self) -> Self::Iter;
+}
+
+impl<T> Iterable for Iterator<Item = T> {
+    type Item = T;
+    type Iter = Iterator<Item = T>;
+    fn iter(self) -> Iterator<Item = T> {
+        self
+    }
+}
+/// Constructs a destination from an iterable. Implement this rather than
+/// overriding `collect` on each cursor that might supply your input. The
+/// destination can choose what to retain: `Last` keeps only the final item.
+///
+/// ```kagari
+/// use core::iter::{FromIterator, Iterable, Iterator};
+/// use core::option::{Option, Some, None};
+/// struct Last { val item: Option<i32> }
+/// impl FromIterator<i32> for Last {
+///     fn from_iter<I: Iterable<Item = i32>>(source: I) -> Self {
+///         var last: Option<i32> = None;
+///         for item in source { last = Some(item); }
+///         Last { item: last }
+///     }
+/// }
+/// fn last_item<I: Iterator<Item = i32>>(items: I) -> Option<i32> {
+///     items.collect::<Last>().item
+/// }
+/// ```
+///
+/// Given a cursor yielding `2` then `5`, `last_item` returns `Some(5)`;
+/// given an empty cursor, it returns `None`.
+pub trait FromIterator<T> {
+    /// Builds `Self` from `source` in traversal order.
+    fn from_iter<M: Iterable<Item = T>>(source: M) -> Self;
+}
+/// Defines how the destination sums a sequence of `T`. The destination, not
+/// the source, supplies the addition rule and the result for empty input.
+///
+/// ```kagari
+/// use core::iter::{Iterable, Iterator, Sum};
+/// struct Total { val points: i32 }
+/// impl Sum<i32> for Total {
+///     fn sum<I: Iterable<Item = i32>>(source: I) -> Self {
+///         Total { points: source.iter().fold(0, |a, b| a + b) }
+///     }
+/// }
+/// fn total_points<I: Iterator<Item = i32>>(items: I) -> i32 {
+///     items.sum::<Total>().points
+/// }
+/// ```
+///
+/// For scores `2` and `5`, `total_points` returns `7`. With no scores it returns `0`.
+pub trait Sum<T> {
+    /// Consumes the source and returns its additive aggregate.
+    fn sum<M: Iterable<Item = T>>(source: M) -> Self;
+}
+/// Defines how the destination multiplies a sequence of `T`. Its implementation
+/// chooses the result type's multiplicative identity for empty input.
+///
+/// ```kagari
+/// use core::iter::{Iterable, Iterator, Product};
+/// struct Scale { val factor: i32 }
+/// impl Product<i32> for Scale {
+///     fn product<I: Iterable<Item = i32>>(source: I) -> Self {
+///         Scale { factor: source.iter().fold(1, |a, b| a * b) }
+///     }
+/// }
+/// fn combined_scale<I: Iterator<Item = i32>>(items: I) -> i32 {
+///     items.product::<Scale>().factor
+/// }
+/// ```
+///
+/// For factors `2` and `5`, `combined_scale` returns `10`. With no factors it returns `1`.
+pub trait Product<T> {
+    /// Consumes the source and returns its multiplicative aggregate.
+    fn product<M: Iterable<Item = T>>(source: M) -> Self;
+}
+/// The lazy cursor returned by `map`, retaining the source and mapping function.
+pub struct MapIterator<T, U> {
+    val pull: fn() -> Option<T>,
+    val callback: fn(T) -> U
+}
+
+impl<T, U> Iterator for MapIterator<T, U> {
+    type Item = U;
+    fn next(self) -> Option<U> {
+        val item = (self.pull)()?;
+        Some((self.callback)(item))
+    }
+}
+/// The lazy cursor returned by `filter`. A source `None` ends only the current pull.
+pub struct FilterIterator<T> {
+    val pull: fn() -> Option<T>,
+    val callback: fn(T) -> bool
+}
+
+impl<T> Iterator for FilterIterator<T> {
+    type Item = T;
+    fn next(self) -> Option<T> {
+        loop {
+            val item = (self.pull)()?;
+            if (self.callback)(item) {
+                return Some(item);
+            }
+        }
+    }
+}
+/// The bounded cursor returned by `take`. Aliases share the remaining allowance.
+pub struct TakeIterator<T> {
+    val pull: fn() -> Option<T>,
+    var remaining: u64
+}
+
+impl<T> Iterator for TakeIterator<T> {
+    type Item = T;
+    fn next(self) -> Option<T> {
+        if self.remaining == 0u64 {
+            return None;
+        }
+        val item = (self.pull)()?;
+        self.remaining -= 1u64;
+        Some(item)
+    }
+}
+/// The lazy cursor returned by `filter_map`, skipping absent callback results.
+pub struct FilterMapIterator<T, U> {
+    val pull: fn() -> Option<T>,
+    val callback: fn(T) -> Option<U>
+}
+
+impl<T, U> Iterator for FilterMapIterator<T, U> {
+    type Item = U;
+    fn next(self) -> Option<U> {
+        loop {
+            val item = (self.pull)()?;
+            if val Some(value) = (self.callback)(item) {
+                return Some(value);
+            }
+        }
+    }
+}
+/// The cursor returned by `skip`; discarded items stay consumed across aliases.
+pub struct SkipIterator<T> {
+    val pull: fn() -> Option<T>,
+    var remaining: u64
+}
+
+impl<T> Iterator for SkipIterator<T> {
+    type Item = T;
+    fn next(self) -> Option<T> {
+        while self.remaining > 0u64 {
+            (self.pull)()?;
+            self.remaining -= 1u64;
+        }
+        (self.pull)()
+    }
+}
+/// The cursor returned by `enumerate`. Its index advances only after a successful pull.
+pub struct EnumerateIterator<T> {
+    val pull: fn() -> Option<T>,
+    var index: u64
+}
+
+impl<T> Iterator for EnumerateIterator<T> {
+    type Item = (u64, T);
+    fn next(self) -> Option<(u64, T)> {
+        val item = (self.pull)()?;
+        val index = self.index;
+        self.index += 1u64;
+        Some((index, item))
+    }
+}
+/// The cursor returned by `zip`, yielding ordered pairs without prefetching.
+pub struct ZipIterator<L, R> {
+    val left: fn() -> Option<L>,
+    val right: fn() -> Option<R>
+}
+
+impl<L, R> Iterator for ZipIterator<L, R> {
+    type Item = (L, R);
+    fn next(self) -> Option<(L, R)> {
+        val left = (self.left)()?;
+        val right = (self.right)()?;
+        Some((left, right))
+    }
+}
+/// The cursor returned by `chain`. Once switched, it never polls the first input again.
+pub struct ChainIterator<T> {
+    val left: fn() -> Option<T>,
+    val right: fn() -> Option<T>,
+    var switched: bool
+}
+
+impl<T> Iterator for ChainIterator<T> {
+    type Item = T;
+    fn next(self) -> Option<T> {
+        if !self.switched {
+            if val Some(item) = (self.left)() {
+                return Some(item);
+            }
+            self.switched = true;
+        }
+        return (self.right)();
+    }
+}

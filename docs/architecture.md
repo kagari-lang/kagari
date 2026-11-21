@@ -1141,7 +1141,8 @@ Module builders now receive an explicit `DeclarationCatalog`. The opt-in
 references and a checked catalog; the generic runtime does not construct it. Engine publication validates
 the complete dependency closure and rejects duplicates or mismatches atomically.
 Analysis snapshots and runtime installation derive from the same registered module
-set, including bundled adapters such as MapIterator. Existing snapshots and loaded
+set for Native operations. Core iterator adapters such as MapIterator are authored
+Script declarations, not installed providers. Existing snapshots and loaded
 programs retain their checked identities and generation ownership.
 
 ### Binary products and scope
@@ -1192,9 +1193,9 @@ Vec stable sorting edits its actual buffer through a scoped lease. Roots
 protect reference elements during callback reentry. Cleanup restores valid storage
 on every exit; failure may change ordering but preserves the original elements.
 Completed payload mutations remain. No universal collection rollback is promised.
-Lazy native adapters trace source/callback edges and retain checked selections;
-ordinary callback invocation follows current routes, while created closures retain
-exact bodies.
+Lazy core adapters keep their cursor state and callbacks in Script fields and
+closures. Ordinary method calls select current implementations; a captured
+closure retains its selected body.
 Collection cursors check structural revisions on each read; writes commit without
 iteration leases, including while a cursor is parked. Generic execution does not name MapIterator.
 

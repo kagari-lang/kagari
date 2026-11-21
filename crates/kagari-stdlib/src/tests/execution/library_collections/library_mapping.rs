@@ -1,11 +1,12 @@
-use super::{Probe, program, run};
+use super::{Probe, compile, program, run};
 use super::{after_failure_source, array_i32, inspect_retained};
 use crate::test_library;
 use kagari_analyzer::AnalyzerQueries;
+use kagari_common::identity::table::DefinitionId;
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_hir::analysis::core_source::packaged_modules;
 use kagari_runtime::{
-    Runtime, RuntimeConfig, module::entry::ProgramEntry,
+    Runtime, RuntimeConfig,
+    module::{ExecutableModule, entry::ProgramEntry},
     native::conversion::context::ConversionContext,
 };
 
@@ -13,11 +14,19 @@ use kagari_runtime::{
 use crate::tests::support::bytecode::load_bytecode;
 use crate::tests::support::bytecode::reload_bytecode;
 
-use kagari_hir::native::render::declaration_source_with_external;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::module::ModuleDecl, language::Protocol};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+
+fn next_method(owner: &ExecutableModule) -> DefinitionId {
+    let definitions = owner.definitions();
+    ModuleDecl::method_id(
+        Protocol::Iterator.definition(definitions).unwrap(),
+        "next",
+        definitions,
+    )
+    .unwrap()
+}
 
 #[test]
 fn map_is_lazy_and_aliases_share_cursor_progress_and_gc_captures() {
@@ -38,11 +47,6 @@ fn break_allows_source_writes_and_dynamic_views_preserve_shared_progress() {
 
 #[test]
 fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
     let probe = Probe::new();
     let source = include_str!("../../../../tests/fixtures/collections/wrapped-source-failure.kgr");
     let mut runtime = Runtime::default();
@@ -57,7 +61,7 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
         "map",
         program(
             &format!("{source} {}", after_failure_source("i32", 3)),
-            &[&library, &probe.module],
+            &[&probe.module],
         ),
     )
     .unwrap();
@@ -84,11 +88,6 @@ fn wrapped_sources_commit_edits_then_fail_before_the_next_read() {
 
 #[test]
 fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
     let probe = Probe::new();
     let source = include_str!("../../../../tests/fixtures/collections/mapped-callback-failure.kgr");
     let mut runtime = Runtime::default();
@@ -98,12 +97,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     )
     .unwrap();
     probe.module.install(&mut runtime).unwrap();
-    let loaded = load_bytecode(
-        &mut runtime,
-        "map",
-        program(source, &[&library, &probe.module]),
-    )
-    .unwrap();
+    let loaded = load_bytecode(&mut runtime, "map", program(source, &[&probe.module])).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
@@ -113,14 +107,11 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
         .return_value;
-    let definitions = vm.host().definitions();
-    let next = ModuleDecl::method_id(
-        Protocol::Iterator.definition(&definitions).unwrap(),
-        "next",
-        &definitions,
-    )
-    .unwrap();
-    assert!(vm.invoke_interface_method(&iterator, &next, &[]).is_err());
+    let next = next_method(&loaded);
+    let error = vm
+        .invoke_interface_method(&iterator, &next, &[])
+        .unwrap_err();
+    assert!(error.to_string().contains("division by zero"), "{error}");
     assert_eq!(probe.calls.load(Ordering::SeqCst), 1);
     let observed = {
         let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
@@ -142,11 +133,6 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
 
 #[test]
 fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
     let mut config = RuntimeConfig::default();
     config.gc.collection_threshold = Some(1);
     let mut runtime = Runtime::new(config);
@@ -160,7 +146,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         "map",
         program(
             include_str!("../../../../tests/fixtures/collections/mapped-custom-source.kgr"),
-            &[&library],
+            &[],
         ),
     )
     .unwrap();
@@ -173,13 +159,7 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
         .execute_module(&loaded, "make", vm.execution_options())
         .unwrap()
         .return_value;
-    let definitions = vm.host().definitions();
-    let next = ModuleDecl::method_id(
-        Protocol::Iterator.definition(&definitions).unwrap(),
-        "next",
-        &definitions,
-    )
-    .unwrap();
+    let next = next_method(&loaded);
     let observed = {
         let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
         ConversionContext::new(&mut vm, &loaded)
@@ -198,32 +178,21 @@ fn map_invokes_the_selected_custom_source_and_releases_its_roots() {
 }
 
 #[test]
-fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
+fn nested_next_shares_progress_and_unreachable_capture_cycles_are_collected() {
     let source = include_str!("../../../../tests/fixtures/collections/mapped-recursive-next.kgr");
     let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &test_library::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
-    let loaded = load_bytecode(&mut runtime, "map", program(source, &[&library])).unwrap();
+    let bytecode = compile(&mut AnalysisDatabase::default(), source);
+    let loaded = load_bytecode(&mut runtime, "map", bytecode).unwrap();
     let _loaded_program = loaded;
     let loaded = runtime.select_program(&_loaded_program).unwrap();
     let mut vm = runtime;
     vm.collect_garbage().unwrap();
     let baseline = vm.gc_stats();
-    let error = vm
+    let result = vm
         .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
-        .unwrap_err();
-    assert!(
-        format!("{error:?}").contains("recursive next on the same lazy iterator"),
-        "{error:?}"
-    );
+        .unwrap();
+    assert_eq!(result.return_value.as_i32(), Some(12));
+    drop(result);
     vm.collect_garbage().unwrap();
     assert_eq!(vm.gc_stats().objects, baseline.objects);
     assert_eq!(
@@ -234,11 +203,6 @@ fn recursive_next_is_rejected_and_unreachable_capture_cycles_are_collected() {
 
 #[test]
 fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
     let source = include_str!("../../../../tests/fixtures/collections/retained-custom-zip.kgr");
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
@@ -246,7 +210,7 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
         &mut runtime,
     )
     .unwrap();
-    let old = load_bytecode(&mut runtime, "map", program(source, &[&library])).unwrap();
+    let old = load_bytecode(&mut runtime, "map", program(source, &[])).unwrap();
     let _old_program = old;
     let old = runtime.select_program(&_old_program).unwrap();
     let old_key = old.key();
@@ -267,20 +231,15 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
         &mut vm,
         &_old_program,
         Some("map".into()),
-        program(&updated_source, &[&library]),
+        program(&updated_source, &[]),
     )
     .unwrap();
     let replacement = vm.select_program(&_old_program).unwrap();
+    let next = next_method(&old);
     drop(old);
     vm.collect_garbage().unwrap();
     assert!(vm.modules().loaded(old_key).is_some());
-    let definitions = vm.host().definitions();
-    let next = ModuleDecl::method_id(
-        Protocol::Iterator.definition(&definitions).unwrap(),
-        "next",
-        &definitions,
-    )
-    .unwrap();
+
     let observed = {
         let result = vm.invoke_interface_method(&iterator, &next, &[]).unwrap();
         ConversionContext::new(&mut vm, &replacement)
@@ -294,7 +253,9 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
         .unwrap()
         .return_value;
     let observed = {
-        let result = vm.invoke_interface_method(&fresh, &next, &[]).unwrap();
+        let result = vm
+            .invoke_interface_method(&fresh, &next_method(&replacement), &[])
+            .unwrap();
         ConversionContext::new(&mut vm, &replacement)
             .unwrap()
             .decode::<Option<(i32, i32)>>(&result)
@@ -312,33 +273,15 @@ fn retained_zip_keeps_sources_and_closures_but_calls_current_methods() {
 }
 
 #[test]
-fn native_iterator_completion_navigates_to_the_generated_impl() {
-    let library = test_library::modules()
-        .unwrap()
-        .into_iter()
-        .find(|module| module.declaration().identity == crate::namespaces::module("core", "iter"))
-        .unwrap();
-    let generated = declaration_source_with_external(
-        &library.to_declaration(),
-        test_library::standard().declarations(),
-        packaged_modules(),
-    )
-    .unwrap();
-    let text = " fn main() { val cursor = Vec::from([1]).map(|x| x); cursor. }";
+fn adapter_completion_navigates_to_its_authored_next_method() {
+    let text =
+        "fn inspect(source: Iterator<Item = i32>) { val cursor = source.map(|x| x); cursor. }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("completion.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        test_library::standard()
-            .declarations()
-            .to_vec()
-            .into_iter()
-            .filter(|installed| installed.records().identity != library.declaration().identity)
-            .chain([Arc::new(library.to_declaration())])
-            .collect(),
-    );
+    analysis.set_native_modules(test_library::standard().declarations().to_vec());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -355,7 +298,7 @@ fn native_iterator_completion_navigates_to_the_generated_impl() {
     let source = snapshot
         .source(declaration.source_location().unwrap().file)
         .unwrap();
-    assert_eq!(source.name(), generated.uri);
+    assert_eq!(source.name(), "kagari-core:///iter.kgr");
     assert_eq!(
         &source.text()[declaration.source_location().unwrap().range.start
             ..declaration.source_location().unwrap().range.end],

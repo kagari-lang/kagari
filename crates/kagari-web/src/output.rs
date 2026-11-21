@@ -6,15 +6,14 @@ use kagari::{engine::KagariEngine, error::EmbeddingError};
 #[cfg(not(feature = "source"))]
 use kagari_common::identity::map::DefinitionContext;
 #[cfg(not(feature = "source"))]
-use kagari_runtime::{error::RuntimeError, native::catalog::DeclarationCatalog};
+use kagari_runtime::error::RuntimeError;
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
     value::view::ValueView,
 };
 use kagari_stdlib::StandardLibrary;
-#[cfg(not(feature = "source"))]
-use kagari_stdlib::namespaces;
+
 use kagari_types::{
     declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
@@ -67,12 +66,7 @@ fn portable_library(bytes: &[u8]) -> Result<StandardLibrary, Box<dyn Error>> {
         .import_into(&context, &cancel)?
         .into_records()
         .into_verified(&Default::default(), &context, &cancel)?;
-    // Select only the authored owners used by the native standard bundle, never an
-    // application module, Native requirement or public re-export from this image.
-    let owners = ["cmp", "convert", "default", "ops", "option", "result"]
-        .map(|name| namespaces::module("core", name));
-    let seed = DeclarationCatalog::default().with_verified_modules(verified.bytecode(), &owners)?;
-    Ok(StandardLibrary::new(&seed)?)
+    Ok(StandardLibrary::from_verified_program(verified.bytecode())?)
 }
 
 pub(crate) fn engine(

@@ -80,6 +80,7 @@ impl InterfaceBridges {
             .trait_(&request.interface.declaration)
             .ok_or(MirLoweringError::MissingBinding("interface bridge trait"))?;
         let mut methods = Vec::new();
+        planner.span_origin = request.origin;
         for method in &contract.methods {
             planner.check()?;
             let declaration = planner
@@ -92,6 +93,7 @@ impl InterfaceBridges {
                 target: prepare_target(planner, &request, declaration)?,
             });
         }
+        planner.span_origin = planner.owner_handle();
         Ok(Some(PreparedBridge { request, methods }))
     }
 
@@ -110,6 +112,7 @@ impl InterfaceBridges {
             methods: prepared_methods,
         } = prepared;
         let InterfaceBridgeRequest {
+            origin,
             declaration,
             ref parameters,
             ref receiver,
@@ -254,7 +257,8 @@ impl InterfaceBridges {
                 effects,
                 debug: MirFunctionDebugMetadata {
                     source: None,
-                    source_module: module
+                    source_module: planner
+                        .source_module(origin)
                         .source_surface()
                         .map(|source| source.module_identity().clone()),
                     source_span: span,
@@ -276,8 +280,11 @@ impl InterfaceBridges {
                     }],
                 },
             };
-            function.debug.source =
-                capture_origin(&function, module.source_surface(), &planner.options.cancel)?;
+            function.debug.source = capture_origin(
+                &function,
+                planner.source_module(origin).source_surface(),
+                &planner.options.cancel,
+            )?;
             classifications.push((
                 function.instance.clone(),
                 BodyClassification::IntrinsicAdapter(function.instance.clone()),

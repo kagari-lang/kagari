@@ -7,13 +7,17 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::{Arc, LazyLock};
 
 fn identity(name: &str) -> ModuleIdentity {
+    let resource = MODULES
+        .iter()
+        .find(|m| m.name == name)
+        .expect("packaged module");
     ModuleIdentity {
-        package: PackageId("kagari-core".into()),
+        package: PackageId(format!("kagari-{}", resource.package_alias)),
         path: vec![name.into()],
     }
 }
 
-/// Returns shared, unparsed core sources with the `core` package alias and no prelude.
+/// Returns shared, unparsed core sources with their public package aliases and no prelude.
 ///
 /// A fresh database already contains these modules. To prepare a seed, take a snapshot
 /// with no physical sources and call `check_program` with the desired core source ID.
@@ -39,7 +43,7 @@ static INPUTS: LazyLock<Arc<[ExternalModule]>> = LazyLock::new(|| {
                 .set(resource.uri, resource.text.into(), SourceLayer::Base)
                 .expect("valid packaged source URI");
             let mut input = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
-            input.package_alias = Some("core".into());
+            input.package_alias = Some(resource.package_alias.into());
             // Only this packaged resource supplies the reporting variant. Ordinary
             // source (including an enum named Result) keeps fresh, unmarked variants.
             if resource.name == "result" {
@@ -62,12 +66,116 @@ mod tests {
         analysis::{AnalysisDatabase, error::AnalysisError},
         analyze_source,
         declarations::DeclarationId,
-        tests::native_fixture::function_module,
+        imports::{ResolvedTarget, SourceItem},
+        resolver::resolved::ResolvedName,
+        tests::{common::definition, native_fixture::function_module},
+        types::TypeId,
     };
+    use kagari_common::identity::DefinitionKind;
     use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
     use kagari_syntax::ast::{borrow::AstNode, views::ItemView};
-    use kagari_types::{scalar::BuiltinType, ty::Ty};
-    use std::sync::Arc;
+    use kagari_types::{language::role::LangRole, scalar::BuiltinType, ty::Ty};
+    use std::{collections::BTreeMap, sync::Arc};
+
+    #[test]
+    fn core_only_client_imports_the_authored_traits_selected_by_language_roles() {
+        let client = Arc::new(SourceFile::new(
+            "/client/imports.kgr",
+            "use core::cmp::{PartialEq, Eq, PartialOrd, Ord};
+             use core::iter::{Iterator, Iterable, FromIterator, Sum, Product};
+             use core::ops::{Add, Sub, Mul, Div, Rem, BitAnd, BitOr, BitXor, Shl, Shr,
+                             Neg, Not, Index, Fn, Try, FromResidual, RangeBounds};
+             use core::convert::{From, Into, TryFrom, TryInto};
+             use core::fmt::{Debug, Display};
+             use core::hash::Hash;
+             use core::str::FromStr;
+             use core::default::Default;",
+        ));
+        let cancel = Default::default();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(SourceSnapshot::single_file(client.clone()), &cancel)
+            .unwrap();
+        snapshot.check_program(client.id(), &cancel).unwrap();
+        let root = snapshot.file(client.id()).unwrap().result().facts();
+        let mut imported = BTreeMap::new();
+        for import in &root.names.imports.directives {
+            let [_, module, name] = import.segments.as_slice() else {
+                panic!("unexpected import: {:?}", import.segments);
+            };
+            let Some(ResolvedTarget::Source(target)) = import.resolution.target() else {
+                panic!("{name} must resolve to source");
+            };
+            let SourceItem::Trait(id) = target.item else {
+                panic!("{name} must be a trait");
+            };
+            let owner = snapshot.file(target.unit.file).unwrap().result().facts();
+            assert_eq!(
+                owner.lowered.source.name(),
+                format!("kagari-core:///{module}.kgr")
+            );
+            assert!(
+                target
+                    .unit
+                    .matches(&owner.lowered, owner.declarations.definitions())
+            );
+            assert_eq!(owner.lowered.source.module_identity(), &identity(module));
+            assert_eq!(&owner.lowered.module.traits[id.index()].name, name);
+            let definition = owner
+                .declarations
+                .definition(ResolvedName::Trait(id))
+                .unwrap();
+            assert!(imported.insert(name.as_str(), *definition).is_none());
+        }
+        assert_eq!(imported.len(), 35);
+        for role in LangRole::ALL {
+            let protocol = role.protocol();
+            let selected = root.aggregates.language_trait(protocol).unwrap();
+            assert_eq!(selected.declaration, imported[protocol.name()], "{role:?}");
+        }
+    }
+
+    #[test]
+    fn core_only_propagation_selects_the_custom_carrier_and_residual() {
+        // The runtime fixture normally gets these names from the stdlib prelude.
+        let client = SourceFile::new(
+            "/client/custom.kgr",
+            concat!(
+                "use core::option::{Option, Some, None}; use alloc::string::String;\n",
+                include_str!(
+                    "../../../kagari/tests/fixtures/language/try_protocols/ordinary/source_struct_carriers_use_selected_methods_once.kgr"
+                )
+            ),
+        );
+        let checked = analyze_source(&client, vec![])
+            .unwrap()
+            .into_checked()
+            .unwrap();
+        let propagation = checked
+            .lowered
+            .module
+            .nodes
+            .expressions()
+            .find_map(|(id, _)| checked.typed.type_table().propagation(id))
+            .expect("operand(state)? must record both selected calls");
+        for (call, expected) in [
+            (&propagation.branch, "Carrier"),
+            (&propagation.from_residual, "Residual"),
+        ] {
+            let [TypeId::Struct(actual)] = call.signature.as_ref().unwrap().params.as_slice()
+            else {
+                panic!("expected the local {expected} struct");
+            };
+            assert_eq!(
+                actual.declaration,
+                definition(
+                    checked.declarations.definitions(),
+                    &checked.lowered,
+                    DefinitionKind::Struct,
+                    expected
+                )
+            );
+        }
+    }
 
     #[test]
     fn packaged_core_checks_point_and_navigates_to_authored_trait() {
@@ -83,7 +191,7 @@ mod tests {
         let checked = core.check_program(cmp.source.id(), &cancel).unwrap();
         assert!(core.inputs().native_modules().is_empty());
         assert!(core.inputs().external_modules().is_empty());
-        assert_eq!(core.files().count(), 6);
+        assert_eq!(core.files().count(), MODULES.len());
 
         let point = Arc::new(SourceFile::new(
             "/client/cmp.kgr",
@@ -116,9 +224,12 @@ mod tests {
             snapshot.inputs().external_modules()[0].source.id(),
             extra.id()
         );
-        assert_eq!(snapshot.inputs().library_modules().len(), 7);
+        assert_eq!(snapshot.inputs().library_modules().len(), MODULES.len() + 1);
         assert_eq!(snapshot.physical_sources().files().count(), 1);
-        for name in ["cmp", "option", "convert", "default", "ops", "result"] {
+        for name in [
+            "cmp", "option", "convert", "default", "ops", "result", "fmt", "hash", "iter", "str",
+            "string",
+        ] {
             let owner = identity(name);
             let member = checked
                 .modules()
@@ -131,7 +242,7 @@ mod tests {
             assert_eq!(replayed.source().module_identity(), &owner);
             assert_eq!(
                 replayed.source().name(),
-                format!("kagari-core:///{name}.kgr")
+                format!("{}:///{name}.kgr", owner.package.0)
             );
             assert!(
                 packaged_modules()

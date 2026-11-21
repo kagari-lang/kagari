@@ -1,0 +1,28 @@
+//! Conversion from text with an explicit failure result.
+use alloc::string::String;
+
+use core::result::Result;
+/// Parses text into a value of a particular type. The implementation chooses
+/// the accepted syntax and error type. Return `Err` for rejected input so the
+/// caller can inspect the error or propagate it with `?`. Implementing
+/// `Display` does not automatically provide a parser or imply a round trip.
+///
+/// ```kagari
+/// use alloc::string::String;
+/// use core::result::Result;
+/// use core::str::FromStr;
+/// struct On {}
+/// impl FromStr for On {
+///     type Err = String;
+///     fn from_str(text: String) -> Result<Self, String> {
+///         if text == "on" { Result::Ok(On {}) } else { Result::Err(text) }
+///     }
+/// }
+/// fn parse(text: String) -> Result<On, String> { On::from_str(text) }
+/// ```
+pub trait FromStr {
+    /// The information returned when the input is not accepted.
+    type Err;
+    /// Parses `text`, returning the constructed value or the implementation's error.
+    fn from_str(text: String) -> Result<Self, Self::Err>;
+}

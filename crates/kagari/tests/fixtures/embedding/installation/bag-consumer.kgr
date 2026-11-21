@@ -1,0 +1,37 @@
+use pkg::bag::Bag;
+
+use core::iter::{ Iterable, Iterator };
+
+use core::option::Option;
+
+fn traversal(bag: Bag) ->(i32, i32, i32) {
+    var count = 0;
+    var first = 0;
+    var last = 0;
+    for item in bag {
+        if count == 0 {
+            first = item;
+        }
+        last = item;
+        count += 1;
+    }
+    (count, first, last)
+}
+
+pub fn main() ->((i32, i32, i32), i32, Option<i32>, (i32, i32), (i32, i32, i32)) {
+    val bag = Bag::new();
+    bag.push(2);
+    bag.push(5);
+    val direct = traversal(bag);
+    val calls_after_for = bag.iter_calls;
+    val mapped = bag.iter().map(|x| x * 2);
+    val first = mapped.next();
+    var count = 0;
+    var last = 0;
+    for item in mapped {
+        count += 1;
+        last = item;
+    }
+    val collected: Bag = bag.iter().map(|x| x * 2).collect();
+    (direct, calls_after_for, first, (count, last), traversal(collected))
+}

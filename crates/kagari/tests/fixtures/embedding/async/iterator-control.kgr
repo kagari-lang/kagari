@@ -76,7 +76,7 @@ pub fn append(items: Vec<i32>) {
 }
 
 fn view(items: Vec<i32>) -> Iterator<Item = i32> {
-    items.map(|item| item)
+    items.iter().map(|item| item)
 }
 
 pub async fn nested(items: Vec<i32>) -> i32 {

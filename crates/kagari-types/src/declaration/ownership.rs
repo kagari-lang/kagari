@@ -7,6 +7,24 @@ use crate::{
 use kagari_common::identity::{ModuleIdentity, PackageId, table::DefinitionTable};
 use std::collections::BTreeMap;
 
+/// Checks the implementation module for inherent methods, without changing nominal
+/// ownership for conversions or trait coherence. Local schema validation may see
+/// only the implementation module, not its imported packaged constructor.
+pub fn owns_inherent_methods(
+    module: &ModuleIdentity,
+    receiver: &Ty,
+    defining: Option<ModuleIdentity>,
+) -> bool {
+    if matches!(receiver, Ty::Builtin(BuiltinType::String))
+        && defining
+            .as_ref()
+            .is_none_or(|m| m.package.0 == "kagari-alloc" && m.path == ["string"])
+    {
+        return module.package.0 == "std" && module.path == ["string"];
+    }
+    defining.as_ref() == Some(module)
+}
+
 /// Constructor ownership is supplied by declarations, independent of API names.
 #[derive(Debug, Clone, Default)]
 pub struct ReceiverOwners {

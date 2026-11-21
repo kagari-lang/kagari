@@ -72,6 +72,7 @@ impl InstancePlanner<'_> {
                 arguments: parameters.iter().map(GenericParam::as_type).collect(),
             });
             self.interface_bridges.push(InterfaceBridgeRequest {
+                origin: self.span_origin,
                 declaration,
                 parameters,
                 receiver,

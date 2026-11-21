@@ -282,8 +282,9 @@ Admission bounds and selected calls have different owners. For example, a
 library algorithm may require `T: Eq` while calling `PartialEq::eq`. An override
 must declare the calls its own body uses rather than copying a default body's
 requirements; inferred callback requirements cannot replace stronger admission
-bounds. The [iteration owner](../crates/kagari-stdlib/src/foundation/iteration.rs)
-demonstrates explicit checked requirements without privileged container storage.
+bounds. The [numeric reductions](../crates/kagari-stdlib/src/foundation/numeric.rs)
+require the source’s `Iterable::iter` and its cursor’s `Iterator::next` without
+assuming a particular storage representation.
 
 `define_trait_default` accepts a complete `MethodDefinition` or a
 `DefaultDefinition` with explicit helper type arguments and proof facts. Runtime's
@@ -294,9 +295,7 @@ the trait method is Script and its complete ordinary call expression is retained
 special HIR forwarding-call table. Do not author a second helper lowerer.
 `TraitOverride::requires`, `produces` and `documentation` attach
 implementation-specific facts/prose without redefining the trait signature.
-The real impl/member binders are substituted before existing proofs run. See the
-[iteration owner](../crates/kagari-stdlib/src/foundation/iteration.rs) for concrete
-hidden-iterator and paired-requirement applications.
+The real impl/member binders are substituted before existing proofs run.
 
 A factory's `SealedPreparation::declaration()` names its exact binding target,
 including lowered ordered requirements and concrete result. For trait defaults

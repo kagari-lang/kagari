@@ -40,14 +40,11 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     let file = first
         .files()
         .find(|file| {
-            file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "iter")
+            file.source().module_identity()
+                == &kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
-    assert!(
-        file.declarations()
-            .iter()
-            .any(|item| item.name == "Iterator")
-    );
+    assert!(file.declarations().iter().any(|item| item.name == "List"));
     let id = file.source().id();
     let source = file.declared.lowered.source.clone();
     let location = file.syntax().unwrap().location();
@@ -128,28 +125,43 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
             assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
         }
     }
-    let adapter = lowered
+    let future = third
+        .files()
+        .find(|file| {
+            file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "future")
+        })
+        .unwrap()
+        .declared
+        .lowered
         .module
         .native_types
         .iter()
-        .find(|item| item.name == "MapIterator")
+        .find(|item| item.name == "Future")
         .unwrap();
-    assert_eq!(adapter.generic_params.len(), 2);
-    assert!(adapter.host.is_none());
-    let iterable = lowered
+    assert_eq!(future.generic_params.len(), 1);
+    assert!(future.host.is_none());
+    let core = &third
+        .files()
+        .find(|file| {
+            file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "iter")
+        })
+        .unwrap()
+        .declared
+        .lowered;
+    let iterator = core
         .module
         .traits
         .iter()
-        .find(|item| item.name == "Iterable")
+        .find(|item| item.name == "Iterator")
         .unwrap();
-    let map = iterable
+    let map = iterator
         .methods
         .iter()
         .find(|item| item.name == "map")
         .unwrap();
     assert!(map.has_default);
     assert!(
-        lowered.module.functions[map.function.index()]
+        core.module.functions[map.function.index()]
             .implementation
             .script_body()
             .is_some()
@@ -181,11 +193,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     drop(db);
     drop(fork);
     assert_eq!(file.source().text(), source.text());
-    assert!(
-        file.declarations()
-            .iter()
-            .any(|item| item.name == "Iterator")
-    );
+    assert!(file.declarations().iter().any(|item| item.name == "List"));
 }
 
 #[test]
