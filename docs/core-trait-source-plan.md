@@ -1,6 +1,6 @@
 # Source-defined language core
 
-**Status: CS01 baseline reproduced; cutover paused at the public API ownership decision below. No production migration yet.** Normal source compilation must provide the language's core traits without installing `kagari-stdlib`. This plan changes who declares those traits, not what their operators mean. The [roadmap](implementation-roadmap.md#source-defined-language-core) tracks this work.
+**Status: CS01 baseline and iteration decisions recorded; CS02 is next. No production migration yet.** Normal source compilation must provide the language's core traits without installing `kagari-stdlib`. This plan changes who declares those traits, not what their operators mean. The [roadmap](implementation-roadmap.md#source-defined-language-core) tracks this work.
 
 ## One example, three owners
 
@@ -16,7 +16,7 @@ The precedent is [Rust 1.85 `core::cmp`](https://github.com/rust-lang/rust/blob/
 
 ## Migration inventory
 
-A third party must be able to write a collection library using only core and its own code, without installing or importing `kagari-stdlib`. Core therefore owns both the [26 compiler-recognized protocols](../crates/kagari-types/src/language.rs) listed below and nine ordinary library traits. Only the first group needs language roles. Preserve canonical package/module/member identities throughout.
+A third party must be able to write a collection library using only core and its own code, without installing or importing `kagari-stdlib`. Core therefore owns both the [26 compiler-recognized protocols](../crates/kagari-types/src/language.rs) listed below and nine ordinary library traits. Only the first group needs language roles. Keep canonical source paths; changing the owning trait of a method or replacing a Native adapter with a Script struct changes definition identity. Rebuild affected products rather than aliasing old identities.
 
 | Source owner under `library/core/` | Language traits to move | Dependencies to account for |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ A third party must be able to write a collection library using only core and its
 
 `option.kgr` and `result.kgr` own `Option<T>` and `Result<T, E>` and their variants. Core also supplies their `Try`/`FromResidual` implementations and the `ControlFlow`, `Infallible` and conversion dependencies needed for ordinary `?`. Keeping the enum declarations while requiring stdlib for propagation does not meet the boundary. Preserve `Result::Err` diagnostic origin without making arbitrary source enums trusted Native declarations.
 
-Of the [41 foundation traits](spec/builtins.md#foundation-trait-inventory), the six collection interfaces (`List`, `MutableList`, `Map`, `MutableMap`, `Set`, `MutableSet`) remain library-owned. A replacement library need not implement or depend on them. Bundled containers such as `Vec`, `HashMap` and `HashSet` are stdlib products, not prerequisites; their restoration belongs to the existing collections plan. Do not move every optional implementation into core, but no core signature, required body or blanket impl may depend on stdlib. Preserve the full-library surface and do not vary a trait's method list by installation. No role-validator redesign, prelude expansion or new user-facing `no_core` mode is part of this plan.
+Of the [41 foundation traits](spec/builtins.md#foundation-trait-inventory), the six collection interfaces (`List`, `MutableList`, `Map`, `MutableMap`, `Set`, `MutableSet`) remain library-owned. A replacement library need not implement or depend on them. Bundled containers such as `Vec`, `HashMap` and `HashSet` are stdlib products, not prerequisites; their restoration belongs to the existing collections plan. Do not move every optional implementation into core, but no core signature, required body or blanket impl may depend on stdlib. Preserve the full-library surface except for the documented iteration changes below. Do not vary a trait's method list by installation. No role-validator redesign, prelude expansion or new user-facing `no_core` mode is part of this plan.
 
 ## Documentation on the authored declarations
 
@@ -72,7 +72,15 @@ Prepare checked core first; pass its scoped public trait and enum contracts to N
 | `iter` | `Iterator`, `Iterable`, `FromIterator`, `Sum` and `Product` belong in core. `Iterable` also has **17** public defaults. Nine terminals/forwarders do not name a bundled cursor in their result. The other eight (`map`, `filter`, `take`, `filter_map`, `skip`, `enumerate`, `zip`, `chain`) return [concrete Native adapter types](../crates/kagari-stdlib/src/foundation/iteration.rs). Their [storage and execution](../crates/kagari-stdlib/src/foundation/iteration/cursor.rs) retain source state and selected calls, share progress across aliases, and protect recursive advancement. Changing them to Script structs is not an identity-preserving move. |
 | Optional stdlib | Retain collection interfaces/storage, numeric/character parsers and conversions, and task helpers outside the migrated trait declarations. Keep public re-exports pointing to the defining owner; never merge two providers for one module. |
 
-**Decision required before CS02:** Should a core-only program be able to call `xs.map(f)` and obtain today's `core::iter::MapIterator`? Keeping the full `Iterable` contract means providing the eight adapter types and their execution capability independently of optional stdlib. Keeping those products optional means changing the public owner of the adapter methods (for example, a separate stdlib trait); approval must cover method resolution, public type paths and source compatibility. Adding methods to `Iterable` only when stdlib is installed is not a third option: that would give one trait two different contracts. The scope gate applies here before the `cmp` cutover because moving the complete `option` owner already crosses into the shared foundation. CS01's investigation is recorded; the ownership decision and CS02–CS04 acceptance remain open.
+#### Iteration API decision
+
+`Iterable` has one method, `iter(self) -> Self::Iter`; keep its `Item` and `Iter: Iterator<Item = Self::Item>` associated types. `Iterator` owns `next` and the 17 transformation and terminal defaults currently on `Iterable`. Like [Rust's `Iterator::map`](https://doc.rust-lang.org/1.85.0/core/iter/trait.Iterator.html#method.map), `map` wraps the iterator it receives. A container implementing only `Iterable` changes from `bag.map(f)` to `bag.iter().map(f)`. Do not insert an implicit `.iter()` during method lookup or keep forwarding methods on `Iterable`.
+
+`for x in expr` still has **one** entry: evaluate `expr` once, call its `Iterable::iter` once, then call `Iterator::next` until `None`. Every iterator remains iterable via the identity implementation: `it.iter()` returns the same iterator at its current position. No separate loop rule for iterators is needed.
+
+Implement the eight adapters as ordinary `.kgr` iterators in core, without an optional stdlib provider. Preserve lazy evaluation, shared progress, completed effects, and the specified selection of calls and retained callbacks across reload. Validate script-backed storage and calls on those terms; do not keep opaque Native types just to preserve the old representation.
+
+Reentry policy belongs to the concrete iterator, not `Iterator` or the VM. The existing Native adapters explicitly trap on a nested `next()` on the same instance; the new core adapters use ordinary Script calls and do not reject a call solely because it is nested. This is an intentional behavior change, not a promise that every nested call succeeds. Normal traps, cancellation, depth limits and cleanup still apply. Do not add a VM-wide check, duplicate a busy flag across the adapters, or relax unrelated Native borrow and operation guards.
 
 ### CS02 — Deliver comparison end to end without stdlib
 
@@ -84,9 +92,11 @@ Supply the first closed group (`core::cmp` and its CS01 dependencies) as authore
 
 Migrate the other inventory rows in dependency order using CS02's route. Preserve declared member order where lowering relies on it, static role/shape checks, ordinary Script defaults, associated type identities and generic implementation selection. Retire each moved Rust declaration recipe and its generated navigation view at cutover, not the checked bindings for real Native implementations. Native-only modules continue to use structured registrations and generated views. Do not create handwritten HIR, a core-specific encoder/decoder, or a Rust table restating the public signatures.
 
+For iteration, update the [HIR role-shape checks](../crates/kagari-hir/src/language/items/shapes.rs), member selection and dependencies on the old method IDs. Keep `iter` and `next` in their respective required slots for [loop lowering](../crates/kagari-compiler/src/source/lower/stmt.rs). Migrate callers, fixtures and docs to the new receiver; do not change the distinct destination traits `FromIterator`, `Sum` and `Product`.
+
 **Exit:** without stdlib, resolve all 35 traits and validate the 26 roles; reject malformed role shapes at their source site or owning declaration. Exercise `Option` early exit, `Result` error propagation and ordinary blanket conversion without installing providers. Reuse a custom `Try` case to guard against hardcoding the two carriers. With stdlib, sample a re-export and a host implementation against the canonical definitions.
 
-The independence test is a small, separate script library, not a second production stdlib: define a collection with its own storage and cursor, implement core `Iterable`/`Iterator` and `FromIterator`, and consume it from a different user module. Assert the collected values and their order with no bundled collection import, registration or helper. This tests library composition rather than merely counting available traits.
+The independence test is a small, separate script library, not a second production stdlib: define a collection with its own storage and cursor, implement core `Iterable`/`Iterator` and `FromIterator`, and consume it from a different user module. For the collection `[2, 5]`, check `for x in bag` obtains its iterator once and yields both items. On a fresh `bag.iter().map(|x| x * 2)`, consume `Some(4)` with `next()`, then use `for` on that same iterator: it must yield only `10`, not restart at `4`. Assert the collected values and order without any bundled collection import, registration or helper. This tests library composition rather than merely counting available traits.
 
 ### CS04 — Close tooling, packaging and source-free acceptance
 

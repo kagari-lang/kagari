@@ -28,8 +28,10 @@ The [core trait source plan](core-trait-source-plan.md) owns CS01–CS04. Author
 modules will supply 26 language protocols, nine ordinary traits, and core types including
 `Option` and `Result` with propagation. A third party must be able to implement and use its
 own collection library without registering the bundled stdlib. Compiled programs remain
-source-free. CS01 reproduced core-only HIR checking; the public `Iterable` adapter
-ownership decision is open before production cutover. CS02–CS04 are not implemented.
+source-free. CS01 reproduced core-only HIR checking. The planned iteration API keeps
+`iter()` on `Iterable`, moves adapters and terminals to `Iterator`, and preserves direct
+`for` on both containers and iterators. Core adapters use ordinary `.kgr` implementations;
+reentry policy belongs to the concrete iterator. CS02–CS04 are not implemented.
 
 ## Strongly typed syntax CI acceptance
 
