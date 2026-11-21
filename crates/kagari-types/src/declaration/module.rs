@@ -227,6 +227,83 @@ impl ModuleDecl {
         Ok(result)
     }
 
+    /// Check supplied expression bodies in their callable's binder scope before
+    /// lowering or rendering scoped identities as source names. Script declarations
+    /// without a structured body may still have separately supplied source.
+    pub fn validate_script_bodies(
+        &self,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<(), DeclarationError> {
+        if self.script_bodies.is_empty() {
+            return Ok(());
+        }
+        let mut remaining: BTreeSet<_> = self.script_bodies.keys().copied().collect();
+        let mut check = |id,
+                         function: &FnDecl,
+                         inherited: &[GenericParam],
+                         self_owner: Option<DefinitionId>| {
+            if let Some(body) = self.script_bodies.get(&id) {
+                let params = inherited
+                    .iter()
+                    .chain(&function.generic_params)
+                    .map(|p| (p.owner, p.position))
+                    .collect();
+                body.validate_types(&params, self_owner.as_ref(), definitions, cancel)
+                    .map_err(|error| {
+                        DeclarationError(format!(
+                            "invalid structured Script body for {}: {error}",
+                            function.name
+                        ))
+                    })?;
+                remaining.remove(&id);
+            }
+            Ok::<_, DeclarationError>(())
+        };
+        for function in &self.functions {
+            if function.implementation == CallableImplementation::Script {
+                check(
+                    self.definition(DefinitionKind::Function, &function.name, definitions)?,
+                    function,
+                    &[],
+                    None,
+                )?;
+            }
+        }
+        for contract in &self.traits {
+            let owner = self.definition(DefinitionKind::Trait, &contract.name, definitions)?;
+            for method in &contract.methods {
+                if method.implementation == CallableImplementation::Script {
+                    check(
+                        Self::method_id(owner, &method.name, definitions)?,
+                        method,
+                        &contract.generic_params,
+                        Some(owner),
+                    )?;
+                }
+            }
+        }
+        for (index, implementation) in self.implementations.iter().enumerate() {
+            let owner = self.implementation_id(index, definitions)?;
+            for method in &implementation.methods {
+                if method.implementation == CallableImplementation::Script {
+                    check(
+                        Self::method_id(owner, &method.name, definitions)?,
+                        method,
+                        &[],
+                        Some(owner),
+                    )?;
+                }
+            }
+        }
+        if !remaining.is_empty() {
+            return Err(DeclarationError(
+                "body does not belong to a Script declaration".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn validate(
         &self,
         receiver_owner: &impl Fn(&Ty) -> Option<ModuleIdentity>,
@@ -253,38 +330,7 @@ impl ModuleDecl {
         let cancel = CancellationToken::default();
         self.visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
-        let mut scripts = BTreeSet::new();
-        for function in &self.functions {
-            if function.implementation == CallableImplementation::Script {
-                scripts.insert(self.definition(
-                    DefinitionKind::Function,
-                    &function.name,
-                    definitions,
-                )?);
-            }
-        }
-        for contract in &self.traits {
-            let owner = self.definition(DefinitionKind::Trait, &contract.name, definitions)?;
-            for method in &contract.methods {
-                if method.implementation == CallableImplementation::Script {
-                    scripts.insert(Self::method_id(owner, &method.name, definitions)?);
-                }
-            }
-        }
-        for (index, implementation) in self.implementations.iter().enumerate() {
-            let owner = self.implementation_id(index, definitions)?;
-            for method in &implementation.methods {
-                if method.implementation == CallableImplementation::Script {
-                    scripts.insert(Self::method_id(owner, &method.name, definitions)?);
-                }
-            }
-        }
-        for (owner, body) in &self.script_bodies {
-            if !scripts.contains(owner) {
-                return Err(fail());
-            }
-            body.validate_shape(&cancel).map_err(|_| fail())?;
-        }
+        self.validate_script_bodies(definitions, &cancel)?;
         let mut paths = HashSet::new();
         for path in &self.paths {
             if !paths.insert(path)

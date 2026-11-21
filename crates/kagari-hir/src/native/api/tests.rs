@@ -380,6 +380,7 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
 }
 
 mod exact;
+mod forwarding;
 mod host;
 mod reference;
 mod script;

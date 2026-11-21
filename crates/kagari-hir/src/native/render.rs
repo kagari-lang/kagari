@@ -80,6 +80,9 @@ pub fn declaration_source(
     module: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
 ) -> Result<DeclarationSource, DeclarationError> {
+    module
+        .records()
+        .validate_script_bodies(module.definitions(), &Default::default())?;
     DeclarationView::new(module, providers).render()
 }
 
@@ -777,6 +780,18 @@ impl Renderer<'_> {
                     self.text.push_str("self::");
                 }
                 self.text.push_str(&path);
+            }
+            ScriptExpr::TraitMethod {
+                receiver,
+                interface,
+                member,
+            } => {
+                self.text.push_str(&format!(
+                    "<{} as {}>::{}",
+                    self.module.type_spelling(receiver)?,
+                    self.module.nominal_spelling(interface)?,
+                    self.module.name(*member)?
+                ));
             }
             ScriptExpr::Call {
                 callee,

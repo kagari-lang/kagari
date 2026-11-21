@@ -3,6 +3,8 @@
 //! Product origins and instruction certificates establish internal consistency, not
 //! the semantics of an installed final method. The independent authority here is the
 //! installed module's ordinary expression, never a digest supplied by the artifact.
+mod trait_calls;
+
 use super::NativeRegistry;
 use crate::{
     error::RuntimeError,
@@ -11,31 +13,65 @@ use crate::{
 };
 use kagari_bytecode::{
     instruction::{BytecodeInstruction as I, CallTarget, Slot},
-    module::{BytecodeFunction, BytecodeModule},
+    module::{BytecodeFunction, BytecodeModule, CallableTarget},
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionId},
+    identity::{
+        DefinitionKind,
+        mapping::{DefinitionMapper, DefinitionMappingError},
+        scoped::RemapDefinitions,
+        table::DefinitionId,
+    },
 };
 use kagari_contract::types::{
-    ConcreteFunctionIdentity, InterfaceTable, PublicItem, named::NamedContract, trait_contract,
+    ConcreteFunctionIdentity, InterfaceTable, PublicItem, named::NamedContract,
+    proofs::ProofCatalog, trait_contract,
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{FnDecl, module::ModuleDecl, script::ScriptExpr},
     scalar::BuiltinType,
     ty::{
-        NominalTy, Ty,
+        GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, match_receiver, projection_output},
         substitution::{TypeSubstitution, normalize_projections, resolve_associated_outputs},
     },
 };
 use std::collections::HashMap;
+use trait_calls::{QualifiedMethod, proof_scope};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct InstalledScript {
     function: FnDecl,
     body: ScriptExpr,
+}
+
+impl InstalledScript {
+    fn product_body(
+        &self,
+        admission: &DefinitionAdmission,
+        cancel: &CancellationToken,
+    ) -> NativeResult<ScriptExpr> {
+        // A qualified call can be the only explicit use of a trait member ID.
+        // Bytecode dispatch can encode just a slot; its verifier interns the member
+        // in the product table without adding an explicit admission reference.
+        self.body
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| {
+                    admission
+                        .lexical_id(*id)
+                        .or_else(|| {
+                            let installed = admission.target().resolve(*id).ok()?;
+                            admission.source().lookup(&installed.to_path())
+                        })
+                        .ok_or(DefinitionMappingError::InvalidContract)
+                },
+                admission.source(),
+                cancel,
+            ))
+            .map_err(|_| invalid())
+    }
 }
 
 fn invalid() -> RuntimeError {
@@ -52,6 +88,7 @@ impl NativeRegistry {
                     .definition(DefinitionKind::Function, &function.name, &definitions)
                     .map_err(|_| invalid())?,
                 function,
+                &[][..],
             ));
         }
         for contract in &module.traits {
@@ -63,6 +100,7 @@ impl NativeRegistry {
                     ModuleDecl::method_id(owner, &function.name, &definitions)
                         .map_err(|_| invalid())?,
                     function,
+                    &[][..],
                 ));
             }
         }
@@ -75,17 +113,18 @@ impl NativeRegistry {
                     ModuleDecl::method_id(owner, &function.name, &definitions)
                         .map_err(|_| invalid())?,
                     function,
+                    implementation.generic_params.as_slice(),
                 ));
             }
         }
-        for (id, function) in functions {
+        for (id, function, impl_parameters) in functions {
             let Some(body) = module.script_bodies.get(&id) else {
                 // Parsed Script source can be supplied without a structured body. It
                 // grants no independent executable authority for a final default.
                 continue;
             };
             let expected = InstalledScript {
-                function: function.clone(),
+                function: explicit_signature(function, impl_parameters)?,
                 body: body.clone(),
             };
             if self
@@ -154,6 +193,7 @@ impl NativeRegistry {
                 }
             }
         }
+        let mut proofs = None;
         for function in &module.functions {
             let identity = function.identity.as_ref().ok_or_else(invalid)?;
             let placement = identity.declaration;
@@ -182,13 +222,21 @@ impl NativeRegistry {
                         .map(|origin| origin.authored)
                 })
                 .unwrap_or(placement);
+            if canonical != placement
+                && self
+                    .scripts
+                    .get_id(admission.runtime_id(placement)?)
+                    .is_some()
+            {
+                // An authored implementation cannot be replaced by an inherited body.
+                return Err(invalid());
+            }
             let installed = admission.runtime_id(canonical)?;
             let Some(script) = self.scripts.get_id(installed) else {
                 continue;
             };
-            // Only identities are remapped; this never consults source, HIR, a
-            // solver, or compiler-produced assertions about expected instructions.
-            let body = admission.product(&script.body, &cancel)?;
+            // Installed expressions are independent of compiler-produced instruction facts.
+            let body = script.product_body(admission, &cancel)?;
             let function_contract = admission.product(&script.function, &cancel)?;
             let arguments = identity
                 .arguments
@@ -259,8 +307,12 @@ impl NativeRegistry {
                 None => None,
             };
             let trace = Trace::read(module, function, program)?;
+            if trait_calls::contains(&body) && proofs.is_none() {
+                proofs = Some(proof_scope(module, program)?);
+            }
             let mut expression = Expression {
                 program,
+                proofs: proofs.as_ref(),
                 canonical,
                 function: &function_contract,
                 application: &application,
@@ -278,16 +330,31 @@ impl NativeRegistry {
     }
 }
 
+// Executable instances order impl arguments before method-local arguments. A
+// projected structured FnDecl may already carry that prefix; never bind it twice.
+fn explicit_signature(function: &FnDecl, prefix: &[GenericParam]) -> NativeResult<FnDecl> {
+    let mut function = function.clone();
+    if !function.generic_params.starts_with(prefix) {
+        if function.generic_params.iter().any(|p| prefix.contains(p)) {
+            return Err(invalid());
+        }
+        function.generic_params.splice(0..0, prefix.iter().cloned());
+    }
+    Ok(function)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Value {
     Parameter(usize),
     Definition(DefinitionId),
+    TraitMethod(Box<QualifiedMethod>),
     Result(usize),
     Unit,
 }
 
 struct AppliedCall {
     callee: Value,
+    entry: Option<CallableImplementation>,
     arguments: Vec<Value>,
     types: Vec<Ty>,
     result: Value,
@@ -350,26 +417,94 @@ impl Trace {
                     slots.insert(*dst, Value::Definition(canonical(identity, program)));
                 }
                 I::Call { dst, callee, args } => {
-                    let (callee, types, signature) = match callee {
+                    let (callee, entry, types, signature) = match callee {
                         CallTarget::Native(id) => {
                             let import =
                                 module.native_imports.get(id.index()).ok_or_else(invalid)?;
                             (
                                 Value::Definition(import.instance.declaration),
+                                Some(CallableImplementation::Native(import.binding)),
                                 import.instance.arguments.clone(),
                                 import.signature.clone(),
                             )
                         }
-                        CallTarget::Shared { contract, .. } => (
-                            Value::Definition(canonical(&contract.instance, program)),
-                            contract.arguments.clone(),
-                            contract.signature.clone(),
-                        ),
+                        CallTarget::Shared {
+                            module,
+                            target,
+                            contract,
+                        } => {
+                            let owner =
+                                program.modules().get(module.index()).ok_or_else(invalid)?;
+                            let (identity, entry, types) = match target {
+                                CallableTarget::Script(id) => {
+                                    let identity = owner
+                                        .functions
+                                        .get(id.index())
+                                        .and_then(|f| f.identity.as_ref())
+                                        .ok_or_else(invalid)?;
+                                    let types = identity
+                                        .arguments
+                                        .iter()
+                                        .chain(&contract.arguments)
+                                        .cloned()
+                                        .collect();
+                                    (identity, CallableImplementation::Script, types)
+                                }
+                                CallableTarget::Native(id) => {
+                                    let import =
+                                        owner.native_imports.get(id.index()).ok_or_else(invalid)?;
+                                    let template = import.generic.as_ref().ok_or_else(invalid)?;
+                                    let mut subst = TypeSubstitution::default();
+                                    for (param, ty) in
+                                        template.parameters.iter().zip(&contract.arguments)
+                                    {
+                                        subst.bind(&param.owner, param.position, ty);
+                                    }
+                                    let types = import
+                                        .instance
+                                        .arguments
+                                        .iter()
+                                        .map(|ty| {
+                                            subst
+                                                .apply(ty, &Default::default())
+                                                .map_err(|_| invalid())
+                                        })
+                                        .collect::<NativeResult<_>>()?;
+                                    (
+                                        &import.instance,
+                                        CallableImplementation::Native(import.binding),
+                                        types,
+                                    )
+                                }
+                            };
+                            (
+                                Value::Definition(canonical(identity, program)),
+                                Some(entry),
+                                types,
+                                contract.signature.clone(),
+                            )
+                        }
+                        CallTarget::InterfaceMethod { module, contract } => {
+                            let owner =
+                                program.modules().get(module.index()).ok_or_else(invalid)?;
+                            let (method, signature) = QualifiedMethod::checked_slot(
+                                contract,
+                                owner,
+                                program.definitions(),
+                            )?;
+                            (
+                                Value::TraitMethod(Box::new(method)),
+                                None,
+                                contract.arguments.clone(),
+                                signature,
+                            )
+                        }
                         CallTarget::Function(id) => {
                             let target = module.functions.get(id.index()).ok_or_else(invalid)?;
                             let identity = target.identity.as_ref().ok_or_else(invalid)?;
                             (
                                 Value::Definition(canonical(identity, program)),
+                                Some(CallableImplementation::Script),
                                 identity.arguments.clone(),
                                 function_signature(target)?,
                             )
@@ -383,6 +518,7 @@ impl Trace {
                             let identity = target.identity.as_ref().ok_or_else(invalid)?;
                             (
                                 Value::Definition(canonical(identity, program)),
+                                Some(CallableImplementation::Script),
                                 identity.arguments.clone(),
                                 function_signature(target)?,
                             )
@@ -400,6 +536,7 @@ impl Trace {
                             };
                             (
                                 get(&slots, slot)?,
+                                None,
                                 vec![],
                                 Signature {
                                     params: params.clone(),
@@ -422,6 +559,7 @@ impl Trace {
                     };
                     calls.push(AppliedCall {
                         callee,
+                        entry,
                         types,
                         arguments,
                         result,
@@ -456,6 +594,7 @@ struct AppliedInterface<'a> {
 
 struct Expression<'a, 'b> {
     program: &'a VerifiedProgram,
+    proofs: Option<&'a ProofCatalog<'a>>,
     canonical: DefinitionId,
     function: &'a FnDecl,
     application: &'a TypeSubstitution<'b>,
@@ -577,31 +716,29 @@ impl Expression<'_, '_> {
                     .signature
                     .result,
             )?,
+            Value::TraitMethod(_) => return Err(invalid()),
             Value::Unit => Ty::Builtin(BuiltinType::Unit),
         })
     }
 
     fn inferred_arguments(
         &self,
-        call: &AppliedCall,
+        function: &FnDecl,
         values: &[Value],
         expected: Option<&Ty>,
-    ) -> NativeResult<()> {
-        let Value::Definition(id) = call.callee else {
-            return Err(invalid());
-        };
-        let function = self.callable(id)?;
+        apply: impl Fn(&Ty) -> NativeResult<Ty>,
+    ) -> NativeResult<Vec<Ty>> {
         let mut template = function
             .params
             .iter()
-            .map(|parameter| self.normalize_type(&parameter.ty))
+            .map(|parameter| apply(&parameter.ty))
             .collect::<NativeResult<Vec<_>>>()?;
         let mut actual = values
             .iter()
             .map(|value| self.value_type(value))
             .collect::<NativeResult<Vec<_>>>()?;
         if let Some(expected) = expected {
-            template.push(self.normalize_type(&function.return_type)?);
+            template.push(apply(&function.return_type)?);
             actual.push(self.normalize_type(expected)?);
         }
         let template = Ty::Tuple(template);
@@ -617,16 +754,16 @@ impl Expression<'_, '_> {
         )
         .map_err(|_| invalid())?
         .ok_or_else(invalid)?;
-        if function.generic_params.len() != call.types.len() {
-            return Err(invalid());
-        }
-        for (parameter, argument) in function.generic_params.iter().zip(&call.types) {
-            let argument = self.normalize_type(argument)?;
-            if bindings.parameter(&parameter.owner, parameter.position) != Some(&argument) {
-                return Err(invalid());
-            }
-        }
-        Ok(())
+        function
+            .generic_params
+            .iter()
+            .map(|parameter| {
+                bindings
+                    .parameter(&parameter.owner, parameter.position)
+                    .cloned()
+                    .ok_or_else(invalid)
+            })
+            .collect()
     }
 
     fn value(&mut self, expression: &ScriptExpr, expected: Option<&Ty>) -> NativeResult<Value> {
@@ -653,6 +790,8 @@ impl Expression<'_, '_> {
                 }
             }
             ScriptExpr::Definition(id) => Value::Definition(*id),
+            // A trait member ID alone does not authenticate a selected implementation.
+            ScriptExpr::TraitMethod { .. } => return Err(invalid()),
             ScriptExpr::Call {
                 callee,
                 type_arguments,
@@ -669,7 +808,25 @@ impl Expression<'_, '_> {
                 if signature.params.len() != arguments.len() {
                     return Err(invalid());
                 }
-                let callee = self.value(callee, None)?;
+                let callee = match callee.as_ref() {
+                    ScriptExpr::TraitMethod {
+                        receiver,
+                        interface,
+                        member,
+                    } => {
+                        let Ty::Trait(interface) =
+                            self.apply_type(&Ty::Trait(interface.clone()))?
+                        else {
+                            return Err(invalid());
+                        };
+                        Value::TraitMethod(Box::new(QualifiedMethod {
+                            receiver: self.apply_type(receiver)?,
+                            interface,
+                            member: *member,
+                        }))
+                    }
+                    other => self.value(other, None)?,
+                };
                 let arguments = arguments
                     .iter()
                     .zip(&signature.params)
@@ -680,11 +837,29 @@ impl Expression<'_, '_> {
                     .map(|ty| self.apply_type(ty))
                     .collect::<NativeResult<Vec<_>>>()?;
                 let actual = self.trace.calls.get(self.next).ok_or_else(invalid)?;
-                if actual.callee != callee || actual.arguments != arguments {
+                if actual.arguments != arguments {
                     return Err(invalid());
                 }
-                if types.is_empty() && !actual.types.is_empty() {
-                    self.inferred_arguments(actual, &arguments, expected)?;
+                if let Value::TraitMethod(method) = callee {
+                    self.authenticate_method(&method, &types, actual, &arguments, expected)?;
+                } else if actual.callee != callee {
+                    return Err(invalid());
+                } else if types.is_empty() && !actual.types.is_empty() {
+                    let Value::Definition(id) = callee else {
+                        return Err(invalid());
+                    };
+                    let inferred =
+                        self.inferred_arguments(self.callable(id)?, &arguments, expected, |ty| {
+                            self.normalize_type(ty)
+                        })?;
+                    let applied = actual
+                        .types
+                        .iter()
+                        .map(|ty| self.normalize_type(ty))
+                        .collect::<NativeResult<Vec<_>>>()?;
+                    if inferred != applied {
+                        return Err(invalid());
+                    }
                 } else if actual.types != types {
                     return Err(invalid());
                 }

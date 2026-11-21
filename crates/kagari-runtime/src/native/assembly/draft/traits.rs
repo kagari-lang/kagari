@@ -4,7 +4,10 @@ use crate::native::{
     assembly::{
         authoring::PendingBinding,
         conflict,
-        draft::{ModuleDraft, TraitImplementation},
+        draft::{
+            ModuleDraft, TraitImplementation,
+            script::{ScriptBody, ScriptMethodScope},
+        },
         references::{DraftCallableRequirement, DraftMember, DraftReference, ReferenceKind},
     },
     binding::NativeResult,
@@ -19,7 +22,10 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement},
+    callable::CallableImplementation,
+    declaration::{
+        TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement, script::ScriptExpr,
+    },
     ty::{
         GenericBound, Ty,
         substitution::{TypeSubstitution, resolve_associated_outputs},
@@ -180,22 +186,61 @@ impl TraitOverride {
     }
 }
 
-/// A complete implementation with identity-addressed, fact-bearing overrides.
-/// Raw binding tuples remain the low-level path; both feed the same intent list.
+/// A complete implementation with identity-addressed native and Script overrides.
 pub struct TraitImplementationDefinition {
     pub(crate) implementation: TraitImplementation,
-    pub(crate) overrides: Vec<TraitOverride>,
+    pub(super) overrides: Vec<OverrideDefinition>,
+}
+
+pub(super) enum OverrideDefinition {
+    Native(TraitOverride),
+    Script(DraftMember, ScriptBody),
+}
+
+impl OverrideDefinition {
+    pub(super) fn member(&self) -> &DraftMember {
+        match self {
+            Self::Native(entry) => &entry.member,
+            Self::Script(member, _) => member,
+        }
+    }
 }
 
 impl TraitImplementation {
+    /// Submit a Script override under the contract member's identity. The body
+    /// builder runs once at seal, after the signature and binders exist.
+    pub fn with_script_method(
+        self,
+        member: DraftMember,
+        body: impl FnOnce(&ScriptMethodScope<'_>) -> NativeResult<ScriptExpr> + 'static,
+    ) -> TraitImplementationDefinition {
+        self.with_overrides([]).with_script_method(member, body)
+    }
+
     pub fn with_overrides(
         self,
         overrides: impl IntoIterator<Item = TraitOverride>,
     ) -> TraitImplementationDefinition {
         TraitImplementationDefinition {
             implementation: self,
-            overrides: overrides.into_iter().collect(),
+            overrides: overrides
+                .into_iter()
+                .map(OverrideDefinition::Native)
+                .collect(),
         }
+    }
+}
+
+impl TraitImplementationDefinition {
+    /// Add another Script method alongside native or Script overrides.
+    pub fn with_script_method(
+        mut self,
+        member: DraftMember,
+        body: impl FnOnce(&ScriptMethodScope<'_>) -> NativeResult<ScriptExpr> + 'static,
+    ) -> Self {
+        self.overrides
+            .push(OverrideDefinition::Script(member, Box::new(body)));
+        self
     }
 }
 
@@ -208,7 +253,12 @@ impl From<TraitImplementation> for TraitImplementationDefinition {
 pub(crate) struct OverrideIntent {
     pub(crate) name: String,
     pub(crate) id: DefinitionId,
-    pub(crate) facts: Option<OverrideFacts>,
+    pub(super) body: Option<OverrideBody>,
+}
+
+pub(super) enum OverrideBody {
+    Native(OverrideFacts),
+    Script(ScriptBody),
 }
 
 pub(crate) struct OverrideFacts {
@@ -219,30 +269,45 @@ pub(crate) struct OverrideFacts {
 }
 
 /// Run only after implement_trait has established the actual signatures/binders,
-/// and before building the final catalog. This transforms facts, not signatures.
-pub(crate) fn lower_override_facts(
+/// and before building the final catalog. Submit Script expressions in that
+/// scope; substitute native facts without changing either method's signature.
+pub(crate) fn lower_overrides(
+    context: &DefinitionContext,
     contracts: &DeclarationCatalog,
     module: &mut ModuleDecl,
     contract: &TraitDef,
     index: usize,
     intents: Vec<OverrideIntent>,
 ) -> NativeResult<()> {
-    let implementation = &module.implementations[index];
+    let implementation = &mut module.implementations[index];
     let interface = implementation.trait_type.as_ref().expect("trait intent");
     let cancel = CancellationToken::default();
     for intent in intents {
-        let Some(facts) = intent.facts else { continue };
+        let Some(body) = intent.body else { continue };
+        let target = implementation
+            .methods
+            .iter_mut()
+            .find(|method| method.name == intent.name)
+            .ok_or_else(|| conflict("missing lowered override method"))?;
+        let facts = match body {
+            OverrideBody::Native(facts) => facts,
+            OverrideBody::Script(build) => {
+                target.implementation = CallableImplementation::Script;
+                let body = build(&ScriptMethodScope {
+                    context,
+                    signature: target,
+                    impl_arity: implementation.generic_params.len(),
+                })?;
+                module.script_bodies.insert(intent.id, body);
+                continue;
+            }
+        };
         facts.member.validate(contracts)?;
         let source = contract
             .methods
             .iter()
             .find(|method| method.name == intent.name)
             .ok_or_else(|| conflict("unknown override method"))?;
-        let target = implementation
-            .methods
-            .iter()
-            .find(|method| method.name == intent.name)
-            .ok_or_else(|| conflict("missing lowered override method"))?;
         let own_types = target
             .generic_params
             .iter()

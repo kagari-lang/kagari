@@ -499,6 +499,25 @@ impl StructuredLowerer<'_> {
                 },
                 explicit_type: None,
             },
+            ScriptExpr::TraitMethod {
+                receiver,
+                interface,
+                member,
+            } => {
+                let name = self.name(*member)?;
+                let receiver = self.ty(receiver)?;
+                let trait_ref = self.nominal(interface)?;
+                let projection = self.alloc_type(TypeKind::Projection {
+                    receiver,
+                    trait_ref,
+                    member: name.clone(),
+                    arguments: Default::default(),
+                });
+                ExprKind::Name {
+                    name,
+                    explicit_type: Some(projection),
+                }
+            }
             ScriptExpr::Call {
                 callee,
                 type_arguments,

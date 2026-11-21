@@ -27,6 +27,7 @@ use std::{
 };
 
 mod execution;
+mod script;
 
 fn owner(name: &str) -> ModuleIdentity {
     ModuleIdentity {

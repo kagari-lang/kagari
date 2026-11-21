@@ -1,6 +1,7 @@
 //! Owner-scoped collection using the existing signature and implementation lowerers.
 pub mod defaults;
 mod inherent;
+pub mod script;
 pub mod traits;
 use crate::native::{
     assembly::{
@@ -8,7 +9,9 @@ use crate::native::{
         conflict,
         draft::{
             defaults::DefaultIntent,
-            traits::{OverrideIntent, TraitImplementationDefinition},
+            traits::{
+                OverrideBody, OverrideDefinition, OverrideIntent, TraitImplementationDefinition,
+            },
         },
         function::FunctionDefinition,
         references::{DraftMember, DraftReference, ReferenceKind},
@@ -475,20 +478,19 @@ impl<'a> ModuleDraft<'a> {
             identities.push(OverrideIntent {
                 name,
                 id,
-                facts: None,
+                body: None,
             });
             pending.push((id, binding));
         }
         for entry in overrides {
-            entry.member.check_scope(self.context)?;
-            if entry.member.kind != DefinitionKind::Method
-                || entry.member.owner.id != interface.declaration
-            {
+            let member = entry.member();
+            member.check_scope(self.context)?;
+            if member.kind != DefinitionKind::Method || member.owner.id != interface.declaration {
                 return Err(conflict(
                     "override member belongs to another trait or category",
                 ));
             }
-            let name = entry.member.name.clone();
+            let name = member.name.clone();
             if !names.insert(name.clone()) {
                 return Err(conflict("duplicate trait override"));
             }
@@ -496,13 +498,19 @@ impl<'a> ModuleDraft<'a> {
                 .context
                 .intern_child(owner, DefinitionKind::Method, &name, 0)
                 .map_err(conflict)?;
-            let facts = entry.lower(self.context)?;
+            let body = match entry {
+                OverrideDefinition::Native(entry) => {
+                    let (facts, binding) = entry.lower(self.context)?;
+                    pending.push((id, binding));
+                    OverrideBody::Native(facts)
+                }
+                OverrideDefinition::Script(_, build) => OverrideBody::Script(build),
+            };
             identities.push(OverrideIntent {
                 name,
                 id,
-                facts: Some(facts.0),
+                body: Some(body),
             });
-            pending.push((id, facts.1));
         }
         self.state
             .trait_intents

@@ -119,6 +119,12 @@ fn ordered_bindings<'a, J: Ord>(
     Ok(result)
 }
 
+impl NominalTy {
+    pub(crate) fn within_wire_limits(&self, cancel: &CancellationToken) -> bool {
+        shape::validate_nominal(self, cancel).is_ok()
+    }
+}
+
 impl Ty {
     pub fn within_wire_limits(&self) -> bool {
         shape::validate(self, None).is_ok()

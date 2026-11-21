@@ -1,0 +1,26 @@
+use pkg::forwarding::Forward;
+
+use pkg::forwarding::Reverse;
+
+struct Answer {
+    val value: i32
+}
+
+impl Forward<i32> for Answer {
+    fn accept(value: i32) -> Self {
+        Answer { value }
+    }
+    fn substitute(value: i32) -> Self {
+        Answer { value: 17 }
+    }
+}
+
+fn open<S, D: Forward<S>>(source: S) -> D {
+    val result: D = source.reverse();
+    result
+}
+
+fn main() -> i32 {
+    val answer: Answer = open(42);
+    answer.value
+}

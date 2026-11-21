@@ -265,6 +265,11 @@ impl ImplementationInput {
 enum ScriptExprRecord {
     Name(String),
     Definition(PortableDefinitionRef),
+    TraitMethod {
+        receiver: WireType,
+        interface: NominalTyRecord,
+        member: PortableDefinitionRef,
+    },
     Call {
         callee: Box<ScriptExprRecord>,
         type_arguments: Vec<WireType>,
@@ -282,6 +287,15 @@ impl ScriptExprRecord {
         Ok(match value {
             ScriptExpr::Name(name) => Self::Name(name.clone()),
             ScriptExpr::Definition(id) => Self::Definition(encoding.reference(*id)?),
+            ScriptExpr::TraitMethod {
+                receiver,
+                interface,
+                member,
+            } => Self::TraitMethod {
+                receiver: WireType::encode(receiver, encoding, cancel)?,
+                interface: NominalTyRecord::encode(interface, encoding, cancel)?,
+                member: encoding.reference(*member)?,
+            },
             ScriptExpr::Call {
                 callee,
                 type_arguments,
@@ -312,7 +326,7 @@ mod tests {
             script::ScriptExpr,
         },
         scalar::BuiltinType,
-        ty::Ty,
+        ty::{NominalTy, Ty},
     };
     use kagari_common::{
         cancellation::CancellationToken,
@@ -368,12 +382,26 @@ mod tests {
         function.name = "script".into();
         function.implementation = CallableImplementation::Script;
         module.functions.push(function);
+        let interface = context
+            .intern_child(root, DefinitionKind::Trait, "Transform", 0)
+            .unwrap();
+        let member = context
+            .intern_child(interface, DefinitionKind::Method, "apply", 0)
+            .unwrap();
         module.script_bodies.insert(
             script,
             ScriptExpr::Call {
-                callee: Box::new(ScriptExpr::Definition(target)),
+                callee: Box::new(ScriptExpr::TraitMethod {
+                    receiver: Ty::Builtin(BuiltinType::I32),
+                    interface: NominalTy {
+                        declaration: interface,
+                        arguments: vec![Ty::Builtin(BuiltinType::I64)],
+                        associated_types: Default::default(),
+                    },
+                    member,
+                }),
                 type_arguments: vec![],
-                arguments: vec![],
+                arguments: vec![ScriptExpr::Definition(target)],
             },
         );
         module.functions.sort_by(|a, b| a.name.cmp(&b.name));

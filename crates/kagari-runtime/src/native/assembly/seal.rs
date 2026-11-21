@@ -3,7 +3,7 @@
 use crate::native::{
     assembly::{
         DeclarationSnapshot, conflict,
-        draft::{DraftState, defaults::lower_defaults, traits::lower_override_facts},
+        draft::{DraftState, defaults::lower_defaults, traits::lower_overrides},
     },
     binding::NativeResult,
     catalog::DeclarationCatalog,
@@ -12,7 +12,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
-        table::DefinitionTable,
+        scoped::DefinitionReferences, table::DefinitionTable,
     },
 };
 use kagari_types::{
@@ -76,7 +76,14 @@ pub(super) fn seal(
                     .declaration
                     .implement_trait(contract, implementation, &bindings, context)
                     .map_err(conflict)?;
-                lower_override_facts(&contracts, &mut draft.declaration, contract, index, intents)?;
+                lower_overrides(
+                    context,
+                    &contracts,
+                    &mut draft.declaration,
+                    contract,
+                    index,
+                    intents,
+                )?;
             } else {
                 draft.declaration.implementations.push(implementation);
             }
@@ -138,6 +145,19 @@ pub(super) fn seal(
             .map_err(conflict)?;
         let closure = catalog.dependency_closure(trait_ids, &declarations, [&*module])?;
         let dependencies = &closure.catalog;
+        // A Script callee or explicit type argument can be the only use of an
+        // external declaration; native signature/proof closure won't see it.
+        let mut script_references = BTreeSet::new();
+        for body in module.script_bodies.values() {
+            body.visit_definition_ids(
+                &mut |id| {
+                    script_references.insert(*id);
+                    Ok(())
+                },
+                &cancel,
+            )
+            .map_err(conflict)?;
+        }
         let ids = dependencies
             .types
             .ids()
@@ -146,7 +166,8 @@ pub(super) fn seal(
             .chain(dependencies.implementations.ids())
             .chain(module.exports.values().copied())
             .chain(draft.references.iter().map(|reference| reference.id))
-            .chain(draft.members.iter().map(|member| member.id));
+            .chain(draft.members.iter().map(|member| member.id))
+            .chain(script_references);
         let mut edges = BTreeSet::new();
         for id in ids {
             let owner = definitions.resolve(id).map_err(conflict)?.module().clone();

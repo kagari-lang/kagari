@@ -12,6 +12,7 @@ use crate::{
         pattern::PatternKind,
         place::PlaceKind,
         stmt::StmtKind,
+        ty::TypeKind,
         writeability::Writeability,
     },
     imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
@@ -204,6 +205,12 @@ impl<'a> BodyResolver<'a> {
         let expr = self.module.expr(expr_id);
         match &expr.kind {
             ExprKind::Missing => {}
+            // In `<D as Forward<S>>::route` the name is a trait member, not a
+            // lexical value (even if a parameter is also called `route`).
+            ExprKind::Name {
+                explicit_type: Some(ty),
+                ..
+            } if matches!(self.module.type_ref(*ty).kind, TypeKind::Projection { .. }) => {}
             ExprKind::Name { name, .. } => {
                 if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
                     self.resolved.insert_expr(expr_id, resolved);

@@ -1,6 +1,6 @@
 # Blanket trait implementations and library conversion forwarding
 
-**Status: BI01–02 implemented; BI03 next.** This plan owns the migration;
+**Status: BI01–03 implemented; BI04 next.** This plan owns the migration;
 [other HIR review questions](hir-model-review.md#analysis-flow-and-naming-review) remain separate.
 
 ## What should work
@@ -93,6 +93,24 @@ second converter registry.
   dispatch, not just matching text or a producer-generated certificate. Keep this checkpoint usable
   without publishing duplicate standard impls.
 
+**BI03 declaration/HIR slice.** `ScriptExpr::TraitMethod` names a trait-owned static method
+only as the callee of an ordinary `Call`. For `<T2 as Forward<T1>>::route::<M>(self, route)`,
+`T1` and `T2` belong to the impl, `M` belongs to the method, and only the argument `route`
+is a lexical value. Structured lowering uses the ordinary qualified HIR projection; selection
+still requires the bound on `T2`. The [HIR equivalence test](../crates/kagari-hir/src/native/api/tests/forwarding.rs)
+checks the same method, receiver, signature, impl bounds and associated output in direct
+registration and independently parsed rendered source. A same-named member of another owner
+is invalid before rendering. This slice does not change the standard conversions.
+Local checks passed: 13 HIR `native::api::tests::` cases (including both
+`qualified_script_callee` tests), two `blanket_method_applications` cases and the types
+`native_compiler_input_uses_portable_complete_contracts` test. Workspace Clippy, structure,
+format and diff checks passed; the full workspace test suite remains CI-only.
+
+The integrated `registered_blanket_forwarding_authenticates_the_selected_member` test executes
+an ordinary structured blanket from decoded bytes. A same-signature replacement produces a
+different result with its own provider and is rejected by the original installation before any
+modules publish. Workspace structure, fmt, Clippy and diff checks passed on the integrated changes.
+
 ## BI04 — Switch `Into` and `TryInto`; remove the reverse shortcut
 
 One integrated cutover: ordinary library impls become the only source of reverse evidence. No
@@ -104,6 +122,42 @@ period in which a fallback masks a missing impl, and no parallel legacy reader a
 | HIR | Remove reverse-only branches for [expected-result inference](../crates/kagari-hir/src/typeck/body/methods.rs), bound search, associated outputs and [relationship exposure/shape checks](../crates/kagari-hir/src/language/items.rs). Keep exposure, signature and owner validation for remaining forward declarations; do not delete the whole shape validator. |
 | Compiler and executable contracts | Remove the [reverse call rewrite](../crates/kagari-compiler/src/source/lower/instances/methods.rs) and intrinsic reverse bound/projection proofs. Emit the checked blanket method and its ordinary forward call. MIR/bytecode admission must reject missing impl evidence even if a suitable forward impl exists. No new VM instruction. |
 | Registration, tools and portable records | Remove the `Reverse` payload from declarations, static sidecars, ID visitation/remapping, exports and [wire codecs](../crates/kagari-types/src/declaration/wire/leaf.rs). Migrate other reverse relationship producers, if found, to ordinary impls. Retain `TryFrom`'s forward method/error/result validation; no dummy reverse fields. Invalidate affected unpublished artifacts; do not bump format/ABI identifiers. |
+
+**Structured registration recipe for BI04.** Obtain `forward`/`reverse` with `reference_trait`,
+`forward_method`/`reverse_method` with `reference_method` (method arity zero), and, for
+`TryFrom`/`TryInto`, `forward_error`/`reverse_error` with `reference_associated_type` (arity
+zero). Use the actual `core::convert` owners. The fallible registration in the stdlib recipe
+uses the existing foundation `bound` helper as follows:
+
+```rust
+module.trait_implementation_with(2, |types| {
+    let source = types[0].clone();
+    let destination = types[1].clone();
+    let from = forward.apply([source.clone()])?;
+    let into = reverse.apply([destination.clone()])?;
+    let error = forward_error.projection(destination.clone(), from.clone(), [])?;
+    Ok(TraitImplementation {
+        receiver: source,
+        interface: reverse_error.bind(into, error)?,
+        bounds: vec![bound(&destination, from.clone())],
+        bindings: vec![],
+    }
+    .with_script_method(reverse_method, move |body| {
+        body.trait_call(&forward_method, destination, from, [], [body.parameter(0)?])
+    }))
+})
+```
+
+For `Into`, omit the projection and use `interface: into`. Both bodies submit an ordinary
+`Call(TraitMethod { .. }, ...)`: `body.parameter(0)` addresses the projected reverse method's
+`self`; it is the *value argument* to the static forward method, not its type receiver `D`.
+A generic method uses `body.type_parameter(i)` for its own binder, excluding the impl prefix.
+The [assembly regression](../crates/kagari-runtime/src/native/assembly/draft/traits/tests/script.rs)
+checks that distinction after preparation and checks that no native entry exists. All 12 tests
+in `cargo test -p kagari-runtime --lib native::assembly::draft::traits::tests::` passed; this
+covers submission and preparation, not execution of the new forwarder. The builder
+runs at seal to produce the expression, never when the method executes. This is not authority
+to bypass ordinary Script checking or installed-body authentication.
 
 **Acceptance:** strengthen the [existing reverse fixture](../crates/kagari/tests/fixtures/language/conversion_traits/reverse-conversions-call-the-destination-implementation.kgr)
 for an observable single forward call and exact `Ok`/`Err` payloads. Its [bulk fixture runner](../crates/kagari/src/runtime/tests/language/conversion_traits.rs)

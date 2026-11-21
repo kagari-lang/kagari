@@ -105,3 +105,4 @@ mod blanket_traits;
 mod execution;
 mod implementations;
 mod imports;
+mod registered_forwarding;
