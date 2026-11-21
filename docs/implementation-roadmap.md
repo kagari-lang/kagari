@@ -2120,9 +2120,7 @@ BI01–BI04 implement [conditional blanket trait impls](spec/traits.md#blanket-t
 and [library conversion forwarding](spec/builtins.md#conversion-protocols). Focused local checks cover
 unused header conflicts, generic caller evidence, installed Script authentication, reload, and
 once-only forwarding with the declared error in a frontend-free artifact consumer. Full workspace
-and exhaustive feature/backend checks remain CI-only. Separately, HIR bound-target diagnostics
-still need the expected `InvalidBoundTarget` for `where Sequence: Eq` in
-`trait_name_is_not_a_self_parameter_in_where_bounds`; that test already failed at `177dad7fb`.
+and exhaustive feature/backend checks remain CI-only.
 
 Source interface impl targets, derive additions and NC migration remain outside this work. Host
 registration/interop is implemented separately as described above.

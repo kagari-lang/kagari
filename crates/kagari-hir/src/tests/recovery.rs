@@ -46,19 +46,28 @@ fn broken_signatures_preserve_parameter_slots_without_cascading_arity_errors() {
 }
 
 #[test]
-fn where_targets_must_resolve_to_a_generic_parameter() {
-    for target in ["Absent", "i32", "P"] {
-        let text = format!(
-            "struct P {{ val n: i32 }} fn bad<T>(value: T) where {target}: PartialEq {{}} fn good() -> i32 {{ 7 }}"
-        );
-        let analysis = analyze_source(
-            &SourceFile::new("where.kgr", text),
-            foundation_catalog::shared().unwrap(),
-        )
-        .expect("installed declaration analysis");
-        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == target)), "{:?}", analysis.diagnostics());
-        assert!(analysis.into_codegen().is_err());
-    }
+fn where_bounds_distinguish_unknown_and_unsatisfied_targets() {
+    let source = SourceFile::new(
+        "where_target_recovery.kgr",
+        include_str!("../../tests/fixtures/analysis/where_target_recovery.kgr"),
+    );
+    let analysis = analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    let diagnostics = analysis.diagnostics();
+    assert!(
+        diagnostics.iter().any(|d| matches!(
+            &d.kind, DiagnosticKind::InvalidBoundTarget { name } if name == "Absent"
+        )),
+        "{diagnostics:?}"
+    );
+    assert!(
+        diagnostics.iter().any(|d| matches!(
+            &d.kind, DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                if type_name == "P" && trait_name == "PartialEq"
+        )),
+        "{diagnostics:?}"
+    );
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+    assert!(analysis.into_codegen().is_err());
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).

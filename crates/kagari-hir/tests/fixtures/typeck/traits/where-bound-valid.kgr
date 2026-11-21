@@ -1,0 +1,9 @@
+trait Accepts<T> {}
+
+struct Receiver {}
+
+impl Accepts<bool> for Receiver {}
+
+fn satisfied<T>(value: T) where i32: PartialEq {}
+
+fn conditional<T>(value: T) where Receiver: Accepts<T> {}

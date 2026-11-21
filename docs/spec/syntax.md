@@ -850,7 +850,8 @@ Source code does not need to spell a trailing `()` expression; a block with no t
 Ordinary associated types use `type Item;` in traits and `type Item = T;`
 in trait implementations. Trait arguments can bind outputs (`Reader<Item = i32>`),
 and types can project them (`Self::Item`, `R::Item`, `<R as Reader>::Item`).
-A `where` target may be a generic parameter or its associated projection.
+A `where` condition may also constrain a named type. Conditions independent of generic
+parameters and `Self` are [checked at declaration](traits.md#generic-bounds).
 See [traits.md](traits.md#ordinary-associated-types) for the authoritative rules;
 [the EBNF](../kagari.ebnf) defines their complete grammar.
 

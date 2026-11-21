@@ -686,6 +686,13 @@ Bounds are simple trait references:
 where T: Display + Clone
 ```
 
+A `where` condition that does not depend on `Self` or a generic parameter must hold
+when the declaration is checked, even if it is never used. In a trait `Sequence`,
+`where Sequence: Eq` tests the named interface type, not the implementing `Self`.
+A resolved type without the required implementation is an unsatisfied bound, not an
+unknown name. Check the whole condition: `where Receiver: Accepts<T>` still depends
+on `T` and must be proved for the chosen application.
+
 Ordinary associated projections and associated equality bindings are supported.
 Higher-rank bounds, arbitrary type equalities and implicit type-level computation
 remain outside the implemented scope.

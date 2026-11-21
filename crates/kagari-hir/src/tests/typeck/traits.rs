@@ -499,15 +499,37 @@ fn conditional_application_proves_forwarded_outputs_after_substitution() {
 }
 
 #[test]
-fn trait_name_is_not_a_self_parameter_in_where_bounds() {
-    let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok("trait Sequence { fn size(self) -> u64 where Sequence: Eq; }");
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("trait names");
-    let typed = check_module(&context, &lowered, &names, None);
-    assert!(typed.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidBoundTarget { name } if name == "Sequence")));
+fn unused_trait_method_checks_closed_where_bound_on_trait_name() {
+    let source = SourceFile::new(
+        "where-bound-trait-name.kgr",
+        include_str!("../../../tests/fixtures/typeck/traits/where-bound-trait-name.kgr"),
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        matches!(analysis.diagnostics(), [diagnostic] if matches!(
+            &diagnostic.kind,
+            DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                if type_name == "Sequence" && trait_name == "Eq"
+        )),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
+fn where_bounds_accept_satisfied_and_rhs_dependent_predicates() {
+    let source = SourceFile::new(
+        "where-bound-valid.kgr",
+        include_str!("../../../tests/fixtures/typeck/traits/where-bound-valid.kgr"),
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    analysis.into_codegen().expect("valid where predicates");
 }
 
 #[test]

@@ -1,0 +1,9 @@
+struct P {}
+
+fn unresolved<T>(value: T) where Absent: PartialEq {}
+
+fn unsatisfied<T>(value: T) where P: PartialEq {}
+
+fn good() -> i32 {
+    7
+}

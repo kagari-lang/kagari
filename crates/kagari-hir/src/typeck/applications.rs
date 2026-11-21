@@ -25,6 +25,11 @@ use kagari_common::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{language::Protocol, range::RangeKind};
 
+const REQUIREMENT_LIMITS: ImplementationSearchLimits = ImplementationSearchLimits {
+    max_checks: 4096,
+    max_depth: 64,
+};
+
 /// Checked declaration sources and their retained identity scope for application validation.
 pub(super) struct ApplicationContext<'a> {
     pub definitions: &'a DefinitionTable,
@@ -203,10 +208,7 @@ pub(super) fn validate_requirements(
     let bounds = &expanded;
     let search = ImplementationSearchContext {
         assumptions: bounds,
-        limits: ImplementationSearchLimits {
-            max_checks: 4096,
-            max_depth: 64,
-        },
+        limits: REQUIREMENT_LIMITS,
         cancel,
     };
     for (parameter, constraints) in required {
@@ -246,22 +248,37 @@ pub(super) fn validate_requirements(
                 return Err(ImplementationSearchError::LimitExceeded);
             }
             let applied = constraint.instantiate(substitution);
-            let satisfied = catalog.proves_requirement(definitions, &applied, &actual, search)?;
-            if !satisfied {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                        type_name: actual.display_name(definitions),
-                        trait_name: catalog
-                            .trait_(&constraint.declaration)
-                            .expect("checked trait contract")
-                            .declaration
-                            .name
-                            .clone(),
-                    })
-                    .with_span(span),
-                );
-            }
+            check_requirement(&context, &actual, &applied, search, span, diagnostics)?;
         }
+    }
+    Ok(())
+}
+
+fn check_requirement(
+    context: &ApplicationContext<'_>,
+    actual: &TypeId,
+    required: &NominalType,
+    search: ImplementationSearchContext<'_>,
+    span: Span,
+    diagnostics: &mut DiagnosticBuffer,
+) -> Result<(), ImplementationSearchError> {
+    if !context
+        .catalog
+        .proves_requirement(context.definitions, required, actual, search)?
+    {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                type_name: actual.display_name(context.definitions),
+                trait_name: context
+                    .catalog
+                    .trait_(&required.declaration)
+                    .expect("checked trait contract")
+                    .declaration
+                    .name
+                    .clone(),
+            })
+            .with_span(span),
+        );
     }
     Ok(())
 }
@@ -540,6 +557,74 @@ fn validate_inner(
     Ok(())
 }
 
+fn validate_closed_where_bounds(
+    lowered: &LoweredModule,
+    signatures: &ModuleSignatures,
+    context: ApplicationContext<'_>,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) {
+    let module = &lowered.module;
+    let family_bounds = module
+        .traits
+        .iter()
+        .flat_map(|t| &t.associated_types)
+        .chain(module.impls.iter().flat_map(|i| &i.associated_types))
+        .map(|a| &a.parameter_bounds);
+    let clauses = module
+        .functions
+        .iter()
+        .map(|f| &f.bounds)
+        .chain(module.impls.iter().map(|i| &i.bounds))
+        .chain(module.native_types.iter().map(|t| &t.bounds))
+        .chain(module.type_aliases.iter().map(|a| &a.bounds))
+        .chain(family_bounds);
+    // The declaration's own where-clause must not be used as proof of itself.
+    let search = ImplementationSearchContext {
+        assumptions: &GenericBounds::default(),
+        limits: REQUIREMENT_LIMITS,
+        cancel,
+    };
+    let table = signatures.type_table();
+    for bound in clauses.flatten() {
+        if cancel.check().is_err() {
+            return;
+        }
+        let Some(target) = table.type_ref(bound.target_ref) else {
+            continue;
+        };
+        if !target.ty.is_closed() {
+            continue;
+        }
+        for reference in &bound.traits {
+            let Some(required) = table.constraint(reference.ty) else {
+                continue;
+            };
+            if !required
+                .arguments
+                .iter()
+                .chain(required.associated_types.values())
+                .all(TypeId::is_closed)
+                || context.catalog.trait_(&required.declaration).is_none()
+            {
+                continue;
+            }
+            let span = module.type_ref(reference.ty).origin.diagnostic_span();
+            match check_requirement(&context, &target.ty, &required, search, span, diagnostics) {
+                Ok(()) => (),
+                Err(ImplementationSearchError::Cancelled) => return,
+                Err(ImplementationSearchError::LimitExceeded) => diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                        resource: "trait implementation search",
+                        limit: REQUIREMENT_LIMITS.max_checks,
+                    })
+                    .with_span(span),
+                ),
+            }
+        }
+    }
+}
+
 pub(crate) fn validate_signatures(
     lowered: &LoweredModule,
     declarations: &Declarations,
@@ -549,6 +634,17 @@ pub(crate) fn validate_signatures(
     cancel: &CancellationToken,
 ) {
     let definitions = declarations.definitions();
+    validate_closed_where_bounds(
+        lowered,
+        signatures,
+        ApplicationContext {
+            definitions,
+            catalog,
+            receiver: None,
+        },
+        diagnostics,
+        cancel,
+    );
     families::validate(lowered, declarations, catalog, diagnostics, cancel);
     native_contracts::validate(
         lowered,

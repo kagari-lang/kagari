@@ -168,7 +168,8 @@ pub(super) fn resolve_owner_in(
         }
         resolve_type_in(&lowered.module, bound.target_ref, context, table, cancel);
         // Fixed and applied receivers are ordinary predicates too. Resolving a
-        // predicate does not establish its obligation; application checking does.
+        // predicate does not prove it: closed predicates are checked against the
+        // completed catalog, and open ones at application sites.
         if table
             .type_ref(bound.target_ref)
             .is_none_or(|reference| reference.ty.is_unresolved())

@@ -1,0 +1,3 @@
+trait Sequence {
+    fn size(self) -> u64 where Sequence: Eq;
+}

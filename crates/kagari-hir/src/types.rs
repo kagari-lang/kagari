@@ -727,6 +727,16 @@ impl TypeId {
 
     /// Recovery types suppress dependent diagnostics but never authorize codegen.
     pub fn is_unresolved(&self) -> bool {
+        self.any_leaf(|ty| matches!(ty, Self::Inference(_) | Self::Unknown | Self::Error))
+    }
+
+    /// A closed predicate may contain a projection, but none of its inputs may depend
+    /// on a binder or recovery hole. Projection normalization belongs to trait search.
+    pub(crate) fn is_closed(&self) -> bool {
+        !self.any_leaf(|ty| !matches!(ty, Self::Builtin(_) | Self::Host(_)))
+    }
+
+    fn any_leaf(&self, test: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
@@ -757,8 +767,11 @@ impl TypeId {
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
                 }
-                Self::Inference(_) | Self::Unknown | Self::Error => return true,
-                Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
+                leaf => {
+                    if test(leaf) {
+                        return true;
+                    }
+                }
             }
         }
         false
