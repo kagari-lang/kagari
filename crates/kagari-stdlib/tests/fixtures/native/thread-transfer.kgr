@@ -1,4 +1,4 @@
-use fixture::transfer::{ new, bump, remember, invoke };
+use fixture::transfer::{new, bump, remember, invoke};
 
 fn main() -> i32 {
     val counter = new();

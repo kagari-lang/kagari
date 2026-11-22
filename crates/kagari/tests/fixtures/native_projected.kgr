@@ -1,6 +1,6 @@
 use game::selected::Echo;
 
-use game::projected::{ echo_twice, inspect_output };
+use game::projected::{echo_twice, inspect_output};
 
 struct Inner {
     val value: i32

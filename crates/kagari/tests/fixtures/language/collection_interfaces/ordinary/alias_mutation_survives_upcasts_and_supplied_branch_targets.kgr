@@ -1,4 +1,4 @@
-use std::collections::{ HashSet, List, MutableList };
+use std::collections::{HashSet, List, MutableList};
 
 struct Cell {
     var value: i32

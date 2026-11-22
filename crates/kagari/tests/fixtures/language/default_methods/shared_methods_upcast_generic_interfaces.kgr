@@ -1,4 +1,4 @@
-use std::collections::{ List, MutableList };
+use std::collections::{List, MutableList};
 
 trait Wrap {
     fn wrap<T>(self, value: T) -> List<T> {

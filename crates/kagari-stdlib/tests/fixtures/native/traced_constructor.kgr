@@ -1,4 +1,4 @@
-use example::provided::{ Counter, new, read, missing_payload };
+use example::provided::{Counter, new, read, missing_payload};
 
 fn main() -> Counter<i32> {
     new([42])

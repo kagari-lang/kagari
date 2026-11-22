@@ -1,4 +1,4 @@
-use std::{ collections::* };
+use std::{collections::*};
 
 fn main() -> i32 {
     var total = 0;

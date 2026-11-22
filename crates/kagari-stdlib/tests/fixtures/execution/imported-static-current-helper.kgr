@@ -6,7 +6,7 @@ mod provider {
     }
 }
 
-use self::provider::{ ready, value };
+use self::provider::{ready, value};
 
 pub fn read_ready() -> i32 {
     ready

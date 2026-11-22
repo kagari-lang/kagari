@@ -1,4 +1,4 @@
-use example::retained::{ remember, invoke };
+use example::retained::{remember, invoke};
 
 fn main() -> i32 {
     val offset = [41];

@@ -1,4 +1,4 @@
-use test::probe::{ keep, tick };
+use test::probe::{keep, tick};
 
 fn main() {
     val values = Vec::from([1, 2, 3, 4]);

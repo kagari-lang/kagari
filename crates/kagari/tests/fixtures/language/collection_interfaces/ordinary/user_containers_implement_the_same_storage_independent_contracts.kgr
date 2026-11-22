@@ -1,6 +1,6 @@
-use std::collections::{ List, MutableList, Set, list_content_equal };
+use std::collections::{List, MutableList, Set, list_content_equal};
 
-use std::iter::{ CollectionCursor };
+use std::iter::{CollectionCursor};
 
 mod storage {
     use std::iter::CollectionCursor;

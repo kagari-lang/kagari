@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, HashSet, Map, MutableMap, MutableSet, Set };
+use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set};
 
 fn map_sum(values: MutableMap<i32, i32>) -> i32 {
     val view: Map<i32, i32> = values;

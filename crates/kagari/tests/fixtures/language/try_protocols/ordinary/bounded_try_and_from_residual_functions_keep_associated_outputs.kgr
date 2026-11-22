@@ -1,4 +1,4 @@
-use core::ops::{ Try, FromResidual, ControlFlow };
+use core::ops::{Try, FromResidual, ControlFlow};
 
 fn forward<A: Try, R: FromResidual<A::Residual>>(value: A, wrap: fn(A::Output) -> R) -> R {
     wrap(value?)

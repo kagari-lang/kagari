@@ -98,7 +98,7 @@ fn formatted(text: &str, width: usize) -> String {
     Some(30)
 )]
 #[case::trait_associated_items("trait-associated-items", include_str!("../tests/fixtures/layout/trait-associated-items.input.kgr"), include_str!("../tests/fixtures/layout/trait-associated-items.expected.kgr"), 100, true, None)]
-#[case::grouped_use_alias("grouped-use-alias", include_str!("../tests/fixtures/layout/grouped-use-alias.input.kgr"), include_str!("../tests/fixtures/layout/grouped-use-alias.expected.kgr"), 100, true, None)]
+#[case::grouped_use_alias("grouped-use-alias", include_str!("../tests/fixtures/layout/grouped-use-alias.input.kgr"), include_str!("../tests/fixtures/layout/grouped-use-alias.expected.kgr"), 100, true, Some(32))]
 #[case::match_enum_pattern("match-enum-pattern", include_str!("../tests/fixtures/layout/match-enum-pattern.input.kgr"), include_str!("../tests/fixtures/layout/match-enum-pattern.expected.kgr"), 100, true, None)]
 #[case::match_struct_rest_pattern("match-struct-rest-pattern", include_str!("../tests/fixtures/layout/match-struct-rest-pattern.input.kgr"), include_str!("../tests/fixtures/layout/match-struct-rest-pattern.expected.kgr"), 100, true, None)]
 #[case::tuple_binding_pattern("tuple-binding-pattern", include_str!("../tests/fixtures/layout/tuple-binding-pattern.input.kgr"), include_str!("../tests/fixtures/layout/tuple-binding-pattern.expected.kgr"), 100, true, None)]

@@ -1,4 +1,4 @@
-use core::ops::{ Try, FromResidual, ControlFlow };
+use core::ops::{Try, FromResidual, ControlFlow};
 
 enum Carrier<T, E> {
     Value(T),

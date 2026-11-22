@@ -1,4 +1,4 @@
-use example::generic_helper::{ identity, singleton };
+use example::generic_helper::{identity, singleton};
 
 pub struct Item {
     pub val value: i32

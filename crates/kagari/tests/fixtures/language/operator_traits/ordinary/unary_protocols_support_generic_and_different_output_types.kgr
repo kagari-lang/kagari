@@ -1,4 +1,4 @@
-use std::ops::{ Neg, Not };
+use std::ops::{Neg, Not};
 
 struct Signed {
     val value: i32

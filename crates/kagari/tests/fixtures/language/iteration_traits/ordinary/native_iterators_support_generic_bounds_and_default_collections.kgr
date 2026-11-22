@@ -1,6 +1,6 @@
-use std::collections::{ HashMap, HashSet };
+use std::collections::{HashMap, HashSet};
 
-use std::iter::{ CollectionCursor };
+use std::iter::{CollectionCursor};
 
 fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
     var total = 0;

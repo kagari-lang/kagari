@@ -1,4 +1,4 @@
-use example::functions::{ enter, fail, effect };
+use example::functions::{enter, fail, effect};
 
 fn main() -> i32 {
     val kept = [42];

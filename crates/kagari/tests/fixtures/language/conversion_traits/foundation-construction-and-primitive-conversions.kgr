@@ -1,6 +1,6 @@
-use std::iter::{ Sum };
+use std::iter::{Sum};
 
-use std::num::{ TryFromIntError };
+use std::num::{TryFromIntError};
 
 fn aggregate<T: Sum<i32>, I: Iterable<Item = i32>>(source: I) -> T {
     T::sum(source)

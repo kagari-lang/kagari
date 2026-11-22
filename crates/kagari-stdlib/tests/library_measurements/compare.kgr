@@ -1,6 +1,6 @@
-use std::cmp::{ Ordering };
+use std::cmp::{Ordering};
 
-use std::collections::{ MutableList };
+use std::collections::{MutableList};
 // Measurement reference only: stable O(n log n) sorting over the same compact
 // Vec<i32>. Production algorithms remain Rust implementations.
 trait Run {

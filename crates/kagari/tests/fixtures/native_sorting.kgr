@@ -1,14 +1,14 @@
-use std::array::{ Vec, List };
+use std::array::{Vec, List};
 
-use std::cmp::{ PartialEq, Eq, PartialOrd, Ord, Ordering };
+use std::cmp::{PartialEq, Eq, PartialOrd, Ord, Ordering};
 
 use std::option::Option;
 
 use std::option::Option::Some;
 
-use game::order::{ arrange, arrange_by, reverse };
+use game::order::{arrange, arrange_by, reverse};
 
-use game::input::{ values as input_values, record, probe };
+use game::input::{values as input_values, record, probe};
 
 struct Rank {
     val key: i32,

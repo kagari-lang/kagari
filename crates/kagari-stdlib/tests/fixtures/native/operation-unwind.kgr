@@ -1,4 +1,4 @@
-use fixture::transfer::{ new, guarded };
+use fixture::transfer::{new, guarded};
 
 fn main() -> i32 {
     val counter = new();

@@ -157,7 +157,8 @@ chooses line breaks. See [syntax architecture](../architecture/syntax.md#formatt
 
 Formatting changes whitespace only. It preserves non-whitespace tokens **including
 comments**, literal spelling and interpolation text; it performs no import sorting,
-parenthesis removal or comma insertion. Comments retain their text/order and
+parenthesis removal or comma insertion. Single-line import groups keep no padding
+inside their braces: `use pkg::{first, second};`. Comments retain their text/order and
 leading/trailing/dangling attachment; prose is not reflowed. In a file or inline
 module with items, one blank line follows the last `//!` in the module header,
 before the first item's outer docs, attributes or declaration. A doc-only module

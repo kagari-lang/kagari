@@ -1,4 +1,4 @@
-use example::script_values::{ Identity, invoke };
+use example::script_values::{Identity, invoke};
 
 trait Read {
     fn read(self) -> i32;

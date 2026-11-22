@@ -1,4 +1,4 @@
-use example::methods::{ Player, Describe };
+use example::methods::{Player, Describe};
 
 pub fn make() -> Player {
     Player::new(100)

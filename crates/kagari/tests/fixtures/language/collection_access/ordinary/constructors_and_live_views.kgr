@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, HashSet, Map, Set };
+use std::collections::{HashMap, HashSet, Map, Set};
 
 fn main() -> i32 {
     val a = Vec::from([1, 2]);

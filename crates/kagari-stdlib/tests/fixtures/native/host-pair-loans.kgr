@@ -1,4 +1,4 @@
-use example::host_pairs::{ Account, transfer };
+use example::host_pairs::{Account, transfer};
 
 pub fn run(first: Account, second: Account, amount: i32) -> String {
     transfer(first, second, amount)

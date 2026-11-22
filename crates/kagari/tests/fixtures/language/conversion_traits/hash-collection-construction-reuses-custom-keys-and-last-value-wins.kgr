@@ -1,6 +1,6 @@
 use core::hash::Hash;
 
-use std::collections::{ HashMap, HashSet };
+use std::collections::{HashMap, HashSet};
 
 struct Key {
     val number: i32,

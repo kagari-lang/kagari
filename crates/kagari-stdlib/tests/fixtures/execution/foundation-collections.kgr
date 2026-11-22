@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, HashSet };
+use std::collections::{HashMap, HashSet};
 
 fn main() ->(u64, bool, u64, bool) {
     val map: HashMap<String, i32> = HashMap::new();

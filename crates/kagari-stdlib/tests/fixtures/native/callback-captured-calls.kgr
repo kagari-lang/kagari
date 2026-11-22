@@ -1,4 +1,4 @@
-use example::callbacks::{ apply, step };
+use example::callbacks::{apply, step};
 
 fn main() -> i32 {
     val offset = [14];

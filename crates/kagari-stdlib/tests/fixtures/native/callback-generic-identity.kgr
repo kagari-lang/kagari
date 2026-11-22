@@ -1,4 +1,4 @@
-use example::generic::{ identity, probe };
+use example::generic::{identity, probe};
 
 struct Item {
     val value: i32

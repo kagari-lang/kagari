@@ -1,11 +1,11 @@
 // Portable numeric provider fixture; placeholders are varied after wire validation.
-use std::string::{ FromStr, ParseError };
+use std::string::{FromStr, ParseError};
 
 use std::numeric;
 
-use std::option::{ Option, Some, None };
+use std::option::{Option, Some, None};
 
-use std::result::{ Result, Ok, Err };
+use std::result::{Result, Ok, Err};
 
 struct Payload {
     val value: i32

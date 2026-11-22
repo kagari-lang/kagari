@@ -1,4 +1,4 @@
-use example::admitted::{ Step, invoke };
+use example::admitted::{Step, invoke};
 
 pub struct Counter {
     pub var value: i32

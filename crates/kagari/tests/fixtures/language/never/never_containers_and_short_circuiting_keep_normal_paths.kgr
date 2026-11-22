@@ -1,4 +1,4 @@
-use std::collections::{ List };
+use std::collections::{List};
 
 fn fail() -> ! {
     val zero = 0;

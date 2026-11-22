@@ -1,6 +1,6 @@
 use game::parent::Parent;
 
-use game::child::{ Child, invoke };
+use game::child::{Child, invoke};
 
 use game::plain_default::Plain;
 

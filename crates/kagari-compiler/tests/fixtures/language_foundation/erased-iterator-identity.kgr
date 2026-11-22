@@ -1,4 +1,4 @@
-use core::iter::{ Iterable, Iterator };
+use core::iter::{Iterable, Iterator};
 
 use core::option::Option;
 

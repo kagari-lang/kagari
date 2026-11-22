@@ -1,10 +1,10 @@
-use std::collections::{ List, MutableList };
+use std::collections::{List, MutableList};
 
-use std::iter::{ CollectionCursor };
+use std::iter::{CollectionCursor};
 
-use std::ops::{ Index };
+use std::ops::{Index};
 
-use test::probe::{ keep, tick };
+use test::probe::{keep, tick};
 
 struct Sequence {
     val items: Vec<i32>

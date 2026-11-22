@@ -3,7 +3,7 @@
 
 use core::convert::From;
 
-use core::ops::{ ControlFlow, FromResidual, Try };
+use core::ops::{ControlFlow, FromResidual, Try};
 
 /// A success (`Ok`) or an error (`Err`). Returning `Err` does not trap: the
 /// caller can match on the result and decide how to recover.
@@ -11,7 +11,7 @@ use core::ops::{ ControlFlow, FromResidual, Try };
 /// ```kagari
 /// use alloc::string::String;
 ///
-/// use core::result::{ Result, Ok, Err };
+/// use core::result::{Result, Ok, Err};
 ///
 /// fn answer(found: bool) -> Result<i32, String> {
 ///     if found {
@@ -41,7 +41,7 @@ pub enum Result<T, E> {
     Err(E),
 }
 
-pub use self::Result::{ Ok, Err };
+pub use self::Result::{Ok, Err};
 
 /// When `?` propagates into a different error type `F`, it calls `F`'s direct
 /// `From<E>` conversion once and preserves the original `Err` location and stack.

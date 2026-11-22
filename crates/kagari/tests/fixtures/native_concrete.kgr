@@ -1,4 +1,4 @@
-use game::concrete_defaults::{ Run, invoke };
+use game::concrete_defaults::{Run, invoke};
 
 struct Item {
     val value: i32

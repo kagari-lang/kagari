@@ -1,6 +1,6 @@
-use core::iter::{ FromIterator, Iterable, Iterator };
+use core::iter::{FromIterator, Iterable, Iterator};
 
-use core::option::{ None, Option, Some };
+use core::option::{None, Option, Some};
 
 struct Node {
     val item: i32,

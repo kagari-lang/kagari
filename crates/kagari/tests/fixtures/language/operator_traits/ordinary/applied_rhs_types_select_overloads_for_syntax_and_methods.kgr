@@ -1,4 +1,4 @@
-use std::ops::{ Add };
+use std::ops::{Add};
 
 struct Number {
     val value: i32

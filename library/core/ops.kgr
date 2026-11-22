@@ -21,7 +21,7 @@ pub enum Bound<T> {
     Unbounded,
 }
 
-pub use self::Bound::{ Included, Excluded, Unbounded };
+pub use self::Bound::{Included, Excluded, Unbounded};
 
 /// Signals whether a caller should stop or keep going. Unlike `Result`, a
 /// `Break` need not mean failure: a tree visitor looking for a node can return

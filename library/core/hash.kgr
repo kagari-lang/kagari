@@ -14,7 +14,7 @@
 /// collection does not reindex it for you.
 ///
 /// ```kagari
-/// use core::cmp::{ PartialEq, Eq };
+/// use core::cmp::{PartialEq, Eq};
 ///
 /// use core::hash::Hash;
 ///

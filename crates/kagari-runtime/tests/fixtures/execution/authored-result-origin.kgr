@@ -1,4 +1,4 @@
-use core::result::{ Result as Outcome, Ok, Err };
+use core::result::{Result as Outcome, Ok, Err};
 
 use core::convert::From;
 

@@ -1,4 +1,4 @@
-use std::fmt::{ Debug, Display };
+use std::fmt::{Debug, Display};
 
 struct Item {
     val log: Vec<i32>,

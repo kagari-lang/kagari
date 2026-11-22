@@ -4,9 +4,9 @@ use game::stream::{
 
 use std::option::Option;
 
-use std::option::Option::{ Some, None };
+use std::option::Option::{Some, None};
 
-use game::input::{ cursor, values, probe };
+use game::input::{cursor, values, probe};
 
 struct Count {
     var calls: i32

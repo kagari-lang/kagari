@@ -1,4 +1,4 @@
-use std::ops::{ Add, Index };
+use std::ops::{Add, Index};
 
 struct State {
     var steps: i32

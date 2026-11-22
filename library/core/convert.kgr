@@ -9,7 +9,7 @@ use core::result::Result;
 /// on the destination; the caller can then use either spelling:
 ///
 /// ```kagari
-/// use core::convert::{ From, Into };
+/// use core::convert::{From, Into};
 ///
 /// struct Count {
 ///     val n: i32
@@ -45,9 +45,9 @@ pub trait Into<D> {
 /// tells the caller why the value was rejected:
 ///
 /// ```kagari
-/// use core::convert::{ TryFrom, TryInto };
+/// use core::convert::{TryFrom, TryInto};
 ///
-/// use core::result::{ Result, Ok, Err };
+/// use core::result::{Result, Ok, Err};
 ///
 /// struct Positive {
 ///     val n: i32

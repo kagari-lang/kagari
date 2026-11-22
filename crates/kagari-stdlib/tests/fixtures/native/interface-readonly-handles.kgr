@@ -1,6 +1,6 @@
 use example::interface_handles::retain;
 
-use std::collections::{ List, MutableList };
+use std::collections::{List, MutableList};
 
 pub fn make() -> List<i32> {
     val value: List<i32> = Vec::from([42]);

@@ -1,6 +1,6 @@
-use core::iter::{ Iterator, MapIterator };
+use core::iter::{Iterator, MapIterator};
 
-use core::option::{ Option, Some, None };
+use core::option::{Option, Some, None};
 
 struct Source {
     var current: i32

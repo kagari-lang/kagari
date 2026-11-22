@@ -1,4 +1,4 @@
-use example::managed::{ Boxed, wrap, read };
+use example::managed::{Boxed, wrap, read};
 
 pub struct Item {
     pub var value: i32

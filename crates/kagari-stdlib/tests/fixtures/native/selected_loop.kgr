@@ -1,4 +1,4 @@
-use example::calls::{ Step, repeat };
+use example::calls::{Step, repeat};
 
 struct Counter {
     val amount: i32

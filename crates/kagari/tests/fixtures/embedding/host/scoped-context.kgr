@@ -1,4 +1,4 @@
-use game::scoped::{ Counter, heal, read };
+use game::scoped::{Counter, heal, read};
 
 pub fn tick(hp: Counter, gold: Counter) -> i32 {
     heal(hp, gold)

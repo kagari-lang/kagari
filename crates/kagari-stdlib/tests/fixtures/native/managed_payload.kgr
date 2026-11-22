@@ -1,4 +1,4 @@
-use example::managed::{ Holder, new, read, install, invoke };
+use example::managed::{Holder, new, read, install, invoke};
 
 pub fn make(hp: i32) -> Holder {
     new(hp, "initial", || 42)

@@ -1,4 +1,4 @@
-use std::ops::{ BitOr };
+use std::ops::{BitOr};
 
 struct Bits {
     val value: i32

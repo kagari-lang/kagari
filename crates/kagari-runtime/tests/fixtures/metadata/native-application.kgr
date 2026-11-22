@@ -1,4 +1,4 @@
-use example::defaults::{ Read, Repeat };
+use example::defaults::{Read, Repeat};
 
 impl Read for i32 {
     fn read(self) -> i32 {

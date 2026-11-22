@@ -1,4 +1,4 @@
-use example::bound::{ Step, repeat };
+use example::bound::{Step, repeat};
 
 pub struct Counter {
     pub val amount: i32

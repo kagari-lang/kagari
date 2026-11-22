@@ -1,4 +1,4 @@
-use core::ops::{ Try, FromResidual, ControlFlow };
+use core::ops::{Try, FromResidual, ControlFlow};
 // The residual has a distinct nominal identity and no successful payload.
 enum Outcome<T> {
     Value(T),

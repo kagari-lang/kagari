@@ -1,4 +1,4 @@
-use test::typed::{ request, touch };
+use test::typed::{request, touch};
 
 pub fn factory(value: i32) -> Future<i32> {
     touch(value);

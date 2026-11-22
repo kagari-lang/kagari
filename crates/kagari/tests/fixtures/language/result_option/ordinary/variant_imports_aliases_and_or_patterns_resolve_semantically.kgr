@@ -1,6 +1,6 @@
-use core::option::Option::{ Some as Present, None as Absent };
+use core::option::Option::{Some as Present, None as Absent};
 
-use core::result::Result::{ Ok, Err };
+use core::result::Result::{Ok, Err};
 
 fn main() -> i32 {
     val value: Option<i32> = Present(42);

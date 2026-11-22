@@ -1,4 +1,4 @@
-use game::typed_defaults::{ Source, invoke_default };
+use game::typed_defaults::{Source, invoke_default};
 
 struct Item {
     val value: i32

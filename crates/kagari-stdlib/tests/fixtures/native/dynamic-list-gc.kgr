@@ -1,4 +1,4 @@
-use std::collections::{ List, MutableList };
+use std::collections::{List, MutableList};
 
 use example::collection_gc::collect;
 

@@ -1,4 +1,4 @@
-use example::boxed::{ add, text, through };
+use example::boxed::{add, text, through};
 
 pub fn evidence() -> i32 {
     add(20, 22)

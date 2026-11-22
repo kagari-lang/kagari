@@ -1,4 +1,4 @@
-use example::data::{ Player, ReadOnlyPayload, new, damage };
+use example::data::{Player, ReadOnlyPayload, new, damage};
 
 pub fn make() -> Player {
     new()

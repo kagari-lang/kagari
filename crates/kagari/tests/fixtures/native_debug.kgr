@@ -2,7 +2,7 @@ use std::debug;
 
 use std::string::String;
 
-use std::option::{ Option, Some };
+use std::option::{Option, Some};
 
 use game::diagnostics;
 

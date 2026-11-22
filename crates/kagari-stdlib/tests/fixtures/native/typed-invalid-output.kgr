@@ -1,4 +1,4 @@
-use example::typed::{ broken, trap };
+use example::typed::{broken, trap};
 
 fn main() -> i32 {
     broken()

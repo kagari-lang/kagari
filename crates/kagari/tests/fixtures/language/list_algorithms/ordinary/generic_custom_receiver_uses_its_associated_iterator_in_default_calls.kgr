@@ -1,6 +1,6 @@
-use std::collections::{ List };
+use std::collections::{List};
 
-use std::ops::{ Index };
+use std::ops::{Index};
 
 struct Sequence<T> {
     val items: Vec<T>

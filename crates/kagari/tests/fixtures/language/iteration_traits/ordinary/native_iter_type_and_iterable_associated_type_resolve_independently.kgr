@@ -1,4 +1,4 @@
-use std::iter::{ CollectionCursor };
+use std::iter::{CollectionCursor};
 
 struct Values {
     val items: Vec<i32>

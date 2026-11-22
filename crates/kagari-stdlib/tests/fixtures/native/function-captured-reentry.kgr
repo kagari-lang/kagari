@@ -1,4 +1,4 @@
-use example::functions::{ apply, increment };
+use example::functions::{apply, increment};
 
 pub fn main() -> i32 {
     val offset = [40];

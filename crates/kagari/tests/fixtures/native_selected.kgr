@@ -1,6 +1,6 @@
-use game::selected::{ Echo, invoke, invoke_both };
+use game::selected::{Echo, invoke, invoke_both};
 
-use game::external_selected::{ external_echo, external_scalar };
+use game::external_selected::{external_echo, external_scalar};
 
 impl Echo for i32 {
     type Output = Vec<i32>;

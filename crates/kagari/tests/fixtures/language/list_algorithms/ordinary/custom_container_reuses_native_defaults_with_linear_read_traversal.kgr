@@ -1,8 +1,8 @@
-use std::collections::{ List, MutableList };
+use std::collections::{List, MutableList};
 
-use std::iter::{ CollectionCursor };
+use std::iter::{CollectionCursor};
 
-use std::ops::{ Index };
+use std::ops::{Index};
 
 struct Sequence {
     val items: Vec<i32>

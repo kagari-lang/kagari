@@ -1,6 +1,6 @@
-use std::collections::{ HashSet };
+use std::collections::{HashSet};
 
-use std::hash::{ Hash };
+use std::hash::{Hash};
 
 struct Key<T> {
     val value: T

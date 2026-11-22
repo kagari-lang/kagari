@@ -1,4 +1,4 @@
-use example::typed::{ wrap, inspect };
+use example::typed::{wrap, inspect};
 
 fn main() -> i32 {
     val values = Some(("雪", "🌱"));

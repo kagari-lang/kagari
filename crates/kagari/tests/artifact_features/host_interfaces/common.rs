@@ -47,7 +47,9 @@ impl Default for Config {
                 .split("\nfn read<")
                 .next()
                 .unwrap()
-                .replace("use demo::{ Counter, make };", ""),
+                .split_inclusive('\n')
+                .filter(|line| !line.trim_start().starts_with("use demo::"))
+                .collect(),
             output: |_| Type::i32(),
             owner: None,
             reader_arguments: vec![],

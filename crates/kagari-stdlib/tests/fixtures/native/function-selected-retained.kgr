@@ -1,4 +1,4 @@
-use example::selected::{ Read, capture, tick };
+use example::selected::{Read, capture, tick};
 
 pub struct Counter<T> {
     pub val amount: i32,

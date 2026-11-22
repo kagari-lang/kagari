@@ -1,1 +1,3 @@
-use thing::{name,other as alias};
+use thing::{ name,other as alias };
+pub use thing::{ nested::{ first, second }, third };
+use { thing::name as direct, thing::* };

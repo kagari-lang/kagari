@@ -1,4 +1,4 @@
-use std::collections::{ List, list_content_equal };
+use std::collections::{List, list_content_equal};
 
 fn forward<T>(xs: Vec<T>) -> List<T> {
     xs

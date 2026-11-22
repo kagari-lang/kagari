@@ -1,6 +1,6 @@
-use std::collections::{ HashSet };
+use std::collections::{HashSet};
 
-use std::fmt::{ Display };
+use std::fmt::{Display};
 
 use core::cmp::Eq as Equal;
 

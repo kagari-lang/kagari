@@ -1,4 +1,4 @@
-use std::collections::{ HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set };
+use std::collections::{HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set};
 
 fn size(xs: List<i32>) -> u64 {
     xs.len()

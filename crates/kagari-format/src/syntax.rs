@@ -253,7 +253,11 @@ fn sequence(pieces: &[Piece<'_>], owner: Context, comments: &Comments) -> Doc {
                 if block {
                     Doc::hard()
                 } else {
-                    Doc::soft(if brace { " " } else { "" })
+                    Doc::soft(if brace && owner != Context::UseGroup {
+                        " "
+                    } else {
+                        ""
+                    })
                 }
             };
             let inner_doc = sequence(inner, owner, comments);

@@ -1,4 +1,4 @@
-use example::generic_operation::{ Identity, invoke };
+use example::generic_operation::{Identity, invoke};
 
 struct Source {
     var calls: i32

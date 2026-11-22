@@ -1,4 +1,4 @@
-use core::ops::{ Bound, RangeBounds, RangeFull, RangeInclusive };
+use core::ops::{Bound, RangeBounds, RangeFull, RangeInclusive};
 
 fn endpoints<R: RangeBounds<i32>>(r: R, start: Bound<i32>, end: Bound<i32>) -> bool {
     r.start_bound() == start && r.end_bound() == end

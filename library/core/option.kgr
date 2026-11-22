@@ -3,13 +3,13 @@
 
 use core::default::Default;
 
-use core::ops::{ ControlFlow, FromResidual, Try };
+use core::ops::{ControlFlow, FromResidual, Try};
 
 /// A value that is either present (`Some`) or absent (`None`). Match to choose
 /// a fallback, or use `?` to pass absence back to the caller:
 ///
 /// ```kagari
-/// use core::option::{ Option, Some, None };
+/// use core::option::{Option, Some, None};
 ///
 /// fn value_or_zero(value: Option<i32>) -> i32 {
 ///     match value {
@@ -34,7 +34,7 @@ pub enum Option<T> {
     None,
 }
 
-pub use self::Option::{ Some, None };
+pub use self::Option::{Some, None};
 
 /// Defaults to `None`, even when `T` has no default.
 impl<T> Default for Option<T> {

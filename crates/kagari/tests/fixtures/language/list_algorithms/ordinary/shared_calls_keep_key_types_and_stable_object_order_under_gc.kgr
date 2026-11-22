@@ -1,6 +1,6 @@
-use std::cmp::{ Ordering };
+use std::cmp::{Ordering};
 
-use std::collections::{ List };
+use std::collections::{List};
 
 struct Item {
     val key: i32,

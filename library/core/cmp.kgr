@@ -17,7 +17,7 @@ pub enum Ordering {
     Greater,
 }
 
-pub use self::Ordering::{ Less, Equal, Greater };
+pub use self::Ordering::{Less, Equal, Greater};
 
 /// Defines what it means for two values to be equal under `==`; `!=` negates that answer.
 /// Use `PartialEq` rather than `Eq` as a bound when all you need is to compare values.
@@ -85,9 +85,9 @@ pub trait PartialOrd: PartialEq {
 /// `partial_cmp` to `cmp` so method calls and operators use one ordering rule:
 ///
 /// ```kagari
-/// use core::cmp::{ Eq, PartialOrd, Ord, Ordering, Less, Equal, Greater };
+/// use core::cmp::{Eq, PartialOrd, Ord, Ordering, Less, Equal, Greater};
 ///
-/// use core::option::{ Option, Some };
+/// use core::option::{Option, Some};
 ///
 /// impl Eq for Point {}
 ///

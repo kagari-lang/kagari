@@ -1,6 +1,6 @@
 //! Lazy traversal of shared cursors and construction from their items.
 
-use core::option::{ Option, Some, None };
+use core::option::{Option, Some, None};
 
 /// A cursor that callers can advance one item at a time. Copies share progress:
 /// an item pulled through one copy is no longer available through another.
@@ -14,7 +14,7 @@ use core::option::{ Option, Some, None };
 /// ```kagari
 /// use core::iter::Iterator;
 ///
-/// use core::option::{ Option, Some, None };
+/// use core::option::{Option, Some, None};
 ///
 /// struct Once {
 ///     var ready: bool
@@ -206,9 +206,9 @@ impl<T> Iterable for Iterator<Item = T> {
 /// destination can choose what to retain: `Last` keeps only the final item.
 ///
 /// ```kagari
-/// use core::iter::{ FromIterator, Iterable, Iterator };
+/// use core::iter::{FromIterator, Iterable, Iterator};
 ///
-/// use core::option::{ Option, Some, None };
+/// use core::option::{Option, Some, None};
 ///
 /// struct Last {
 ///     val item: Option<i32>
@@ -240,7 +240,7 @@ pub trait FromIterator<T> {
 /// the source, supplies the addition rule and the result for empty input.
 ///
 /// ```kagari
-/// use core::iter::{ Iterable, Iterator, Sum };
+/// use core::iter::{Iterable, Iterator, Sum};
 ///
 /// struct Total {
 ///     val points: i32
@@ -267,7 +267,7 @@ pub trait Sum<T> {
 /// chooses the result type's multiplicative identity for empty input.
 ///
 /// ```kagari
-/// use core::iter::{ Iterable, Iterator, Product };
+/// use core::iter::{Iterable, Iterator, Product};
 ///
 /// struct Scale {
 ///     val factor: i32
