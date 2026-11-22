@@ -121,8 +121,8 @@ pub struct NominalType {
 /// constraints. Composite types own child type values through vectors/boxes.
 ///
 /// ```text
-/// source "(i32, T)" -> TypeRefId -> Body.types -> TypeKind::Tuple([a, b])
-/// resolution       -> TypeId::Tuple([Builtin(I32), Generic { owner, position, ... }])
+/// source "(i32, T)" -> TypeRefId -> HirNodes::type_ref -> TypeKind::Tuple([a, b])
+/// resolution        -> TypeId::Tuple([Builtin(I32), Generic(GenericParameterType { ... })])
 /// ```
 ///
 /// `Inference` is solver-local temporary state. `Unknown` and `Error` support
@@ -148,16 +148,10 @@ pub enum TypeId {
         /// Semantic result type.
         result: Box<TypeId>,
     },
-    /// Iterator representation carrying its element type.
-
     /// Range element type and open/inclusive/exclusive shape.
     Range(Box<TypeId>, RangeKind),
     /// Builtin fixed-length array element type; length belongs to the object.
     Array(Box<TypeId>),
-    /// Map storage with key/value types and access policy.
-
-    /// Set storage element type and collection access.
-
     /// A registered native-backed nominal object application.
     NativeObject(NominalType),
     /// A source nominal struct application.
@@ -174,7 +168,7 @@ pub enum TypeId {
     Projection {
         /// Arguments of the associated type family.
         arguments: Vec<TypeId>,
-        /// Type whose implementation supplies the associated member.
+        /// Type projected through the trait, including a generic or interface type.
         receiver: Box<TypeId>,
         /// Applied trait qualification, including associated constraints.
         interface: Box<NominalType>,
