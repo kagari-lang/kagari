@@ -1,6 +1,7 @@
 use super::*;
 use crate::hir::expr::ExprKind;
-use crate::tests::standard::standard_modules;
+use crate::tests::{common::definition, standard::standard_modules};
+use kagari_common::identity::DefinitionKind;
 use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
@@ -375,26 +376,21 @@ fn generic_templates_construct_and_project_distinct_instances() {
         result.diagnostics()
     );
     let facts = result.facts();
-    let structure = facts.aggregates.structures().next().unwrap();
-    let enumeration = facts
-        .aggregates
-        .enumerations()
-        .find(|item| {
-            facts
-                .declarations
-                .definitions()
-                .resolve(item.id)
-                .unwrap()
-                .module()
-                == facts.lowered.source.module_identity()
-        })
-        .unwrap();
+    let definitions = facts.declarations.definitions();
+    let cell = definition(definitions, &facts.lowered, DefinitionKind::Struct, "Cell");
+    let packet = definition(definitions, &facts.lowered, DefinitionKind::Enum, "Packet");
+    let structure = facts.aggregates.structure(&cell).unwrap();
+    let enumeration = facts.aggregates.enumeration(&packet).unwrap();
     assert_eq!(structure.generic_params.len(), 1);
     assert_eq!(enumeration.generic_params.len(), 1);
     assert_ne!(structure.generic_params[0], enumeration.generic_params[0]);
     assert_eq!(
         structure.fields[0].ty,
         TypeId::Generic(structure.generic_params[0].clone())
+    );
+    assert_eq!(
+        enumeration.variants[0].payload,
+        [TypeId::Generic(enumeration.generic_params[0].clone())]
     );
     let instances = facts
         .lowered

@@ -675,39 +675,57 @@ fn reload_accepts_added_public_paths_but_preserves_old_paths() {
     ));
 }
 
+const PRIVATE_CONTRACTS: &str =
+    include_str!("../../../tests/fixtures/module/private-contracts.kgr");
+
+fn assert_private_contract_baseline(loaded: &ExecutableModule) {
+    let root = loaded.bytecode.as_ref();
+    assert_eq!(root.private_types.len(), 2);
+    assert_eq!(root.trait_contracts.len(), 1);
+    assert!(root.structures.is_empty());
+    let secret = root
+        .private_types
+        .iter()
+        .find(|item| item.definition.name == "Secret")
+        .unwrap()
+        .declaration;
+    // The enum's declaration layout is retained; the fixture needs no concrete instance.
+    let mut layouts = root
+        .enumerations
+        .iter()
+        .filter(|layout| layout.declaration == secret);
+    assert_eq!(
+        layouts.next().unwrap().arguments,
+        [Ty::Parameter {
+            owner: secret,
+            position: 0
+        }],
+    );
+    assert!(layouts.next().is_none());
+}
+
 #[rstest]
-#[case::removed_struct(|source: &str| source.replace("struct Hidden<T> { val value: T }", ""), "Hidden")]
+#[case::removed_struct(|source: &str| source.replace("struct Hidden<T> {\n    val value: T\n}\n\n", ""), "Hidden")]
 #[case::field_mutability(|source: &str| source.replace("val value: T", "var value: T"), "Hidden")]
 #[case::field_type(|source: &str| source.replace("val value: T", "val value: (T, i32)"), "Hidden")]
 #[case::generic_arity(|source: &str| source.replace("Hidden<T>", "Hidden<T, U>"), "Hidden")]
-#[case::removed_enum(|source: &str| source.replace("enum Secret<T> { Value(T), Empty }", ""), "Secret")]
-#[case::variant_payload(|source: &str| source.replace("Value(T), Empty", "Value(T, i32), Empty"), "Secret")]
-#[case::added_variant(|source: &str| source.replace("Value(T), Empty", "Value(T), Empty, Added"), "Secret")]
-#[case::removed_trait(|source: &str| source.replace("trait Internal { fn read(self) -> i32; }", ""), "Internal::read")]
+#[case::removed_enum(|source: &str| source.replace("enum Secret<T> {\n    Value(T),\n    Empty,\n}\n\n", ""), "Secret")]
+#[case::variant_payload(|source: &str| source.replace("Value(T),", "Value(T, i32),"), "Secret")]
+#[case::added_variant(|source: &str| source.replace("Empty,", "Empty,\n    Added,"), "Secret")]
+#[case::removed_trait(|source: &str| source.replace("trait Internal {\n    fn read(self) -> i32;\n}\n\n", ""), "Internal::read")]
 #[case::trait_signature(|source: &str| source.replace("fn read(self) -> i32", "fn read(self) -> bool"), "Internal::read")]
 fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free(
     #[case] candidate: fn(&str) -> String,
     #[case] name: &str,
 ) {
-    let source = r#"
-        struct Hidden<T> { val value: T }
-        enum Secret<T> { Value(T), Empty }
-        trait Internal { fn read(self) -> i32; }
-        pub fn value() -> i32 { 7 }
-        fn main() {}
-    "#;
     let mut runtime = Runtime::default();
     let loaded_program = runtime
-        .load_verified_program("exports", source_code(source))
+        .load_verified_program("exports", source_code(PRIVATE_CONTRACTS))
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    let root = loaded.bytecode.as_ref();
-    assert_eq!(root.private_types.len(), 2);
-    assert_eq!(root.trait_contracts.len(), 1);
-    assert!(root.structures.is_empty());
-    assert!(root.enumerations.is_empty());
+    assert_private_contract_baseline(&loaded);
     let heap = runtime.gc_stats();
-    let candidate = candidate(source);
+    let candidate = candidate(PRIVATE_CONTRACTS);
     for result in source_free_reload_results(&loaded, &candidate)
         .into_iter()
         .chain([runtime
@@ -728,34 +746,16 @@ fn reload_preserves_unused_private_nominal_and_trait_contracts_source_free(
 
 #[test]
 fn reload_accepts_reordered_private_contracts_and_binder_renaming() {
-    let source = r#"
-        struct Hidden<T> { val value: T }
-        enum Secret<T> { Value(T), Empty }
-        trait Internal { fn read(self) -> i32; }
-        pub fn value() -> i32 { 7 }
-        fn main() {}
-    "#;
     let mut runtime = Runtime::default();
     let loaded_program = runtime
-        .load_verified_program("exports", source_code(source))
+        .load_verified_program("exports", source_code(PRIVATE_CONTRACTS))
         .unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    let root = loaded.bytecode.as_ref();
-    assert_eq!(root.private_types.len(), 2);
-    assert_eq!(root.trait_contracts.len(), 1);
-    assert!(root.structures.is_empty());
-    assert!(root.enumerations.is_empty());
+    assert_private_contract_baseline(&loaded);
 
     // Source order, binder spelling and fresh private declarations do not alter
     // the old contracts, even though each compilation has an independent ID scope.
-    let candidate = r#"
-        trait Internal { fn read(self) -> i32; }
-        enum Secret<U> { Value(U), Empty }
-        struct Added {}
-        struct Hidden<U> { val value: U }
-        pub fn value() -> i32 { 7 }
-        fn main() {}
-    "#;
+    let candidate = include_str!("../../../tests/fixtures/module/private-contracts-reordered.kgr");
     assert_source_free_reload(&loaded, candidate, true);
     let staged = runtime
         .stage_reload_verified_program(&loaded_program, None, source_code(candidate))

@@ -248,7 +248,7 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
     assert_eq!(
         snapshot
             .queries()
-            .source_target_at(root, text.find("pkg::right").unwrap())
+            .source_target_at(root, text.find("right as r").unwrap())
             .unwrap()
             .target,
         ResolvedTarget::Namespace(NamespaceId::Module(
@@ -269,18 +269,18 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
 #[test]
 fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
     let mut db = SourceDatabase::default();
-    insert(&mut db, "library", "pub fn value() -> i32 { 1 }");
+    let library = insert(&mut db, "library", "pub fn value() -> i32 { 1 }");
     let text = "use pkg::library::value; fn good() -> i32 { 42 }";
+    let offset = text.find("value;").unwrap();
     let root = insert(&mut db, "root", text);
     let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
-    let old = first
-        .queries()
-        .definition_at(root, text.find("pkg::library").unwrap())
-        .unwrap()
-        .clone();
+    let old = first.queries().definition_at(root, offset).unwrap();
+    assert_eq!(old.name, "value");
+    let old_site = old.source_location().unwrap();
+    assert_eq!(old_site.file, library);
     let cached = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -311,23 +311,16 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
             .reused_bodies(),
         0
     );
+    assert_eq!(first.queries().definition_at(root, offset), Some(old));
+    let new = second.queries().definition_at(root, offset).unwrap();
+    assert_eq!(new.name, "value");
+    let new_site = new.source_location().unwrap();
+    assert_eq!(new_site.file, library);
     assert_eq!(
-        first
-            .queries()
-            .definition_at(root, text.find("pkg::library").unwrap())
-            .unwrap(),
-        &old
+        new_site.revision,
+        second.source(library).unwrap().revision()
     );
-    assert_ne!(
-        second
-            .queries()
-            .definition_at(root, text.find("pkg::library").unwrap())
-            .unwrap()
-            .source_location()
-            .unwrap()
-            .revision,
-        old.source_location().unwrap().revision
-    );
+    assert_ne!(new_site.revision, old_site.revision);
     db.set(
         "mem://library",
         "fn value() -> i32 { 2 }".into(),
@@ -408,7 +401,7 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
             .diagnostics()
             .is_empty()
     );
-    let offset = text.find("pkg::editor").unwrap();
+    let offset = text.find("value;").unwrap();
     assert_eq!(
         supplied
             .queries()

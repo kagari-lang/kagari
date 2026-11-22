@@ -1,0 +1,9 @@
+mod child {
+    pub fn value() -> i32 {
+        2
+    }
+}
+
+fn main() -> i32 {
+    child::value()
+}

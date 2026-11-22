@@ -211,7 +211,6 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
 #[case::division("fn main() -> i32 { 42 / 2 }")]
 #[case::char_literal("fn main() -> char { '\u{1f642}' }")]
 #[case::char_comparison("fn main() -> bool { 'a' == 'z' }")]
-#[case::reference_parameter("struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }")]
 #[case::static_read("static val value: i32 = 7; fn main() -> i32 { value }")]
 #[case::static_write("static var value: i32 = 7; fn main() -> i32 { value = 9; value }")]
 fn cranelift_backend_reports_unsupported_instructions_before_native_entry(#[case] source: &str) {
@@ -219,6 +218,15 @@ fn cranelift_backend_reports_unsupported_instructions_before_native_entry(#[case
     let error = compile(&mut backend, &mir(source)).unwrap_err();
     assert!(error.is_unsupported(), "{error:?}");
     // A failed compile cannot poison subsequent compilation.
+    compile(&mut backend, &mir("fn main() -> i32 { 42 }")).unwrap();
+}
+
+#[test]
+fn cranelift_backend_rejects_parameterized_entry_before_native_entry() {
+    let mut backend = CraneliftBackend::for_host().unwrap();
+    let error = compile(&mut backend, &mir("fn main(value: i32) -> i32 { 42 }")).unwrap_err();
+    assert!(error.is_unsupported());
+    assert!(error.diagnostics[0].message.contains("zero arguments"));
     compile(&mut backend, &mir("fn main() -> i32 { 42 }")).unwrap();
 }
 

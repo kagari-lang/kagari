@@ -15,7 +15,9 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
     .compile_to_artifact(
         SourceFile::new(
             "memory://try-witness.kgr",
-            "fn main()->Result<i32,i64> { val value: Result<i32,i32> = Err(42); Ok(value?) }",
+            include_str!(
+                "../../../../../tests/fixtures/language/try_protocols/numeric-from-adapter.kgr"
+            ),
         ),
         Default::default(),
     )
@@ -47,6 +49,9 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
                     .is_some_and(|required| {
                         Protocol::from_definition(&required.interface.declaration, &table)
                             == Some(Protocol::From)
+                            && required.receiver == Ty::Builtin(BuiltinType::I64)
+                            && required.interface.arguments.as_slice()
+                                == [Ty::Builtin(BuiltinType::I32)]
                     })
             })
             .expect("a checked numeric From adapter");

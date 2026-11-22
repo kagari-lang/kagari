@@ -410,11 +410,16 @@ fn declared_external_child_module_resolves_qualified_calls() {
 
 #[test]
 fn duplicate_inline_and_external_module_identity_is_rejected() {
-    let engine = KagariEngine::with_native_modules(
-        Default::default(),
-        standard_library().modules().unwrap(),
-    )
-    .unwrap();
+    let engine = KagariEngine::new(Default::default());
+    let root = insert(
+        &engine,
+        "root",
+        include_str!("../../../../tests/fixtures/embedding/source-modules/inline-child.kgr"),
+    );
+    engine
+        .compile_snapshot(engine.source_snapshot(), root, &Default::default())
+        .unwrap();
+
     engine
         .bind_module(
             "mem://child",
@@ -427,19 +432,19 @@ fn duplicate_inline_and_external_module_identity_is_rejected() {
     engine
         .set_source(
             "mem://child",
-            "pub fn value() -> i32 { 1 }".into(),
+            include_str!("../../../../tests/fixtures/embedding/source-modules/external-child.kgr")
+                .into(),
             SourceLayer::Base,
         )
         .unwrap();
-    let root = insert(
-        &engine,
-        "root",
-        "mod child { pub fn value() -> i32 { 2 } } fn main() -> i32 { child::value() }",
-    );
     let error = engine
         .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap_err();
-    assert!(format!("{error:?}").contains("KG_RESOLVE_DUPLICATE_DECLARATION"));
+    assert!(
+        matches!(&error, EmbeddingError::Source { message }
+            if message == "native API: source conflicts with library declaration input"),
+        "{error:?}"
+    );
 }
 
 #[test]

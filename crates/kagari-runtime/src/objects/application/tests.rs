@@ -21,15 +21,15 @@ use crate::{
         },
     },
     module::{
-        ExecutableModule, InstalledProgram, linked_execution::calls::LinkedCall,
-        managed::source::RevisionSource,
+        ExecutableModule, InstalledProgram, entry::ProgramEntry,
+        linked_execution::calls::LinkedCall, managed::source::RevisionSource,
     },
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         conversion::{arguments::ArgumentValues, context::ConversionContext},
-        declarations::MethodDecl,
+        declarations::{CallableRequirement, MethodDecl},
         module::NativeModule,
         types::Type,
     },
@@ -107,27 +107,39 @@ fn protected_native_applications_reuse_environment_and_release_their_old_graphs(
     let mut module =
         ModuleBuilder::new("example::defaults", &DeclarationCatalog::default()).unwrap();
     let mut declaration = module.define_trait("Read").unwrap();
-    let read = declaration
+    declaration
         .define_method(MethodDecl::instance("read").returns(Type::i32()))
         .unwrap();
+    let read = declaration.finish().unwrap();
+    let mut declaration = module.define_trait("Repeat").unwrap();
     let twice = declaration
         .define_method(MethodDecl::instance("twice").returns(Type::i32()))
         .unwrap();
-    let required = declaration.operation(&read).unwrap();
+    // A concrete default's Script wrapper requires no method application. A
+    // method-local bound keeps the checked witness in the applied entry graph.
     let selected = declaration
-        .method(&twice, |method| method.requires(required))
+        .method(&twice, |method| {
+            let item = method.type_parameter("T")?.ty();
+            method.parameter("item", item.clone())?;
+            method.bound(item.clone(), read.apply([])?)?;
+            method.requires(CallableRequirement::method(item, read.method("read")?)?)
+        })
         .unwrap();
     declaration
         .bind(
             twice,
-            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
-                let receiver = cx.argument(0)?;
-                let target = cx.selected(&selected)?;
-                let Some(value) = cx.call_values(target, &[receiver])?.as_i32() else {
-                    return Err(RuntimeError::module_validation("checked Read result"));
-                };
-                Ok(ValueView::from(value * 2))
-            }),
+            NativeBinding::new(
+                vec![Codec::Value, Codec::Value],
+                Codec::Exact(Type::i32()),
+                move |cx| {
+                    let item = cx.argument(1)?;
+                    let target = cx.selected(&selected)?;
+                    let Some(value) = cx.call_values(target, &[item])?.as_i32() else {
+                        return Err(RuntimeError::module_validation("checked Read result"));
+                    };
+                    Ok(ValueView::from(value * 2))
+                },
+            ),
         )
         .unwrap();
     declaration.finish().unwrap();
@@ -136,6 +148,21 @@ fn protected_native_applications_reuse_environment_and_release_their_old_graphs(
         include_str!("../../../tests/fixtures/metadata/native-application.kgr"),
         Some(&module),
     );
+    let result = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .unwrap();
+    assert_eq!(result.return_value.as_i32(), Some(14));
+    let (_, entry) = loaded.entry_function().unwrap();
+    let links = runtime
+        .modules
+        .linked_function(&loaded, entry, None)
+        .unwrap();
+    let call = (0..loaded.execution().functions[entry.index()].calls.len())
+        .find_map(|ordinal| {
+            let call = links.call(ordinal)?;
+            (!call.operations.is_empty()).then(|| call.clone())
+        })
+        .unwrap();
     runtime.collect_garbage().unwrap();
     let roots = runtime.gc_stats().root_registrations;
     let table = loaded
@@ -162,25 +189,29 @@ fn protected_native_applications_reuse_environment_and_release_their_old_graphs(
                 .is_some_and(|method| loaded.definition_name(method.method) == Some("twice"))
         })
         .unwrap();
-    let first = runtime
-        .resolve_interface_method_slot(&value, description.interface_type(), slot, &[])
-        .unwrap();
-    let second = {
-        let sources = first.sources().unwrap();
+    let prepare = |runtime: &mut Runtime, sources: &[MetadataSource<'_>]| {
         runtime
             .prepare_interface_method_slot(
                 &value,
                 description.interface_type(),
                 slot,
                 MethodApplicationInput {
-                    arguments: &[],
-                    operations: Default::default(),
-                    constructions: Default::default(),
-                    sources: &sources,
+                    arguments: call.arguments.values(),
+                    operations: call.operations.clone(),
+                    constructions: call.arguments.constructions().clone(),
+                    sources,
                 },
             )
             .unwrap()
     };
+    let first = prepare(
+        &mut runtime,
+        &[MetadataSource::Revision {
+            owner: &loaded,
+            source: RevisionSource::Current,
+        }],
+    );
+    let second = prepare(&mut runtime, &first.sources().unwrap());
     assert_eq!(application_id(&first), application_id(&second));
     let environment = semantic_environment(&mut runtime, &first);
     assert_eq!(

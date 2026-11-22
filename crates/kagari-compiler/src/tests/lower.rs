@@ -101,30 +101,28 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     let ir = lower_budgeted_root(
         &checked,
         &MirLoweringOptions {
-            max_generic_instances: 4,
+            // Two Cell applications, the Packet template and application, and get<i32>.
+            max_generic_instances: 5,
             ..Default::default()
         },
     )
     .unwrap();
     assert_eq!(ir.structures.len(), 2);
-    assert_eq!(
-        ir.enumerations
-            .iter()
-            .filter(|layout| ir
-                .definitions()
-                .resolve(layout.declaration)
-                .unwrap()
-                .module()
-                == &ir.identity)
-            .count(),
-        1
-    );
+    let local_enums = ir.enumerations.iter().filter(|layout| {
+        ir.definitions().module_of(layout.declaration).unwrap()
+            == ir.definitions().lookup_module(&ir.identity).unwrap()
+    });
+    let (instances, templates): (Vec<_>, Vec<_>) =
+        local_enums.partition(|layout| layout.arguments.iter().all(|ty| ty.is_concrete()));
+    assert_eq!(instances.len(), 1);
+    assert_eq!(templates.len(), 1);
+    assert_eq!(instances[0].declaration, templates[0].declaration);
     assert_eq!(ir.functions.len(), 2);
     common::adopt_bytecode(&context, common::bytecode_with_edited_root(&checked, &ir));
     let Err(MirLoweringError::Diagnostic(d)) = lower_budgeted_root(
         &checked,
         &MirLoweringOptions {
-            max_generic_instances: 3,
+            max_generic_instances: 4,
             ..Default::default()
         },
     ) else {
@@ -134,7 +132,7 @@ fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
         d.kind,
         DiagnosticKind::CompileLimitExceeded {
             resource: "generic instances",
-            limit: 3
+            limit: 4
         }
     ));
 }
@@ -1044,15 +1042,15 @@ fn main() -> () {
             .flat_map(|block| block.instructions.iter())
             .any(|instruction| matches!(instruction, Instruction::MakeStruct { .. }))
     );
-    let expected_index = common::standard_array_index_binding();
     assert!(
         function
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. }
-                if ir.definitions().resolve(import.binding).unwrap().to_path() == expected_index))
+            .any(|instruction| matches!(instruction, Instruction::ReadAggregateIndex { dst, base, index }
+                if dst.ty == ValueType::I32 && base.ty == ValueType::HeapObject && index.ty == ValueType::I32))
     );
+    assert!(!function.effects.calls);
     assert!(
         function
             .blocks

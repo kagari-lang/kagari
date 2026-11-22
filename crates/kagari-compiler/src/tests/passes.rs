@@ -235,16 +235,26 @@ fn scalar_facts_do_not_flow_through_heap_reads_or_calls() {
         "fn touch() {} fn main() -> i32 { val x = [1]; touch(); if x[0] == 1 { 2 } else { 3 } }",
     ));
     assert_eq!(result.statistics.branches_simplified, 0);
-    let expected_index = common::standard_array_index_binding();
+    let main = result
+        .module
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .unwrap();
     assert!(
-        result
-            .module
-            .functions
+        main.blocks
             .iter()
-            .flat_map(|function| &function.blocks)
-            .flat_map(|block| &block.instructions)
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. }
-                if result.module.definitions().resolve(import.binding).unwrap().to_path() == expected_index))
+            .any(|block| { matches!(block.terminator, Some(Terminator::Branch { .. })) })
+    );
+    let mut instructions = main.blocks.iter().flat_map(|block| &block.instructions);
+    assert!(
+        instructions.any(|instruction| matches!(instruction, Instruction::Call {
+        callee: CallTarget::Function(id), ..
+    } if result.module.functions[id.index()].name == "touch"))
+    );
+    assert!(
+        instructions
+            .any(|instruction| matches!(instruction, Instruction::ReadAggregateIndex { .. }))
     );
 }
 

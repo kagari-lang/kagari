@@ -317,10 +317,11 @@ owns its String parameter, shared passing capability and service/trap/mutation
 effects. No callback runs during authoring or compilation.
 
 Print can compile without an installed logger: its checked declaration-only
-provider enters the ordinary MIR/bytecode native module graph. Native imports,
-link proofs and exact installed contract checks apply normally. This requirement
-does not export a source namespace or supply a default callback; missing binding
-rejects at load. An explicitly installed log module permits ordinary source
+provider enters the ordinary MIR/bytecode native module graph and retains a direct
+edge to the authored `alloc::string` module for its `String` parameter. Native
+imports, link proofs and exact installed contract checks apply normally. This
+requirement does not export a source namespace or supply a default callback;
+a missing binding rejects the program at load. An explicitly installed log module permits ordinary source
 imports of `host::log`. Its canonical owner is the root `host` module, as for any
 other common registration. The old `standard_log` factory is removed.
 

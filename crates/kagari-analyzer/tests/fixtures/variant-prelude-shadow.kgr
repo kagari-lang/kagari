@@ -1,0 +1,30 @@
+enum Local<T> {
+    Some(T),
+    None,
+}
+
+use self::Local::{ Some, None };
+
+use core::option::Option::{ Some as Present, None as Absent };
+
+fn make_option(value: i32) -> Option<i32> {
+    Present(value)
+}
+
+fn local(value: i32) -> Local<i32> {
+    Some(value)
+}
+
+fn read(value: Local<i32>) -> i32 {
+    match value {
+        None => 0,
+        Some(payload) => payload,
+    }
+}
+
+fn read_core(value: Option<i32>) -> i32 {
+    match value {
+        Absent => 0,
+        Present(payload) => payload,
+    }
+}

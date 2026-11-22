@@ -76,31 +76,28 @@ fn integer_constants_must_match_semantic_range_and_representation() {
 #[test]
 fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
     let context = DefinitionContext::new().unwrap();
-    let original = common::adopt_bytecode(
+    let mut original = common::adopt_bytecode(
         &context,
         common::bytecode_ok("pub enum Packet<T> { Data(T) } fn main() {}"),
     );
-    assert!(
-        original.modules[original.root.index()]
-            .enumerations
-            .iter()
-            .all(|layout| *context
-                .snapshot()
-                .resolve(layout.declaration)
-                .unwrap()
-                .module()
-                != original.modules[original.root.index()].identity)
-    );
+    let module = &mut original.modules[original.root.index()];
+    let PublicItem::Type(template) = &module.public_items[0] else {
+        unreachable!()
+    };
+    let declaration = template.generic_params[0].owner;
+    // Rule out layout matching as the reason for rejecting a bad binder.
+    module
+        .enumerations
+        .retain(|layout| layout.declaration != declaration);
+    verify_program(&original, &context.snapshot(), &Default::default()).unwrap();
     for foreign_owner in [false, true] {
         let mut bytecode = original.clone();
-        let kagari_contract::types::PublicItem::Type(template) =
+        let PublicItem::Type(template) =
             &mut bytecode.modules[bytecode.root.index()].public_items[0]
         else {
             unreachable!()
         };
-        let kagari_types::ty::Ty::Parameter { owner, position } =
-            &mut template.variants[0].payload[0]
-        else {
+        let Ty::Parameter { owner, position } = &mut template.variants[0].payload[0] else {
             unreachable!()
         };
         if foreign_owner {
@@ -110,7 +107,10 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         } else {
             *position = 1;
         }
-        assert!(verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err());
+        assert_eq!(
+            verify_program(&bytecode, &context.snapshot(), &Default::default()),
+            Err(BytecodeVerificationError::InvalidPublicAbi)
+        );
     }
 }
 
@@ -887,22 +887,27 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
         "pub struct Box<T> { val value: T } fn main() {}",
         "pub enum Box<T> { Value(T) } fn main() {}",
     ] {
-        let original = raw(&context, source);
+        let mut original = raw(&context, source);
+        let PublicItem::Type(template) = &original.abi.public_items[0] else {
+            unreachable!()
+        };
+        let declaration = template.generic_params[0].owner;
         assert!(
-            original.structures.iter().all(|layout| *context
-                .snapshot()
-                .resolve(layout.declaration)
-                .unwrap()
-                .module()
-                != original.identity)
-                && original.enumerations.iter().all(|layout| *context
-                    .snapshot()
-                    .resolve(layout.declaration)
-                    .unwrap()
-                    .module()
-                    != original.identity)
+            original
+                .structures
+                .iter()
+                .all(|layout| layout.declaration != declaration)
         );
-        let bytecode = common::adopt_bytecode(&context, common::bytecode_ok(source));
+        // A declaration-only product must validate the shape independently of layouts.
+        original
+            .enumerations
+            .retain(|layout| layout.declaration != declaration);
+        common::verify_edited(&context, original.clone()).unwrap();
+        let mut bytecode = common::adopt_bytecode(&context, common::bytecode_ok(source));
+        bytecode.modules[bytecode.root.index()]
+            .enumerations
+            .retain(|layout| layout.declaration != declaration);
+        verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
         for mutation in 0..5 {
             let mut invalid = original.clone();
             let PublicItem::Type(template) = &mut invalid.abi.public_items[0] else {

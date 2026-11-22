@@ -15,7 +15,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::validate_native_declarations},
-    language::Protocol,
+    language::{Protocol, schema::CoreEnum},
     scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
@@ -217,26 +217,63 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             .check_program(declared.source().id(), &Default::default())
             .unwrap();
         let input = compilation(&program);
-        let module = collect_module_abi(input.module(input.root()).unwrap());
+        let checked = input.module(input.root()).unwrap();
+        let module = collect_module_abi(checked);
         if declared.source().module_identity() == &Protocol::From.module() {
             // The declaration of TryInto retains Self::Error even though its blanket
             // implementation returns the destination's TryFrom::Error.
-            let installed = standard_modules()
-                .into_iter()
-                .find(|provider| provider.records().identity == Protocol::From.module())
-                .unwrap()
-                .import_into(&input.definition_context(), &Default::default())
-                .unwrap();
-
-            for expected in &installed.records().traits {
-                assert!(
-                    module.public_items.iter().any(
-                        |item| matches!(item, PublicItem::Trait(actual) if actual == expected)
-                    ),
-                    "{} must retain its installed declaration",
-                    expected.name
-                );
+            let trait_named = |name| {
+                module
+                    .public_items
+                    .iter()
+                    .find_map(|item| match item {
+                        PublicItem::Trait(record) if record.name == name => Some(record),
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+            for name in ["From", "Into", "TryFrom", "TryInto"] {
+                let [method] = trait_named(name).methods.as_slice() else {
+                    panic!("{name} must retain its required method");
+                };
+                assert_eq!(method.implementation, CallableImplementation::Required);
             }
+            let record = trait_named("TryInto");
+            let [parameter] = record.generic_params.as_slice() else {
+                panic!("TryInto has one destination parameter");
+            };
+            let [error] = record.associated_types.as_slice() else {
+                panic!("TryInto has one associated error");
+            };
+            let definitions = checked.environment().definitions();
+            let owner = parameter.owner;
+            assert_eq!(
+                definitions.lookup_child(owner, DefinitionKind::AssociatedType, "Error", 0),
+                Some(error.declaration)
+            );
+            let Ty::Enum(result) = &record.methods[0].return_type else {
+                panic!("try_into returns the source-owned Result");
+            };
+            assert_eq!(
+                definitions.lookup(&CoreEnum::Result.declaration()),
+                Some(result.declaration)
+            );
+            assert_eq!(
+                result.arguments,
+                [
+                    parameter.as_type(),
+                    Ty::Projection {
+                        arguments: vec![],
+                        receiver: Box::new(Ty::SelfType(owner)),
+                        interface: Box::new(NominalTy {
+                            declaration: owner,
+                            arguments: vec![parameter.as_type()],
+                            associated_types: BTreeMap::new(),
+                        }),
+                        member: error.declaration,
+                    }
+                ]
+            );
         }
         for kind in Protocol::ALL {
             let id = kind.definition(analyzed.definitions()).unwrap();

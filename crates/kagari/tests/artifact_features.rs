@@ -760,7 +760,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     assert!(
         matches!(&error, error
             if error.kind() == RuntimeErrorKind::ModuleValidation
-                && error.to_string().contains("native declaration differs from its installed contract")),
+                && error.to_string().contains("native binding differs from its registered contract")),
         "{error:?}"
     );
     runtime.collect_garbage().unwrap();

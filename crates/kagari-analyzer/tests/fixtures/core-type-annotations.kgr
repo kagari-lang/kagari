@@ -1,0 +1,19 @@
+use std::ops::{ RangeFull };
+
+use alloc::string as library;
+
+use core::option as language;
+
+use alloc::string::String as Text;
+
+use core::option::Option as Maybe;
+
+fn inspect(
+    a: String,
+    b: Text,
+    c: library::String,
+    d: language::Option<i32>,
+    e: Maybe<i32>,
+    f: core::ops::RangeFull,
+    g: RangeFull,
+) {}

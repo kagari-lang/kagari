@@ -1,4 +1,7 @@
-use crate::{AnalyzerQueries, query_tests::test_analysis};
+use crate::{
+    AnalyzerQueries,
+    query_tests::{common::assert_source_spelling, test_analysis},
+};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::{analysis::*, types::*};
 use kagari_hir::{declarations::DeclarationId, hir::expr::ExprKind};
@@ -14,8 +17,8 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
-fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
-    let text = "enum Local<T> { Some(T), None } use self::Local::{Some as LocalSome, None as LocalNone}; fn make_option(value:i32)->Option<i32> { Some(value) } fn script(value:i32)->Local<i32> { LocalSome(value) } fn read(value:Option<i32>)->i32 { match value { Some(payload)=>payload, None=>0 } }";
+fn core_and_local_variants_share_checked_constructor_and_pattern_facts() {
+    let text = include_str!("../../tests/fixtures/core-and-local-variants.kgr");
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("variants.kgr", text.into(), SourceLayer::Base)
@@ -66,7 +69,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         checked += 1;
     }
     assert_eq!(checked, 2);
-    for needle in ["Some(payload)", "None=>"] {
+    for needle in ["Some(payload)", "None =>"] {
         let offset = text.find(needle).unwrap();
         let pattern = facts
             .lowered
@@ -104,7 +107,7 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
             "kagari-core"
         );
     }
-    let native = snapshot
+    let core = snapshot
         .queries()
         .definition_at(file, text.find("Some(value)").unwrap())
         .unwrap();
@@ -112,14 +115,14 @@ fn native_and_script_variants_share_checked_constructor_and_pattern_facts() {
         .queries()
         .definition_at(file, text.find("LocalSome(value)").unwrap())
         .unwrap();
-    assert_ne!(native.id, script.id);
-    assert!(native.source_location().is_none());
+    assert_ne!(core.id, script.id);
+    assert_source_spelling(&snapshot, core, "kagari-core:///option.kgr", "Some");
     assert_eq!(script.source_location().unwrap().file, file);
 }
 
 #[test]
 fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
-    let text = "enum Local<T> { Some(T), None } use self::Local::{Some, None}; use core::option::Option::{Some as Present, None as Absent}; fn make_option(value:i32)->Option<i32> { Present(value) } fn local(value:i32)->Local<i32> { Some(value) } fn read(value:Local<i32>)->i32 { match value { None=>0, Some(payload)=>payload } } fn read_native(value:Option<i32>)->i32 { match value { Absent=>0, Present(payload)=>payload } }";
+    let text = include_str!("../../tests/fixtures/variant-prelude-shadow.kgr");
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("shadowed-variants.kgr", text.into(), SourceLayer::Base)
@@ -133,23 +136,24 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
     );
     let authoring_facts = analysis.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
-    for (needle, native) in [
-        ("Some(value)", false),
-        ("None=>", false),
-        ("Some(payload)", false),
-        ("Present(value)", true),
-        ("Absent=>", true),
-        ("Present(payload)", true),
+    for (needle, spelling, core) in [
+        ("Some(value)", "Some", false),
+        ("None =>", "None", false),
+        ("Some(payload)", "Some", false),
+        ("Present(value)", "Some", true),
+        ("Absent =>", "None", true),
+        ("Present(payload)", "Some", true),
     ] {
         let declaration = snapshot
             .queries()
             .definition_at(file, text.find(needle).unwrap())
             .unwrap();
-        assert_eq!(
-            declaration.source_location().map(|site| site.file),
-            (!native).then_some(file),
-            "{needle}"
-        );
+        let uri = if core {
+            "kagari-core:///option.kgr"
+        } else {
+            analysis.source().name()
+        };
+        assert_source_spelling(&snapshot, declaration, uri, spelling);
         let DeclarationId::Definition(id) = &declaration.id else {
             panic!("variant declaration")
         };
@@ -160,7 +164,7 @@ fn explicit_variant_imports_shadow_prelude_in_calls_patterns_and_navigation() {
                 == analysis
                     .definitions()
                     .lookup(&binding::option_declaration()),
-            native,
+            core,
             "{needle}"
         );
     }

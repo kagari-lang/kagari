@@ -1,7 +1,8 @@
 use crate::{
     hir::item::module::ImportLeaf,
     imports::{
-        LocalName, ModuleGraph, ModuleOrderError, NamespaceId, ResolvedTarget, SourceUnit,
+        LocalName, ModuleGraph, ModuleOrderError, NamespaceId, ResolvedTarget, SourceItem,
+        SourceUnit,
         catalog::{LookupContext, LookupResult, NamespaceResult},
         tests::{analyze, insert},
     },
@@ -258,20 +259,32 @@ fn source_less_reexport_resolves_without_physical_import_sites() {
     };
     assert_eq!(binding.resolution.target(), Some(target));
     assert_eq!(binding.location, None);
-    let iterator = graph
+    let name = "CharTryFromError";
+    let native = graph
         .catalog
         .definitions
-        .lookup_module(&namespaces::trait_owner("Iterator"))
+        .lookup_module(&namespaces::type_owner(name))
         .unwrap();
-    let provider = graph.node(&iterator).unwrap();
-    let declared = LocalName::new("Iterator").unwrap();
+    let provider = graph.node(&native).unwrap();
+    let lowered = &snapshot
+        .file(provider.file)
+        .unwrap()
+        .result()
+        .facts()
+        .lowered;
+    assert!(lowered.source_surface().is_none());
+    let declared = LocalName::new(name).unwrap();
     let [declaration] = provider.imports.scope.entries[&declared][NameNamespace::Type]
         .strong
         .as_slice()
     else {
         panic!("one declaration binding");
     };
-    assert!(declaration.resolution.target().is_some());
+    assert!(matches!(
+        declaration.resolution.target(),
+        Some(ResolvedTarget::Source(source))
+            if source.unit.module == native && matches!(source.item, SourceItem::Enum(_))
+    ));
     assert_eq!(declaration.location, None);
 
     let imported = snapshot.file(root).unwrap();

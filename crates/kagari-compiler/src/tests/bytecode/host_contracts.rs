@@ -6,6 +6,7 @@ use kagari_types::{
     declaration::{
         TypeDeclaration,
         host::{HostPassingStyle, HostTypeOwnership},
+        native::NativeTypeConstructor,
     },
     scalar::BuiltinType,
     ty::Ty,
@@ -30,6 +31,9 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .position(|module| module.identity == declaration.identity)
         .unwrap();
     assert_eq!(module.modules[module.root.index()].native_imports.len(), 1);
+    assert!(module.modules[provider].dependencies.iter().any(|edge| {
+        module.modules[edge.index()].identity == NativeTypeConstructor::String.declaration().module
+    }));
     assert_eq!(
         module.modules[provider].native_declarations,
         declaration

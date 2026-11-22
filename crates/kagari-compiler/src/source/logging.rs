@@ -11,7 +11,7 @@ use kagari_contract::{
 use kagari_mir::function::MirModule;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::{NativeDeclaration, logging},
+    declaration::{NativeDeclaration, logging, native::NativeTypeConstructor},
 };
 
 fn declaration(
@@ -94,8 +94,16 @@ pub(super) fn attach(
         .map_err(|error| MirLoweringError::Identity(error.into()))?
         .module()
         .clone();
+    // The builtin String in the signature has no definition ID for generic edge
+    // collection to visit. Its authored owner must be reachable by the provider.
+    let string_owner = NativeTypeConstructor::String.declaration().module;
+    let string_dependency = modules
+        .iter()
+        .any(|module| module.identity == string_owner)
+        .then_some(string_owner);
     let conflict = || MirLoweringError::MissingBinding("print's native provider contract");
     if let Some(provider) = modules.iter_mut().find(|module| module.identity == owner) {
+        provider.dependencies.extend(string_dependency);
         if provider
             .functions
             .iter()
@@ -137,7 +145,7 @@ pub(super) fn attach(
             native_targets: vec![target],
             interface_instances: Vec::new(),
             external_types: Vec::new(),
-            dependencies: Vec::new(),
+            dependencies: string_dependency.into_iter().collect(),
             structures: Vec::new(),
             enumerations: Vec::new(),
             module_slots: Default::default(),

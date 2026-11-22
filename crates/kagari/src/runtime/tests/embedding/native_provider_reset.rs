@@ -50,7 +50,7 @@ fn artifact(source: &str) -> DefinitionMetadata<KbcArtifact> {
         .compile_to_artifact(
             SourceFile::new(
                 "memory://provider-reset.kgr",
-                format!("use external::fixture as native;\n{source}"),
+                format!("use external::fixture as provider;\n{source}"),
             ),
             Default::default(),
         )
@@ -131,7 +131,7 @@ fn provider_callback_retains_captures_partial_output_and_heap_results() {
     execute(
         r#"fn main() -> i32 {
         val count = [18];
-        val arrays = native::from_fn(2u64, |index| {
+        val arrays = provider::from_fn(2u64, |index| {
             count[0u64] = count[0u64] + 2;
             [count[0u64]]
         });
@@ -145,7 +145,7 @@ fn zero_length_initialization_does_not_call_the_callback() {
     execute(
         r#"fn main() -> i32 {
         val count = [42];
-        val a = native::from_fn(0u64, |index| { count[0u64] = 0; 1 });
+        val a = provider::from_fn(0u64, |index| { count[0u64] = 0; 1 });
         if a.len() == 0u64 { count[0u64] } else { 0 }
     }"#,
     );
@@ -360,7 +360,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
 #[test]
 fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
     let original = artifact(
-        "fn main() -> i32 { val values = native::from_fn(3u64, |i| { if i == 1u64 { 1 / 0 } else { 20 } }); values[0u64] }",
+        "fn main() -> i32 { val values = provider::from_fn(3u64, |i| { if i == 1u64 { 1 / 0 } else { 20 } }); values[0u64] }",
     );
     let program =
         Program::from_artifact(original, &Default::default(), &Default::default()).unwrap();
@@ -382,7 +382,7 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
 #[test]
 fn cancellation_boundaries_unwind_nested_provider_callbacks() {
     let program = Program::from_artifact(
-        artifact("fn main() -> i32 { val values = native::from_fn(2u64, |i| { native::from_fn(1u64, |j| { [21] }) }); values[0u64][0u64][0u64] + values[1u64][0u64][0u64] }"),
+        artifact("fn main() -> i32 { val values = provider::from_fn(2u64, |i| { provider::from_fn(1u64, |j| { [21] }) }); values[0u64][0u64][0u64] + values[1u64][0u64][0u64] }"),
         &Default::default(), &Default::default(),
     ).unwrap();
     let mut cancelled = 0;

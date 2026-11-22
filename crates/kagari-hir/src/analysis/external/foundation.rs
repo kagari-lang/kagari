@@ -431,11 +431,23 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         Some(iteration.next_interface.declaration),
         Protocol::Iterator.definition(file.definitions())
     );
-    assert!(matches!(iteration.iterator, TypeId::NativeObject(_)));
+    let TypeId::Struct(iterator) = &iteration.iterator else {
+        panic!(
+            "map should use its authored adapter, got {:?}",
+            iteration.iterator
+        );
+    };
+    let definitions = file.definitions();
+    let owner = definitions
+        .lookup_root(&Protocol::Iterator.module())
+        .unwrap();
     assert_eq!(
-        iteration.item,
-        TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)
+        Some(iterator.declaration),
+        definitions.lookup_child(owner, DefinitionKind::Struct, "MapIterator", 0)
     );
+    let item = TypeId::Builtin(kagari_types::scalar::BuiltinType::I32);
+    assert_eq!(iterator.arguments, [item.clone(), item.clone()]);
+    assert_eq!(iteration.item, item);
 
     let rebuilt = exported(&standard_modules());
     offline.set_external_modules(rebuilt);

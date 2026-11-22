@@ -1,0 +1,20 @@
+trait Internal {
+    fn read(self) -> i32;
+}
+
+enum Secret<U> {
+    Value(U),
+    Empty,
+}
+
+struct Added {}
+
+struct Hidden<U> {
+    val value: U
+}
+
+pub fn value() -> i32 {
+    7
+}
+
+fn main() {}

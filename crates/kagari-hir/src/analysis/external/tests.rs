@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::standard::standard_modules;
 use crate::{
-    analysis::{AnalysisSnapshot, FileAnalysis},
+    analysis::{AnalysisSnapshot, FileAnalysis, core_source::packaged_modules},
     compile_input::program::{AdmissionError, CheckedCompilation},
     hir::{item::function::FunctionImplementation, writeability::Writeability},
     semantic::signatures::FunctionImplementation as CheckedImplementation,
@@ -640,18 +640,17 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         ),
     ] {
         let mut shapes = AnalysisDatabase::new("/constructor-shapes").unwrap();
+        let owner = kagari_stdlib::namespaces::module(package, module);
+        let bundled = packaged_modules()
+            .iter()
+            .find(|input| input.source.module_identity() == &owner)
+            .unwrap();
         for (text, accepted) in [(valid, true), (wrong_arity, false), (fields, false)] {
-            let mut sources = SourceDatabase::new("/constructor-shapes").unwrap();
-            sources
-                .bind_module(
-                    "constructor.kgr",
-                    kagari_stdlib::namespaces::module(package, module),
-                )
-                .unwrap();
-            let id = sources
-                .set("constructor.kgr", text.into(), SourceLayer::Base)
-                .unwrap();
-            let declaration = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
+            let mut declaration = bundled.clone();
+            super::foundation::change_export(&mut declaration, |source| {
+                assert!(source.contains(valid));
+                source.replace(valid, text)
+            });
             for sidecar in [false, true] {
                 let mut declaration = declaration.clone();
                 if sidecar {
@@ -659,11 +658,7 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
                         .types
                         .insert(name.into(), ExternalType::Constructor(constructor));
                 }
-                if package == "core" {
-                    shapes.replace_core_fixture(declaration);
-                } else {
-                    shapes.set_external_modules(vec![declaration]);
-                }
+                shapes.replace_core_fixture(declaration);
                 let result = shapes.declarations(SourceSnapshot::default(), &Default::default());
                 if accepted {
                     assert!(result.is_ok(), "{text}, sidecar={sidecar}: {result:?}");

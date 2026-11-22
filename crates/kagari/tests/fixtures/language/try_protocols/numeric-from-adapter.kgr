@@ -1,0 +1,13 @@
+trait Converter {
+    fn convert<S, D: From<S>>(self, value: S) -> D {
+        D::from(value)
+    }
+}
+
+impl Converter for i32 {}
+
+fn main() -> i64 {
+    val converter: Converter = 0;
+    val result: i64 = converter.convert(42i32);
+    result
+}

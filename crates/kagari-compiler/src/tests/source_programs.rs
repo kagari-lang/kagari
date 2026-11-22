@@ -17,6 +17,7 @@ use crate::{
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, KbcArtifact, encode_program_facts},
     program::{BytecodeProgram, verify_program as verify_bytecode_program},
+    verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -468,8 +469,18 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         "root",
         "use pkg::facade::Cell; use pkg::facade::Packet; fn main() -> Packet<i32> { val a = Cell { value: 7 }; val b = Cell { value: true }; Packet::Data(a.value) }",
     );
-    let checked = checked(&db, root);
-    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
+    let checked = AnalysisDatabase::default()
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap()
+        .check_program(root, &Default::default())
+        .unwrap();
+    // Four core templates, the Packet template and application, and three Cell
+    // applications (the shared bool application occurs in both modules).
+    let options = MirLoweringOptions {
+        max_generic_instances: 4 + 2 + 3,
+        ..Default::default()
+    };
+    let ir = lower_program_to_mir(&compilation(&checked), &options).unwrap();
     let layouts = &ir
         .modules()
         .iter()
@@ -482,22 +493,11 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
     let mut program = bytecode(&context, &ir);
     verify_bytecode_program(&program, &context.snapshot(), &Default::default()).unwrap();
-    // The owner need not execute an instance for its public template to be checked.
-    // Installed standard enum layouts are independent of that user declaration.
     let owner = program
         .modules
         .iter_mut()
         .find(|module| module.identity.path == ["types"])
         .unwrap();
-    assert!(owner.enumerations.iter().all(|layout| {
-        context
-            .snapshot()
-            .resolve(layout.declaration)
-            .unwrap()
-            .module()
-            .package
-            == PackageId("kagari-core".into())
-    }));
     let PublicItem::Type(template) = owner
         .public_items
         .iter_mut()
@@ -506,18 +506,42 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     else {
         unreachable!()
     };
-    template.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool);
-    assert!(verify_bytecode_program(&program, &context.snapshot(), &Default::default()).is_err());
+    let [parameter] = template.generic_params.as_slice() else {
+        panic!("Packet has one parameter");
+    };
+    let mut layouts = owner
+        .enumerations
+        .iter_mut()
+        .filter(|layout| layout.declaration == parameter.owner);
+    let layout = layouts.next().expect("owner retains the Packet template");
+    assert!(
+        layouts.next().is_none(),
+        "owner has no concrete Packet application"
+    );
+    assert_eq!(layout.arguments, [parameter.as_type()]);
+    // Keep the declaration and its open layout consistent. Only the importing
+    // module's concrete Packet<i32> disagrees with the changed payload.
+    let payload = Ty::Builtin(BuiltinType::Bool);
+    template.variants[0].payload[0] = payload.clone();
+    layout.variants[0].payload[0] = payload;
+    let mut standalone = owner.clone();
+    standalone.dependencies.clear();
+    verify_module(&standalone, &context.snapshot(), &Default::default()).unwrap();
+    assert_eq!(
+        verify_bytecode_program(&program, &context.snapshot(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidEnumLayout)
+    );
+    let limit = options.max_generic_instances - 1;
     let error = lower_program_to_mir(
         &compilation(&checked),
         &MirLoweringOptions {
-            max_generic_instances: 3,
-            ..Default::default()
+            max_generic_instances: limit,
+            ..options
         },
     )
     .unwrap_err();
     assert!(
-        matches!(error, SourceProgramError::Lowering { error: MirLoweringError::Diagnostic(d), .. } if matches!(d.kind, DiagnosticKind::CompileLimitExceeded { resource: "generic instances", limit: 3 }))
+        matches!(error, SourceProgramError::Lowering { error: MirLoweringError::Diagnostic(d), .. } if matches!(d.kind, DiagnosticKind::CompileLimitExceeded { resource: "generic instances", limit: actual } if actual == limit))
     );
 }
 

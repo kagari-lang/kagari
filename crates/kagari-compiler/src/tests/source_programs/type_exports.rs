@@ -199,8 +199,10 @@ fn unused_closed_exports_demand_owner_layouts_and_transitive_private_fields() {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
+    // The program also admits the four generic core enum templates:
+    // Option, Result, Bound, and ControlFlow.
     let options = MirLoweringOptions {
-        max_generic_instances: 6,
+        max_generic_instances: 4 + 6,
         ..Default::default()
     };
     let program = lower_program_to_mir(&compilation(&checked), &options).unwrap();
@@ -285,14 +287,14 @@ fn unused_closed_exports_demand_owner_layouts_and_transitive_private_fields() {
     let error = lower_program_to_mir(
         &compilation(&checked),
         &MirLoweringOptions {
-            max_generic_instances: 5,
+            max_generic_instances: options.max_generic_instances - 1,
             ..options
         },
     )
     .unwrap_err();
     assert!(matches!(error, SourceProgramError::Lowering {
-        error: MirLoweringError::Diagnostic(diagnostic), ..
-    } if matches!(diagnostic.kind, DiagnosticKind::CompileLimitExceeded {
-        resource: "generic instances", limit: 5
+        module, error: MirLoweringError::Diagnostic(diagnostic)
+    } if module.path == ["types"] && matches!(diagnostic.kind, DiagnosticKind::CompileLimitExceeded {
+        resource: "generic instances", limit: 9
     })));
 }

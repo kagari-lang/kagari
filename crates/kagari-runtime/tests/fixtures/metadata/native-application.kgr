@@ -1,4 +1,4 @@
-use example::defaults::Read;
+use example::defaults::{ Read, Repeat };
 
 impl Read for i32 {
     fn read(self) -> i32 {
@@ -6,6 +6,9 @@ impl Read for i32 {
     }
 }
 
-fn main() -> Read {
-    7
+impl Repeat for i32 {}
+
+fn main() -> i32 {
+    val receiver: Repeat = 3;
+    receiver.twice(7)
 }

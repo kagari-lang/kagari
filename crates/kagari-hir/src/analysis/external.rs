@@ -288,7 +288,7 @@ impl AnalysisDatabase {
                 inline_ids: &mut self.inline_ids,
                 limits,
             };
-            for (id, mut prepared) in source_preparation::prepare(
+            for (id, prepared) in source_preparation::prepare(
                 preparer,
                 &SourceSnapshot::single_file(input.source.clone()),
                 self.declaration_cache.as_ref(),
@@ -302,10 +302,7 @@ impl AnalysisDatabase {
                     )
                     .into());
                 }
-                // Previous declaration records are reusable only under these same
-                // immutable inputs; every environment setter invalidates their cache.
-                {
-                    let lowered = Arc::make_mut(&mut prepared.lowered);
+                let (parsed, lowered) = prepared.attach(|lowered| {
                     // Inline modules retain library admission and real source ownership,
                     // but do not inherit root-owned constructor/member metadata.
                     if id == input.source.id() {
@@ -315,8 +312,9 @@ impl AnalysisDatabase {
                         input.attach_contracts(lowered, &self.definitions, cancel)?;
                         input.attach_methods(lowered, cancel)?;
                     }
-                }
-                files.insert(id, (prepared.parsed, prepared.lowered));
+                    Ok(())
+                })?;
+                files.insert(id, (parsed, lowered));
             }
         }
         cancel.check()?;

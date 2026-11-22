@@ -1,11 +1,15 @@
 use crate::analysis::*;
-use crate::tests::test_analysis;
 use crate::types::*;
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use crate::{declarations::DeclarationId, tests::test_analysis};
+use kagari_common::{
+    identity::{DefinitionKind, ModuleIdentity, PackageId},
+    span::Span,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::language::Protocol;
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -92,7 +96,7 @@ fn generic_binders_and_explicit_traits_use_ordinary_constraint_names() {
 }
 
 #[test]
-fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
+fn imported_supertraits_resolve_authored_associated_members_from_source_facts() {
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(
@@ -144,27 +148,36 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
     else {
         panic!("inherited associated type must retain its declaring interface");
     };
-    let interface_path = file
-        .definitions()
-        .resolve(interface.declaration)
-        .unwrap()
-        .to_path();
-    let member_path = file.definitions().resolve(*member).unwrap().to_path();
-    assert_eq!(interface_path.module.package.0, "kagari-core");
-    assert_eq!(interface_path.path.last().unwrap().name, "Iterator");
-    assert_eq!(member_path.path.last().unwrap().name, "Item");
+    assert_eq!(
+        Some(interface.declaration),
+        Protocol::Iterator.definition(file.definitions())
+    );
+    assert_eq!(
+        Some(*member),
+        file.definitions().lookup_child(
+            interface.declaration,
+            DefinitionKind::AssociatedType,
+            "Item",
+            0
+        )
+    );
     assert!(arguments.is_empty());
     assert_eq!(signature.params[1].ty, signature.return_type);
     let declaration = snapshot
-        .declaration(&crate::declarations::DeclarationId::Definition(*member))
+        .declaration(&DeclarationId::Definition(*member))
         .unwrap();
-    assert!(declaration.source_location().is_none());
-    assert_eq!(
-        declaration.origin,
-        crate::declarations::DeclarationOrigin::Structured {
-            declaration: *member
-        }
-    );
+    let authored = &snapshot
+        .inputs()
+        .core_modules()
+        .iter()
+        .find(|input| *input.source.module_identity() == Protocol::Iterator.module())
+        .unwrap()
+        .source;
+    let start = authored.text().find("type Item;").unwrap() + "type ".len();
+    let site = authored
+        .span(Span::new(start, start + "Item".len()))
+        .unwrap();
+    assert_eq!(declaration.source_location(), Some(site));
 }
 
 #[test]

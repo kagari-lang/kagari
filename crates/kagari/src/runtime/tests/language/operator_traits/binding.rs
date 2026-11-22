@@ -1,6 +1,6 @@
 use crate::engine::KagariEngine;
 use crate::test_support::standard::standard_library;
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+use kagari_bytecode::instruction::{BinaryOp, BytecodeInstruction, CallTarget};
 use kagari_common::identity::DefinitionKind;
 use kagari_source::source::SourceFile;
 use kagari_stdlib::{identity as library, namespaces};
@@ -15,10 +15,10 @@ fn arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding() {
     .unwrap()
     .compile_to_artifact(
         SourceFile::new(
-            "fast-ops.kgr",
-            r#"
-fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
-"#,
+            "direct-and-native-index.kgr",
+            include_str!(
+                "../../../../../tests/fixtures/language/operator_traits/direct-and-native-index.kgr"
+            ),
         ),
         Default::default(),
     )
@@ -29,7 +29,36 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
         .iter()
         .find(|function| function.name == "main")
         .unwrap();
-    let calls = main
+    assert!(
+        main.instructions.iter().any(|instruction| matches!(
+            instruction,
+            BytecodeInstruction::ReadAggregateIndex { .. }
+        ))
+    );
+    assert!(
+        main.instructions
+            .iter()
+            .all(|instruction| !matches!(instruction, BytecodeInstruction::Call { .. }))
+    );
+    for expected in [BinaryOp::Add, BinaryOp::Sub] {
+        assert!(
+            main.instructions
+                .iter()
+                .any(|instruction| match instruction {
+                    BytecodeInstruction::Binary { op, .. }
+                    | BytecodeInstruction::BinaryOperands { op, .. } => *op == expected,
+                    _ => false,
+                }),
+            "missing direct {expected:?}"
+        );
+    }
+
+    let explicit = module
+        .functions
+        .iter()
+        .find(|function| function.name == "explicit_index")
+        .unwrap();
+    let calls = explicit
         .instructions
         .iter()
         .filter_map(|instruction| match instruction {

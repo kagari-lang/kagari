@@ -47,7 +47,6 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
         "use std::hash::{Hash};\nenum Key { Good(i32), Bad(f64) } fn needs<T: Eq + Hash>(x:T) {} fn main() { needs(Key::Good(1)); }",
         "fn needs<T: Eq<i32>>(x:T) {} fn main() {}",
         "use std::hash::{Hash};\nstruct Item {} impl Hash for Item { fn hash(self)->i64 { 1 } } fn main() {}",
-        "use std::fmt::{Debug};\nimpl Debug for i32 { fn debug(self)->String { \"x\" } } fn main() {}",
         "use std::fmt::{Debug};\nstruct Item {} impl Debug for Item { fn debug(self)->i32 { 1 } } fn main() {}",
         "use std::fmt::{Display};\nstruct Item {} impl Display for Item {} fn main() {}",
         "trait Eq {} fn f<T: Eq>(x:T)->bool { x == x } fn main() {}",
@@ -69,6 +68,21 @@ fn invalid_standard_trait_uses_report_semantic_diagnostics() {
             "{source}: {error:?}"
         );
     }
+
+    let error = KagariEngine::new(Default::default())
+        .compile_source(SourceFile::new(
+            "primitive-debug-override.kgr",
+            include_str!(
+                "../../../../../tests/fixtures/language/standard_traits/diagnostics/primitive-debug-override.kgr"
+            ),
+        ))
+        .unwrap_err();
+    assert!(
+        matches!(&error, EmbeddingError::Diagnostics { diagnostics } if diagnostics.iter().any(|d|
+            d.code == "KG_TYPE_INVALID_TRAIT_IMPL"
+                && d.message.contains("formatting for primitive types is supplied by the language"))),
+        "{error:?}"
+    );
 }
 
 #[test]

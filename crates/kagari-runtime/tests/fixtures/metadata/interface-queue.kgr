@@ -1,4 +1,6 @@
-use fixture::queue::{ Future, ready };
+use core::future::Future;
+
+use fixture::queue::ready;
 
 pub trait Queue {
     fn run(self) -> Future<i32>;

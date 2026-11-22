@@ -1117,55 +1117,77 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             "range mutation {mutation}"
         );
     }
-    let root = module.root.index();
-    let import = module.modules[root]
-        .native_imports
-        .iter()
-        .position(|import| {
-            context
-                .snapshot()
-                .resolve(import.binding)
-                .unwrap()
-                .last()
-                .is_some_and(|part| part.name == "start_bound")
-        })
-        .unwrap();
-    for mutation in 0..4 {
+    let exclusive_u64 = Ty::Range(
+        Box::new(Ty::Builtin(BuiltinType::U64)),
+        RangeKind::Exclusive,
+    );
+    for mutation in 0..5 {
         let mut invalid = module.clone();
-        let contract = &mut invalid.modules[root].native_imports[import];
-        match mutation {
-            0 => contract.signature.result = Ty::Builtin(BuiltinType::Bool),
+        // The user call selects an authored core method, which owns the instruction.
+        let (function, instruction) = invalid.modules.iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .find_map(|function| {
+                let instruction = function.instructions.iter_mut().find(|instruction| {
+                    matches!(instruction, BytecodeInstruction::RangeBound { upper: false, range, .. }
+                        if *range == exclusive_u64)
+                })?;
+                Some((function.id, instruction))
+            })
+            .expect("reachable core start_bound implementation");
+        let BytecodeInstruction::RangeBound {
+            value,
+            range,
+            bound,
+            ..
+        } = instruction
+        else {
+            unreachable!()
+        };
+        let invalid_contract = BytecodeVerificationError::InvalidOperation {
+            function,
+            reason: "invalid range bound contract",
+        };
+        let expected = match mutation {
+            0 => {
+                *bound = Ty::Builtin(BuiltinType::Bool);
+                invalid_contract
+            }
             1 => {
-                let Ty::Enum(nominal) = &mut contract.signature.result else {
+                let Ty::Enum(nominal) = bound else {
                     unreachable!()
                 };
                 nominal.arguments.clear();
+                invalid_contract
             }
             2 => {
-                contract.signature.params[0] = Ty::Range(
+                *range = Ty::Range(
                     Box::new(Ty::Builtin(BuiltinType::I32)),
                     RangeKind::Exclusive,
-                )
+                );
+                invalid_contract
+            }
+            3 => {
+                // The same item type keeps the bound contract valid; only the input differs.
+                *range = Ty::Range(
+                    Box::new(Ty::Builtin(BuiltinType::U64)),
+                    RangeKind::Inclusive,
+                );
+                BytecodeVerificationError::InvalidOperation {
+                    function,
+                    reason: "invalid collection access flow",
+                }
             }
             _ => {
-                let instruction = invalid.modules[root]
-                    .functions
-                    .iter_mut()
-                    .flat_map(|function| &mut function.instructions)
-                    .find(|instruction| {
-                        matches!(instruction, BytecodeInstruction::Call {
-                        callee: CallTarget::Native(id), ..
-                    } if id.index() == import)
-                    })
-                    .unwrap();
-                let BytecodeInstruction::Call { args, .. } = instruction else {
-                    unreachable!()
-                };
-                args[0] = Slot::new(u32::MAX as usize);
+                *value = Slot::new(u32::MAX as usize);
+                BytecodeVerificationError::InvalidRegister {
+                    function,
+                    register: *value,
+                }
             }
-        }
-        assert!(
-            verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
+        };
+        assert_eq!(
+            verify_program(&invalid, &context.snapshot(), &Default::default()),
+            Err(expected),
             "bound mutation {mutation}"
         );
     }

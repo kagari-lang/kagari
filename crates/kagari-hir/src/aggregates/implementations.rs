@@ -245,7 +245,8 @@ impl AggregateCatalog {
             }
         }
         if protocol.host_implementable() {
-            return None;
+            return matches!(implementation.for_type, TypeId::Builtin(_))
+                .then_some("formatting for primitive types is supplied by the language");
         }
         let module = definitions
             .resolve(implementation.id)

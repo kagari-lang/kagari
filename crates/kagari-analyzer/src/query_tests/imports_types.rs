@@ -1,6 +1,12 @@
 use crate::query_tests::imports_tests::{analyze, insert};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
-use kagari_hir::types::TypeId;
+use kagari_hir::{
+    imports::{
+        NamespaceId, ResolvedTarget,
+        catalog::{LookupContext, NamespaceResult},
+    },
+    types::TypeId,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -103,63 +109,98 @@ fn exported_signatures_use_imported_types_before_callers_are_checked() {
 #[test]
 fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
     let mut db = SourceDatabase::default();
-    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    let types = insert(&mut db, "types", "pub struct Data { val value: i32 }");
     let text = "use pkg::types::Data;";
     let root = insert(&mut db, "root", text);
-    let first = analyze(&db);
+    let offset = text.find("types::").unwrap();
+    let mut analysis = test_analysis();
+    let cancel = Default::default();
+    let first = analysis.snapshot(db.snapshot(), &cancel).unwrap();
     let target = first
         .queries()
-        .source_target_at(root, text.find("pkg::types").unwrap())
-        .unwrap();
+        .source_target_at(root, offset)
+        .unwrap()
+        .target;
+    let ResolvedTarget::Namespace(namespace @ NamespaceId::Module(unit)) = target else {
+        panic!("expected the physical types module, got {target:?}");
+    };
+    assert_eq!(unit.file, types);
     let importer = first
         .module_graph()
         .catalog
         .definitions()
         .lookup_module(first.file(root).unwrap().source().module_identity())
         .unwrap();
-    let ctx = kagari_hir::imports::catalog::LookupContext::new(&importer);
-    assert!(!matches!(
-        first
-            .module_graph()
-            .catalog
-            .namespace_of(&ctx, &target.target, &Default::default())
-            .unwrap(),
-        kagari_hir::imports::catalog::NamespaceResult::StaleSource
-    ));
+    let ctx = LookupContext::new(&importer);
+    let first_catalog = &first.module_graph().catalog;
+    assert_eq!(
+        first_catalog.namespace_of(&ctx, &target, &cancel).unwrap(),
+        NamespaceResult::Found(namespace)
+    );
     db.set(
         "mem://types",
         "pub struct Data { val value: bool }".into(),
         SourceLayer::Overlay,
     )
     .unwrap();
-    let second = analyze(&db);
+    let second = analysis.snapshot(db.snapshot(), &cancel).unwrap();
+    let second_catalog = &second.module_graph().catalog;
+    let current = second
+        .queries()
+        .source_target_at(root, offset)
+        .unwrap()
+        .target;
+    let ResolvedTarget::Namespace(current_namespace @ NamespaceId::Module(current_unit)) = current
+    else {
+        panic!("expected the updated types module, got {current:?}");
+    };
+    assert_eq!(current_unit.module, unit.module);
+    assert_ne!(current_unit.revision, unit.revision);
     assert_eq!(
-        second
-            .module_graph()
-            .catalog
-            .namespace_of(&ctx, &target.target, &Default::default())
+        second_catalog
+            .namespace_of(&ctx, &current, &cancel)
             .unwrap(),
-        kagari_hir::imports::catalog::NamespaceResult::StaleSource
+        NamespaceResult::Found(current_namespace)
     );
-    let cancel = kagari_common::cancellation::CancellationToken::default();
-    cancel.cancel();
+    assert_eq!(
+        second_catalog.namespace_of(&ctx, &target, &cancel).unwrap(),
+        NamespaceResult::StaleSource
+    );
+    assert_eq!(
+        first_catalog.namespace_of(&ctx, &target, &cancel).unwrap(),
+        NamespaceResult::Found(namespace)
+    );
+
+    let text = "pub use pkg::b::Alias;";
+    let a = insert(&mut db, "a", text);
+    let b = insert(&mut db, "b", "pub use pkg::a::Alias;");
+    let cycle = analysis.snapshot(db.snapshot(), &cancel).unwrap();
+    let queries = cycle.queries();
+    let prefix = queries
+        .source_target_at(a, text.find("b::").unwrap())
+        .unwrap();
     assert!(
-        first
-            .module_graph()
-            .catalog
-            .namespace_of(&ctx, &target.target, &cancel)
-            .is_err()
+        matches!(prefix.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if unit.file == b)
     );
-    let a = insert(&mut db, "a", "pub use pkg::b::Alias;");
-    insert(&mut db, "b", "pub use pkg::a::Alias;");
-    let cycle = analyze(&db);
+    assert!(
+        queries
+            .source_targets_at(a, text.find("Alias").unwrap())
+            .is_empty()
+    );
     assert!(
         cycle
-            .queries()
-            .source_target_at(a, "pub use ".len())
-            .is_none()
+            .file(a)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| {
+                matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "pkg::b::Alias")
+            })
     );
-    assert!(!cycle.file(a).unwrap().result().diagnostics().is_empty());
+
+    cancel.cancel();
+    assert!(first_catalog.namespace_of(&ctx, &target, &cancel).is_err());
 }
 
 #[test]

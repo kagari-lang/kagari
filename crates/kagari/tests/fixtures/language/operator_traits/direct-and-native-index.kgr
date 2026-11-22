@@ -1,0 +1,15 @@
+use core::ops::Index;
+
+fn main() -> i32 {
+    val a = [40];
+    val b = a[0] + 4 - 2;
+    if b >= 42 && !false {
+        -(-b)
+    } else {
+        0
+    }
+}
+
+pub fn explicit_index(a: [i32], key: u64) -> i32 {
+    a.index(key)
+}

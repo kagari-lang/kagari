@@ -6,7 +6,7 @@ use crate::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::scalar::BuiltinType;
+use kagari_types::{language::binding, scalar::BuiltinType};
 use std::collections::BTreeMap;
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
@@ -43,21 +43,25 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    // Recheck with empty semantic caches but the same adopted native inputs and live
-    // native graphs. Exact catalog equality includes their file/arena provenance;
-    // sharing the scope avoids copying and remapping lowering-local attachment maps.
+    // Recheck the edited file from scratch with the same live library lowerings.
+    // Imported addresses include arena provenance even for bundled authored modules.
+    let mut library_declarations = db.declaration_cache.clone().unwrap();
+    library_declarations.files.remove(&file);
     let mut fresh_db = AnalysisDatabase {
         definitions: db.definitions.clone(),
         native_files: db.native_files.clone(),
+        declaration_cache: Some(library_declarations),
         ..test_analysis()
     };
     let fresh = analyze(&mut fresh_db, &sources);
-    let authoring_fresh = fresh
-        .file(file)
-        .unwrap()
-        .to_unverified(&Default::default())
-        .unwrap();
+    let fresh_file = fresh.file(file).unwrap();
+    assert!(!fresh_file.signatures_reused());
+    let authoring_fresh = fresh_file.to_unverified(&Default::default()).unwrap();
     let fresh = authoring_fresh.records().facts();
+    assert_ne!(
+        new_facts.lowered.module.nodes.arena(),
+        fresh.lowered.module.nodes.arena()
+    );
     let fresh_aggregates = import_facts(
         &fresh.aggregates,
         authoring_fresh.definitions(),
@@ -223,20 +227,10 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
             .count(),
         3
     );
-    assert_eq!(
-        catalog
-            .enumerations()
-            .filter(|item| old
-                .definitions()
-                .resolve(item.id)
-                .unwrap()
-                .module()
-                .package
-                .0
-                == "kagari-core")
-            .count(),
-        10
-    );
+    for path in [binding::option_declaration(), binding::result_declaration()] {
+        let id = old.definitions().lookup(&path).unwrap();
+        assert!(catalog.enumeration(&id).is_some(), "{path:?}");
+    }
     let authoring_a = old
         .file(left)
         .unwrap()
@@ -274,7 +268,14 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         })
         .unwrap();
     assert_ne!(a.variants[0].payload[0], b.variants[0].payload[0]);
-    assert!(catalog.enumeration(&a.id).is_some());
+    assert_eq!(
+        catalog.enumeration(&a.id).unwrap().variants[0].payload,
+        a.variants[0].payload
+    );
+    assert_eq!(
+        catalog.enumeration(&b.id).unwrap().variants[0].payload,
+        b.variants[0].payload
+    );
     let authoring_hidden = old
         .file(unrelated)
         .unwrap()
@@ -305,21 +306,22 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
     let new_root = new.file(root).unwrap();
     assert!(!Arc::ptr_eq(old_root, new_root));
     let authoring_new = new_root.to_unverified(&Default::default()).unwrap();
-    assert!(!catalog.same_contracts(&authoring_new.records().facts().aggregates));
+    let new_catalog = &authoring_new.records().facts().aggregates;
+    assert!(!catalog.same_contracts(new_catalog));
     assert_eq!(new_root.result().facts().typed.reused_bodies, 0);
     assert_eq!(
         catalog.enumeration(&a.id).unwrap().variants[0].payload[1],
         TypeId::Builtin(BuiltinType::I32)
     );
     assert_eq!(
-        authoring_new
-            .records()
-            .facts()
-            .aggregates
-            .enumeration(&a.id)
-            .unwrap()
-            .variants[0]
-            .payload[1],
-        TypeId::Builtin(BuiltinType::String)
+        new_catalog.enumeration(&a.id).unwrap().variants[0].payload,
+        [
+            a.variants[0].payload[0].clone(),
+            TypeId::Builtin(BuiltinType::String)
+        ]
+    );
+    assert_eq!(
+        new_catalog.enumeration(&b.id).unwrap().variants[0].payload,
+        b.variants[0].payload
     );
 }

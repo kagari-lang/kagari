@@ -485,14 +485,15 @@ fn main() -> () {
             .iter()
             .any(|instruction| matches!(instruction, BytecodeInstruction::MakeStruct { .. }))
     );
-    let expected_index = common::standard_array_index_binding();
-    assert!(
-        function.instructions.iter().any(|instruction| matches!(
-            instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. }
-                if context.snapshot().resolve(bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding).unwrap().to_path() == expected_index
-        ))
-    );
+    let slots = &function.metadata.slots;
+    assert!(function.instructions.iter().any(|instruction| matches!(
+        instruction,
+        BytecodeInstruction::ReadAggregateIndex { dst, base, index }
+            if slots[dst.index()] == ValueType::I32
+                && slots[base.index()] == ValueType::HeapObject
+                && slots[index.index()] == ValueType::I32
+    )));
+    assert!(!function.metadata.effects.calls);
     assert!(
         function.instructions.iter().any(|instruction| matches!(
             instruction,
@@ -810,7 +811,9 @@ fn main() -> i32 {
         }
     )));
     assert!(function.metadata.effects.writes_aggregate);
-    assert!(function.metadata.effects.calls);
+    assert!(function.metadata.effects.reads_aggregate);
+    assert!(function.metadata.effects.may_trap);
+    assert!(!function.metadata.effects.calls);
 }
 
 #[test]

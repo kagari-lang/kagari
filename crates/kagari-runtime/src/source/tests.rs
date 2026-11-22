@@ -13,13 +13,13 @@ use crate::{
         declarations::FunctionDecl,
         future::claims::FutureContract,
         module::NativeModule,
-        storage::NativeStorage,
         types::Type,
     },
     source::{
         FunctionSource, FunctionSourceTarget, ProgramSourceSnapshot, SourceDeclaration,
         SourceQuery, SourceUnavailableReason,
     },
+    test_support::future,
 };
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
@@ -39,7 +39,10 @@ use kagari_compiler::{
     },
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::{
+    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation,
+    native::render::declaration_source,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use rstest::rstest;
 use std::sync::Arc;
@@ -387,36 +390,36 @@ fn source_free_packages_stripping_mismatch_and_locator_authority(#[case] retaine
     );
 }
 
-fn future_provider() -> NativeModule {
-    let mut builder = ModuleBuilder::new("fixture::source", &Default::default()).unwrap();
-    let mut future = builder.define_type("Future").unwrap();
-    future.type_parameter("T").unwrap();
-    future.native_storage(NativeStorage::future()).unwrap();
-    let future = future.finish().unwrap();
-    let output = future.apply([Type::i32()]).unwrap();
-    let ready = builder
-        .define_function(FunctionDecl::new("ready").returns(output.clone()))
+fn analysis_with_provider_source(provider: &NativeModule) -> AnalysisDatabase {
+    let providers = vec![Arc::new(provider.to_declaration())];
+    // A checked declaration view is a compiler input, not an executable body.
+    let source = declaration_source(&providers[0], &providers).unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis
+        .set_native_sources(providers, vec![source])
         .unwrap();
-    builder
-        .bind(
-            ready,
-            NativeBinding::new(vec![], Codec::Exact(output), |_| {
-                panic!("source inspection never executes a native entry")
-            }),
-        )
-        .unwrap();
-    builder.finish().unwrap()
+    analysis
 }
 
 #[test]
 fn native_origins_never_fabricate_text() {
-    let provider = future_provider();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
+    let mut builder = ModuleBuilder::new("fixture::source", &Default::default()).unwrap();
+    let read = builder
+        .define_function(FunctionDecl::new("read").returns(Type::i32()))
+        .unwrap();
+    builder
+        .bind(
+            read,
+            NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| {
+                panic!("source inspection never executes a native entry")
+            }),
+        )
+        .unwrap();
+    let provider = builder.finish().unwrap();
     let (bytecode, package) = compiled_in(
-        "use fixture::source::ready; fn main() { ready(); }",
+        include_str!("../../tests/fixtures/source/native-origin.kgr"),
         None,
-        analysis,
+        analysis_with_provider_source(&provider),
     );
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
@@ -467,10 +470,8 @@ fn native_origins_never_fabricate_text() {
 #[test]
 fn cold_future_observation_is_exact_and_does_not_claim_the_body() {
     let text = include_str!("../../tests/fixtures/source/cold-observation.kgr");
-    let provider = future_provider();
-    let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
-    let (bytecode, package) = compiled_in(text, None, analysis);
+    let provider = future::provider();
+    let (bytecode, package) = compiled_in(text, None, analysis_with_provider_source(&provider));
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
     let program = runtime

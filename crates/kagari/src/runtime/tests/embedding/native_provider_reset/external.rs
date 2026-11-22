@@ -14,12 +14,12 @@ use rstest::rstest;
 #[case::decoded_artifact(true)]
 fn persistent_static_native_payload_retains_its_callback_and_shared_state(#[case] decoded: bool) {
     let source = r#"
-use external::fixture as native;
+use external::fixture as provider;
 static var STATE: i32 = 1;
-static val HANDLE: native::Handler<i32> = native::hold(2, |value| value + version() + STATE);
+static val HANDLE: provider::Handler<i32> = provider::hold(2, |value| value + version() + STATE);
 fn version() -> i32 { 10 }
 pub fn read() -> i32 { HANDLE.apply() }
-pub fn fresh() -> i32 { native::hold(2, |value| value + version() + STATE).apply() }
+pub fn fresh() -> i32 { provider::hold(2, |value| value + version() + STATE).apply() }
 pub fn update() { STATE = 5; }
 "#;
     let engine = engine(Default::default());
@@ -69,7 +69,7 @@ pub fn update() { STATE = 5; }
 #[test]
 fn an_embedding_owned_provider_can_allocate_and_chain_checked_callbacks() {
     let artifact = artifact(
-        "fn main() -> i32 { val values = native::from_fn(2u64, |i| { [21] }); values[0u64][0u64] + values[1u64][0u64] }",
+        "fn main() -> i32 { val values = provider::from_fn(2u64, |i| { [21] }); values[0u64][0u64] + values[1u64][0u64] }",
     );
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let program = Program::from_artifact(

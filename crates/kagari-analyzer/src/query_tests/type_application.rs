@@ -1,4 +1,7 @@
-use crate::{AnalyzerQueries, query_tests::test_analysis};
+use crate::{
+    AnalyzerQueries,
+    query_tests::{common::assert_source_spelling, test_analysis},
+};
 use kagari_hir::{analysis::*, types::*};
 
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -11,8 +14,8 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 }
 
 #[test]
-fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
-    let text = "use std::ops::{RangeFull};\nuse alloc::string as library; use core::option as language; use alloc::string::String as Text; use core::option::Option as Maybe; fn inspect(a: String, b: Text, c: library::String, d: language::Option<i32>, e: Maybe<i32>, f: core::ops::RangeFull, g: RangeFull) {}";
+fn core_type_annotations_resolve_aliases_and_qualified_source_declarations() {
+    let text = include_str!("../../tests/fixtures/core-type-annotations.kgr");
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("native-types.kgr", text.into(), SourceLayer::Base)
@@ -25,11 +28,11 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
         file.result().diagnostics()
     );
     let annotation = |parameter: &str| text.find(parameter).unwrap() + parameter.len();
-    for (left, right) in [
-        ("a: ", "b: "),
-        ("a: ", "c: "),
-        ("d: ", "e: "),
-        ("f: ", "g: "),
+    for (left, right, uri, spelling) in [
+        ("a: ", "b: ", "kagari-alloc:///string.kgr", "String"),
+        ("a: ", "c: ", "kagari-alloc:///string.kgr", "String"),
+        ("d: ", "e: ", "kagari-core:///option.kgr", "Option"),
+        ("f: ", "g: ", "kagari-core:///ops.kgr", "RangeFull"),
     ] {
         let left = annotation(left);
         let right = annotation(right);
@@ -38,7 +41,7 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
             declaration.id,
             snapshot.queries().definition_at(id, right).unwrap().id
         );
-        assert!(declaration.source_location().is_none());
+        assert_source_spelling(&snapshot, declaration, uri, spelling);
         assert_eq!(file.queries().type_at(left), file.queries().type_at(right));
         assert!(
             file.queries()

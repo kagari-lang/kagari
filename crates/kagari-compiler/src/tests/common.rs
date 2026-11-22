@@ -8,11 +8,8 @@ use crate::{
 };
 use kagari_bytecode::program::{BytecodeProgram, identity, updates as bytecode_updates};
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, ModuleIdentity,
-    map::DefinitionContext,
-    metadata::DefinitionMetadata,
-    scoped::RemapDefinitions,
-    table::{DefinitionId, DefinitionTable},
+    DefinitionPath, map::DefinitionContext, metadata::DefinitionMetadata, scoped::RemapDefinitions,
+    table::DefinitionId,
 };
 use kagari_hir::{
     analysis::AnalysisDatabase, compile_input::program::CheckedCompilation, program::CheckedProgram,
@@ -23,11 +20,13 @@ use kagari_mir::{
     verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+
+/* stdlib test support paused (NC01-NC06).
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable};
 use kagari_stdlib::{identity as library, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, module::ImplDecl},
-    scalar::BuiltinType,
     ty::Ty,
 };
 
@@ -64,45 +63,7 @@ fn standard_method_binding(
     candidates.pop().unwrap()
 }
 
-pub fn standard_array_index_binding() -> DefinitionPath {
-    standard_method_binding(
-        namespaces::module("core", "array"),
-        "index",
-        |implementation, method, definitions| {
-            let [parameter] = implementation.generic_params.as_slice() else {
-                return false;
-            };
-            let item = parameter.as_type();
-            let Some(interface) = &implementation.trait_type else {
-                return false;
-            };
-            if implementation.for_type != Ty::Array(Box::new(item.clone()))
-                || definitions
-                    .resolve(interface.declaration)
-                    .unwrap()
-                    .to_path()
-                    != library::trait_id("Index")
-                || interface.arguments != [Ty::Builtin(BuiltinType::U64)]
-            {
-                return false;
-            }
-            let output = definitions
-                .lookup_child(
-                    interface.declaration,
-                    DefinitionKind::AssociatedType,
-                    "Output",
-                    0,
-                )
-                .unwrap();
-            assert_eq!(interface.associated_types.len(), 1);
-            assert_eq!(interface.associated_types[&output], item);
-            assert_eq!(method.return_type, item);
-            true
-        },
-    )
-}
 
-/* stdlib test support paused (NC01-NC06).
 pub fn standard_vec_binding(name: &str) -> DefinitionPath {
     let contract = match name {
         "push" => None,

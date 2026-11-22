@@ -194,10 +194,10 @@ mod tests {
             declarations::FunctionDecl,
             function_handle::asynchronous::FutureOutput,
             module::NativeModule,
-            storage::NativeStorage,
             types::Type,
         },
         scheduler::ScheduledWork,
+        test_support::future,
         value::carriers::RootedValue,
     };
     use kagari_compiler::{
@@ -211,14 +211,10 @@ mod tests {
         task::{Context, Poll, Waker},
     };
 
-    fn provider() -> NativeModule {
-        // Only the Future storage role is needed for queue admission. Do not pull
-        // unrelated protected foundation dependency graphs into this contract test.
-        let mut builder = ModuleBuilder::new("fixture::queue", &Default::default()).unwrap();
-        let mut future = builder.define_type("Future").unwrap();
-        future.type_parameter("T").unwrap();
-        future.native_storage(NativeStorage::future()).unwrap();
-        let future = future.finish().unwrap();
+    fn ready_provider(future: &NativeModule) -> NativeModule {
+        let catalog = future.catalog();
+        let mut builder = ModuleBuilder::new("fixture::queue", &catalog).unwrap();
+        let future = catalog.future_type().unwrap();
         let ready = builder
             .define_function(
                 FunctionDecl::new("ready")
@@ -239,13 +235,18 @@ mod tests {
         builder.finish().unwrap()
     }
 
-    fn compile(source: &str, provider: &NativeModule) -> VerifiedProgram {
+    fn compile(source: &str, providers: [&NativeModule; 2]) -> VerifiedProgram {
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("queued-interface.kgr", source.into(), SourceLayer::Base)
             .unwrap();
         let mut analysis = AnalysisDatabase::default();
-        analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
+        analysis.set_native_modules(
+            providers
+                .into_iter()
+                .map(|provider| Arc::new(provider.to_declaration()))
+                .collect(),
+        );
         let snapshot = analysis
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -332,10 +333,12 @@ mod tests {
     #[test]
     fn queued_interface_admission_is_exact_while_retained_method_handles_stay_live() {
         let source = include_str!("../../../tests/fixtures/metadata/interface-queue.kgr");
-        let provider = provider();
-        let prepared = compile(source, &provider);
+        let future = future::provider();
+        let ready = ready_provider(&future);
+        let prepared = compile(source, [&future, &ready]);
         let mut runtime = Runtime::default();
-        provider.install(&mut runtime).unwrap();
+        future.install(&mut runtime).unwrap();
+        ready.install(&mut runtime).unwrap();
         let program = runtime
             .load_verified_program("queue", prepared.clone())
             .unwrap();
@@ -374,7 +377,7 @@ mod tests {
             .stage_reload_verified_program(
                 &program,
                 None,
-                compile(&source.replace("ready(1)", "ready(2)"), &provider),
+                compile(&source.replace("ready(1)", "ready(2)"), [&future, &ready]),
             )
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();

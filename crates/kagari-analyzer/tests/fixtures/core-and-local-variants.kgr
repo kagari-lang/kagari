@@ -1,0 +1,21 @@
+enum Local<T> {
+    Some(T),
+    None,
+}
+
+use self::Local::{ Some as LocalSome, None as LocalNone };
+
+fn make_option(value: i32) -> Option<i32> {
+    Some(value)
+}
+
+fn script(value: i32) -> Local<i32> {
+    LocalSome(value)
+}
+
+fn read(value: Option<i32>) -> i32 {
+    match value {
+        Some(payload) => payload,
+        None => 0,
+    }
+}

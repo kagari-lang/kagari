@@ -406,9 +406,11 @@ String is an immutable value. Ordinary cooked strings support
 [identifier-only interpolation](syntax.md#interpolated-strings): `{name}` selects
 Display and `{name:?}` selects Debug through checked formatting contracts. Each
 occurrence reads then formats its value before the next name is read, including
-repeated names and statics with lazy initialization. Callbacks preserve normal
-effects and failure behavior. Raw strings never interpolate; both cooked and raw
-strings support the [multiline literal rules](syntax.md#string-literals).
+repeated names and statics with lazy initialization. Primitive formatting is
+language-supplied: explicit `Debug` and `Display` impls for primitive types are
+rejected during checking. Callbacks preserve normal effects and failure behavior.
+Raw strings never interpolate; both cooked and raw strings support the
+[multiline literal rules](syntax.md#string-literals).
 The optional predecessor query and parse helpers are not implicitly restored.
 
 Importing `alloc::string::String` names the type but installs no methods.

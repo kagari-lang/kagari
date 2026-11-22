@@ -1,5 +1,5 @@
 use crate::analysis::*;
-use crate::tests::standard::standard_modules;
+use crate::{analysis::core_source::packaged_modules, tests::standard::standard_modules};
 use crate::{collections::HashSet, declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
     identity::{DefinitionKind, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, PackageId},
@@ -94,7 +94,17 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
         )
         .unwrap();
     assert_eq!(option.declaration.name, "Option");
-    assert!(option.declaration.source_location().is_none());
+    let canonical = binding::option_declaration();
+    let authored = &packaged_modules()
+        .iter()
+        .find(|input| input.source.module_identity() == &canonical.module)
+        .unwrap()
+        .source;
+    let start = authored.text().find("enum Option<T>").unwrap() + "enum ".len();
+    let site = authored
+        .span(Span::new(start, start + "Option".len()))
+        .unwrap();
+    assert_eq!(option.declaration.source_location(), Some(site));
     assert!(option.native_type.is_none());
     let enumeration = facts
         .aggregates
@@ -104,10 +114,7 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
     assert_eq!(enumeration.declaration, option.declaration);
     assert_eq!(
         Some(enumeration.id),
-        facts
-            .declarations
-            .definitions()
-            .lookup(&binding::option_declaration())
+        facts.declarations.definitions().lookup(&canonical)
     );
 }
 

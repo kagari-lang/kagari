@@ -100,17 +100,25 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
         assert_eq!(sites.len(), tokens.len());
         for ((_, span), token) in sites.iter().zip(tokens) {
             assert_eq!(&text[span.start..span.end], token);
-            let hit = queries.source_target_at(root, span.start);
-            if token == "pkg" && slot < 2 {
-                // Source-only package roots have no namespace target or enclosing leaf fallback.
-                assert!(hit.is_none());
-                continue;
-            }
-            let hit = hit.unwrap();
+            let hit = queries.source_target_at(root, span.start).unwrap();
             match token {
-                "pkg" => assert!(matches!(hit.target,
-                    ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
-                        if snapshot.module_graph().catalog.definitions().module_identity(unit.module).unwrap().path == ["m"])),
+                "pkg" => {
+                    let ResolvedTarget::Namespace(NamespaceId::InstalledPrefix(module)) =
+                        hit.target
+                    else {
+                        panic!("expected an implicit package root, got {hit:?}");
+                    };
+                    let identity = snapshot
+                        .module_graph()
+                        .catalog
+                        .definitions()
+                        .module_identity(module)
+                        .unwrap();
+                    assert_eq!(identity.package.0, "pkg");
+                    assert!(identity.path.is_empty());
+                    assert_eq!(hit.namespace, NameNamespace::Type);
+                    assert!(queries.module_documentation_at(root, span.start).is_none());
+                }
                 "m" | "nested" => assert!(matches!(hit.target,
                     ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
                         if snapshot.module_graph().catalog.definitions().module_identity(unit.module).unwrap().path == if token == "m" { vec!["m"] } else { vec!["m", "nested"] })),
@@ -148,6 +156,7 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
     let file = insert(&mut sources, "tree::middle::leaf", text);
     let snapshot = analyze(&sources);
     let facts = &snapshot.file(file).unwrap().result().facts().names.imports;
+    let queries = snapshot.queries();
     assert_eq!(facts.directives.len(), 3);
     assert_eq!(
         facts
@@ -179,17 +188,28 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
         assert_eq!(sites.len(), expected.len());
         for (index, ((_, span), token)) in sites.iter().zip(expected).enumerate() {
             assert_eq!(&text[span.start..span.end], token);
-            let hit = snapshot.queries().source_target_at(file, span.start);
-            if slot == 2 && index >= 2 {
-                // The third `super` reaches the absent package-root namespace; the fourth underflows.
+            if slot == 2 && index > 2 {
                 assert!(
-                    hit.is_none(),
-                    "package root/underflow must not resolve at {span:?}"
+                    queries.source_targets_at(file, span.start).is_empty(),
+                    "underflow must not resolve at {span:?}"
                 );
                 continue;
             }
-            let hit = hit.unwrap();
-            if slot == 0 && index == 2 {
+            let hit = queries.source_target_at(file, span.start).unwrap();
+            if slot == 2 && index == 2 {
+                let ResolvedTarget::Namespace(NamespaceId::InstalledPrefix(module)) = hit.target
+                else {
+                    panic!("third super must reach the implicit package root: {hit:?}");
+                };
+                let identity = snapshot
+                    .module_graph()
+                    .catalog
+                    .definitions()
+                    .module_identity(module)
+                    .unwrap();
+                assert_eq!(identity.package.0, "pkg");
+                assert!(identity.path.is_empty());
+            } else if slot == 0 && index == 2 {
                 assert!(matches!(hit.target,
                     ResolvedTarget::Source(ref source) if source.unit.file == tree));
             } else {
@@ -205,8 +225,7 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
             }
         }
     }
-    let call = snapshot
-        .queries()
+    let call = queries
         .source_target_at(file, text.rfind("v()").unwrap())
         .unwrap();
     assert!(matches!(call.target, ResolvedTarget::Source(ref source) if source.unit.file == tree));

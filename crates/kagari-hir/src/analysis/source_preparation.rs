@@ -156,6 +156,21 @@ pub(super) struct PreparedSyntax {
 pub(super) struct PreparedSource {
     pub(super) parsed: ParsedModule,
     pub(super) lowered: Arc<LoweredModule>,
+    fresh: bool,
+}
+
+impl PreparedSource {
+    /// Attaches input metadata before sharing a fresh lowering. A retained lowering
+    /// already includes metadata from the same immutable analysis inputs.
+    pub(super) fn attach(
+        mut self,
+        attach: impl FnOnce(&mut LoweredModule) -> Result<(), AnalysisError>,
+    ) -> Result<(ParsedModule, Arc<LoweredModule>), AnalysisError> {
+        if self.fresh {
+            attach(Arc::get_mut(&mut self.lowered).expect("unshared fresh lowering"))?;
+        }
+        Ok((self.parsed, self.lowered))
+    }
 }
 
 struct LogicalSource {
@@ -196,16 +211,23 @@ pub(super) fn prepare(
                 && old.source.inline_range() == source.inline_range()
                 && old.parsed.same_parse(&parsed)
         });
-        let lowered = old
-            .and_then(|old| old.lowered.upgrade())
-            .unwrap_or_else(|| {
-                Arc::new(lower_module_controlled(
-                    source,
-                    &parsed.syntax().expect("prepared source syntax"),
-                    cancel,
-                ))
-            });
-        files.insert(id, PreparedSource { parsed, lowered });
+        let retained = old.and_then(|old| old.lowered.upgrade());
+        let fresh = retained.is_none();
+        let lowered = retained.unwrap_or_else(|| {
+            Arc::new(lower_module_controlled(
+                source,
+                &parsed.syntax().expect("prepared source syntax"),
+                cancel,
+            ))
+        });
+        files.insert(
+            id,
+            PreparedSource {
+                parsed,
+                lowered,
+                fresh,
+            },
+        );
     }
     cancel.check()?;
     Ok(files)
