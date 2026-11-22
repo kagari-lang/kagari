@@ -958,13 +958,25 @@ cache policy, not a requirement of HIR ownership. The completed responsibility/i
 cleanup preserves owned category tables and this retention behavior. Further retention
 changes require a [separate workload-driven decision](../hir-model-review.md#cache-policy-is-separate).
 
-Physical parses have an owned cache independent of declaration/HIR results. Syntax
-preparation returns an owned logical-source manifest before lowering. Reuse requires
-exact source provenance and parser limits; a retained published syntax context can
-supply its original parse after a newer syntax batch succeeds but semantic analysis
-is cancelled. Completed syntax publication does not publish semantic success. Preparation
-uses explicit mutable database access; SourcePreparer borrows only the parse cache and inline
-ID map plus copied limits. Neither source-preparation store uses RefCell.
+Source preparation has three steps: get the physical parse, discover logical modules and
+assign parser diagnostics, then get each module's lowering. Discovery does not access a
+parse or HIR cache. Two separate input contracts govern reuse:
+
+| Result | Exact input and retention contract |
+| --- | --- |
+| Physical parse | The exact immutable `Arc<SourceFile>` and `ParseLimits`. The parse owner prefers a matching published parse, then its latest cache, and parses only on a miss. Equal text or revision alone does not establish copied-source provenance. |
+| Source lowering | The logical `FileId`, `ModuleLocation` and optional root library sidecar identity. `ModuleLocation` compares the original parse and its module slot, not a byte range. Lowering reuses a matching live weak entry; otherwise it builds the HIR and attaches metadata before sharing it. |
+
+Library sidecars use an immutable inventory identity and entry slot, held weakly by the
+key. Child modules do not inherit a root's sidecar. This makes sidecar changes independent
+of parse reuse and does not grant library installation authority. Structured registrations
+remain on their separate input path. Declaration, signature and body reuse still check their
+own semantic inputs.
+
+Completed syntax publication does not publish semantic success. A retained published parse
+can still match after a newer syntax batch succeeds but semantic analysis is cancelled;
+older requests cannot replace newer parse cache contents. Preparation uses explicit mutable
+database access with no `RefCell` or additional strong HIR retention.
 
 Inline modules share physical text, line indexing and one retained parse. Each
 logical source keeps a stable synthetic FileId and its own ModuleHandle, revision

@@ -9,7 +9,7 @@ use crate::{
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::module::ModuleDecl;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 /// One immutable preparation inventory, with bundled owners before caller inputs.
 /// Captures share the allocation; replay does not go through the additive composition step.
@@ -29,6 +29,22 @@ impl Default for LibrarySources {
     }
 }
 
+/// Identity of one immutable library sidecar in its owning analysis database inventory.
+/// Cache keys do not retain the inventory or its contracts after library replacement.
+#[derive(Debug, Clone)]
+pub(super) struct LibrarySourceKey {
+    inventory: Weak<[ExternalModule]>,
+    slot: usize,
+}
+
+impl PartialEq for LibrarySourceKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.slot == other.slot && Weak::ptr_eq(&self.inventory, &other.inventory)
+    }
+}
+
+impl Eq for LibrarySourceKey {}
+
 impl LibrarySources {
     pub(super) fn all(&self) -> &[ExternalModule] {
         &self.modules
@@ -37,11 +53,20 @@ impl LibrarySources {
     pub(super) fn parse_inputs(
         &self,
         caller_limits: ParseLimits,
-    ) -> impl Iterator<Item = (&ExternalModule, ParseLimits)> {
-        let (core, external) = self.modules.split_at(self.core_len);
-        core.iter()
-            .map(|input| (input, ParseLimits::default()))
-            .chain(external.iter().map(move |input| (input, caller_limits)))
+    ) -> impl Iterator<Item = (LibrarySourceKey, &ExternalModule, ParseLimits)> {
+        let inventory = Arc::downgrade(&self.modules);
+        self.modules.iter().enumerate().map(move |(slot, input)| {
+            let key = LibrarySourceKey {
+                inventory: inventory.clone(),
+                slot,
+            };
+            let limits = if slot < self.core_len {
+                ParseLimits::default()
+            } else {
+                caller_limits
+            };
+            (key, input, limits)
+        })
     }
 
     pub(super) fn set_external(&mut self, external: Vec<ExternalModule>) {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::standard::standard_modules;
 use crate::{
-    analysis::{AnalysisDatabase, AnalysisSnapshot},
+    analysis::{AnalysisDatabase, AnalysisSnapshot, external::ExternalModule},
     tests::test_analysis,
 };
 use kagari_common::span::Span;
@@ -50,11 +50,20 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
     let child_id = child.source().id();
 
     assert_eq!(user_files(&first, root).count(), 3);
+    assert_ne!(
+        physical.syntax().unwrap().location(),
+        first_declarations
+            .file(child_id)
+            .unwrap()
+            .syntax()
+            .unwrap()
+            .location(),
+    );
     for file in user_files(&first, root) {
         let parsed = &first_declarations.file(file.source().id()).unwrap().parsed;
         assert!(Arc::ptr_eq(
-            parsed.physical.as_ref().unwrap(),
-            physical.parsed.physical.as_ref().unwrap()
+            parsed.shared_parse().unwrap(),
+            physical.parsed.shared_parse().unwrap()
         ));
         assert_eq!(
             file.source().text().as_ptr(),
@@ -91,17 +100,15 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
     for (id, prepared) in &repeated {
         let previous = first_declarations.file(*id).unwrap();
         assert!(Arc::ptr_eq(
-            prepared.parsed.physical.as_ref().unwrap(),
-            physical.parsed.physical.as_ref().unwrap()
+            prepared.parsed.shared_parse().unwrap(),
+            physical.parsed.shared_parse().unwrap()
         ));
         assert!(Arc::ptr_eq(&prepared.lowered, &previous.declared.lowered));
     }
     drop(repeated);
     assert!(Arc::ptr_eq(
-        &db.source_parse_cache
-            .get(sources.snapshot().file(root).unwrap(), db.parse_limits)
-            .unwrap(),
-        physical.parsed.physical.as_ref().unwrap(),
+        &db.source_parse_cache.files[&root].parsed,
+        physical.parsed.shared_parse().unwrap(),
     ));
     let _reference = text.rfind("value(1)").unwrap();
 
@@ -140,16 +147,14 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         .file(child_id)
         .unwrap()
         .parsed
-        .physical
-        .as_ref()
+        .shared_parse()
         .unwrap();
     let new_parse = second
         .declaration_snapshot()
         .file(child_id)
         .unwrap()
         .parsed
-        .physical
-        .as_ref()
+        .shared_parse()
         .unwrap();
     assert!(!Arc::ptr_eq(old_parse, new_parse));
     drop(db);
@@ -249,8 +254,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
         .file(root)
         .unwrap()
         .parsed
-        .physical
-        .as_ref()
+        .shared_parse()
         .unwrap()
         .clone();
     assert!(unrestricted.files().any(|file| {
@@ -276,7 +280,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
     )
     .unwrap();
     assert!(!Arc::ptr_eq(
-        limited[&root].parsed.physical.as_ref().unwrap(),
+        limited[&root].parsed.shared_parse().unwrap(),
         &unrestricted_parse,
     ));
     let snapshot = db
@@ -287,8 +291,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
         .file(root)
         .unwrap()
         .parsed
-        .physical
-        .as_ref()
+        .shared_parse()
         .unwrap()
         .clone();
     assert!(!Arc::ptr_eq(&unrestricted_parse, &limited_parse));
@@ -298,8 +301,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
             .file(root)
             .unwrap()
             .parsed
-            .physical
-            .as_ref()
+            .shared_parse()
             .unwrap(),
         &unrestricted_parse,
     ));
@@ -321,13 +323,7 @@ fn inline_recovery_does_not_restart_a_physical_parser_budget() {
     let restored = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let restored_parse = restored
-        .file(root)
-        .unwrap()
-        .parsed
-        .physical
-        .as_ref()
-        .unwrap();
+    let restored_parse = restored.file(root).unwrap().parsed.shared_parse().unwrap();
     assert!(!Arc::ptr_eq(restored_parse, &limited_parse));
     assert!(!Arc::ptr_eq(restored_parse, &unrestricted_parse));
     assert!(restored.files().any(|file| {
@@ -360,8 +356,8 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
         .unwrap()
         .source()
         .id();
-    let old_a = Arc::downgrade(first.file(a).unwrap().parsed.physical.as_ref().unwrap());
-    let unchanged_b = Arc::downgrade(first.file(b).unwrap().parsed.physical.as_ref().unwrap());
+    let old_a = Arc::downgrade(first.file(a).unwrap().parsed.shared_parse().unwrap());
+    let unchanged_b = Arc::downgrade(first.file(b).unwrap().parsed.shared_parse().unwrap());
     let declarations = first.files.values().map(Arc::downgrade).collect::<Vec<_>>();
     let lowerings = first
         .files()
@@ -379,7 +375,7 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     let manifest = prepare_syntax(
         &mut source_preparer(&mut db),
         &original,
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
@@ -392,11 +388,11 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     );
     assert!(Arc::ptr_eq(
         &old_a.upgrade().unwrap(),
-        manifest[&a].parsed.physical.as_ref().unwrap(),
+        manifest[&a].parsed.shared_parse().unwrap(),
     ));
     assert!(Arc::ptr_eq(
         &old_a.upgrade().unwrap(),
-        manifest[&child].parsed.physical.as_ref().unwrap(),
+        manifest[&child].parsed.shared_parse().unwrap(),
     ));
     assert!(db.declaration_cache.is_none());
     assert!(db.signature_cache.is_none());
@@ -411,17 +407,17 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     let current = db
         .declarations(current_sources.clone(), &Default::default())
         .unwrap();
-    let current_a = Arc::downgrade(current.file(a).unwrap().parsed.physical.as_ref().unwrap());
+    let current_a = Arc::downgrade(current.file(a).unwrap().parsed.shared_parse().unwrap());
     assert!(old_a.upgrade().is_none());
     assert!(Arc::ptr_eq(
         &unchanged_b.upgrade().unwrap(),
-        current.file(b).unwrap().parsed.physical.as_ref().unwrap(),
+        current.file(b).unwrap().parsed.shared_parse().unwrap(),
     ));
     drop(current);
 
     let stale = db.declarations(original, &Default::default()).unwrap();
     assert_eq!(stale.file(a).unwrap().source().text(), "mod child {}");
-    let stale_parse = Arc::downgrade(stale.file(a).unwrap().parsed.physical.as_ref().unwrap());
+    let stale_parse = Arc::downgrade(stale.file(a).unwrap().parsed.shared_parse().unwrap());
     drop(stale);
     assert!(stale_parse.upgrade().is_none());
     // Syntax preparation needs no declaration or HIR owner. An older empty
@@ -429,24 +425,24 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     prepare_syntax(
         &mut source_preparer(&mut db),
         &SourceSnapshot::default(),
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
     let prepared = prepare_syntax(
         &mut source_preparer(&mut db),
         &current_sources,
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
     assert!(Arc::ptr_eq(
         &current_a.upgrade().unwrap(),
-        prepared[&a].parsed.physical.as_ref().unwrap(),
+        prepared[&a].parsed.shared_parse().unwrap(),
     ));
     assert!(Arc::ptr_eq(
         &unchanged_b.upgrade().unwrap(),
-        prepared[&b].parsed.physical.as_ref().unwrap(),
+        prepared[&b].parsed.shared_parse().unwrap(),
     ));
     // The returned syntax manifest remains usable without either a semantic
     // owner or the database/cache that produced it.
@@ -459,7 +455,7 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
     prepare_syntax(
         &mut source_preparer(&mut db),
         &empty,
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
@@ -485,11 +481,11 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     let prepared = prepare_syntax(
         &mut source_preparer(&mut db),
         &sources.snapshot(),
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
-    let retained = Arc::downgrade(prepared[&id].parsed.physical.as_ref().unwrap());
+    let retained = Arc::downgrade(prepared[&id].parsed.shared_parse().unwrap());
     drop(prepared);
     sources
         .set("cancel.kgr", "mod staged {}".into(), SourceLayer::Overlay)
@@ -500,8 +496,9 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     let abandoned = Arc::downgrade(&parsed);
     let staged = BTreeMap::from([(
         id,
-        CachedParse {
+        PhysicalParse {
             source: source.clone(),
+            limits: db.parse_limits,
             parsed,
         },
     )]);
@@ -510,13 +507,13 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     cancel.cancel();
     assert_eq!(
         db.source_parse_cache
-            .publish(next.revision(), db.parse_limits, staged, &cancel,),
+            .publish(next.revision(), staged, &cancel),
         Err(Cancelled),
     );
     assert!(abandoned.upgrade().is_none());
     assert!(retained.upgrade().is_some());
     assert!(matches!(
-        prepare_syntax(&mut source_preparer(&mut db), &next, None, &cancel),
+        prepare_syntax(&mut source_preparer(&mut db), &next, |_| None, &cancel),
         Err(AnalysisError::Cancelled),
     ));
     assert!(matches!(
@@ -527,7 +524,7 @@ fn cancelled_parse_publication_discards_the_staged_batch() {
     let completed = prepare_syntax(
         &mut source_preparer(&mut db),
         &next,
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
@@ -542,7 +539,7 @@ fn parse_cache_requires_exact_source_provenance_not_just_id_and_revision() {
     let first = prepare_syntax(
         &mut source_preparer(&mut db),
         &SourceSnapshot::single_file(original.clone()),
-        None,
+        |_| None,
         &Default::default(),
     )
     .unwrap();
@@ -557,25 +554,63 @@ fn parse_cache_requires_exact_source_provenance_not_just_id_and_revision() {
     let second = prepare_syntax(
         &mut source_preparer(&mut db),
         &sources,
-        Some(&first),
+        |id| first.get(&id).map(|module| &module.parsed),
         &Default::default(),
     )
     .unwrap();
-    let old = first[&original.id()].parsed.physical.as_ref().unwrap();
-    let new = second[&original.id()].parsed.physical.as_ref().unwrap();
+    let old = first[&original.id()].parsed.shared_parse().unwrap();
+    let new = second[&original.id()].parsed.shared_parse().unwrap();
     assert!(!Arc::ptr_eq(old, new));
+    assert_ne!(old.module().location(), new.module().location());
     let span = new.diagnostics()[0].span.unwrap();
     assert_eq!(new.source().span(span), authored.span(span));
     assert_ne!(new.source().span(span), old.source().span(span));
     let repeated = prepare_syntax(
         &mut source_preparer(&mut db),
         &sources,
-        Some(&first),
+        |id| first.get(&id).map(|module| &module.parsed),
         &Default::default(),
     )
     .unwrap();
     assert!(Arc::ptr_eq(
         new,
-        repeated[&original.id()].parsed.physical.as_ref().unwrap()
+        repeated[&original.id()].parsed.shared_parse().unwrap()
     ));
+}
+
+#[test]
+fn changed_library_sidecar_rebuilds_hir_without_reparsing() {
+    let source = Arc::new(SourceFile::new(
+        "/vendor/outcome.kgr",
+        "enum Outcome { Failed }",
+    ));
+    let id = source.id();
+    let input = ExternalModule::new(source);
+    let mut db = AnalysisDatabase::default();
+    db.set_external_modules(vec![input.clone()]);
+    let cancel = CancellationToken::default();
+    let snapshot = db.declarations(SourceSnapshot::default(), &cancel).unwrap();
+    let published = snapshot.file(id).unwrap();
+    let previous = &published.declared.lowered;
+    assert!(!previous.module.enums[0].variants[0].reports_failure);
+
+    let unchanged = db.prepare_external(&cancel).unwrap();
+    assert!(Arc::ptr_eq(previous, &unchanged[&id].1));
+
+    let mut changed = input;
+    changed
+        .enum_failures
+        .insert(("Outcome".into(), "Failed".into()));
+    // Keep the published candidate to exercise the local reuse rule, not the public
+    // setter's broad semantic invalidation.
+    db.libraries.set_external(vec![changed]);
+    let updated = db.prepare_external(&cancel).unwrap();
+    let (parsed, lowered) = &updated[&id];
+    assert!(Arc::ptr_eq(
+        published.parsed.shared_parse().unwrap(),
+        parsed.shared_parse().unwrap(),
+    ));
+    assert_ne!(previous.module.nodes.arena(), lowered.module.nodes.arena());
+    assert!(lowered.module.enums[0].variants[0].reports_failure);
+    assert!(!previous.module.enums[0].variants[0].reports_failure);
 }

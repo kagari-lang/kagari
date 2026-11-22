@@ -1,7 +1,12 @@
 //! Physical parse retention and logical inline source preparation.
 
 use crate::{
-    analysis::{error::AnalysisError, records::DeclarationCache},
+    analysis::{
+        error::AnalysisError,
+        external::LibraryLowering,
+        inputs::LibrarySourceKey,
+        records::{DeclarationCache, DeclarationCacheEntry},
+    },
     collections::{HashMap, HashSet},
     lower::{LoweredModule, lower_module_controlled},
 };
@@ -34,14 +39,21 @@ use std::{
 #[derive(Debug, Clone, Default)]
 pub(super) struct SourceParseCache {
     revision: Revision,
-    limits: Option<ParseLimits>,
-    files: BTreeMap<FileId, CachedParse>,
+    files: BTreeMap<FileId, PhysicalParse>,
 }
 
 #[derive(Debug, Clone)]
-struct CachedParse {
+struct PhysicalParse {
     source: Arc<SourceFile>,
+    limits: ParseLimits,
     parsed: Arc<Parse>,
+}
+
+impl PhysicalParse {
+    fn matches(&self, source: &Arc<SourceFile>, limits: ParseLimits) -> bool {
+        // Equal file IDs and revisions need not carry identical copied-source metadata.
+        Arc::ptr_eq(&self.source, source) && self.limits == limits
+    }
 }
 
 impl SourceParseCache {
@@ -50,30 +62,42 @@ impl SourceParseCache {
         *self = Self::default();
     }
 
-    fn get(&self, source: &Arc<SourceFile>, limits: ParseLimits) -> Option<Arc<Parse>> {
-        if self.limits != Some(limits) {
-            return None;
+    fn get_or_parse(
+        &self,
+        source: &Arc<SourceFile>,
+        limits: ParseLimits,
+        published: Option<&ParsedModule>,
+        cancel: &CancellationToken,
+    ) -> Result<PhysicalParse, Cancelled> {
+        // A newer syntax batch can publish before its semantic analysis is cancelled.
+        // Prefer the matching published declaration's parse, preserving its locator identity.
+        if let Some(previous) = published
+            .and_then(ParsedModule::source_parse)
+            .filter(|previous| previous.matches(source, limits))
+            .or_else(|| {
+                self.files
+                    .get(&source.id())
+                    .filter(|entry| entry.matches(source, limits))
+            })
+        {
+            return Ok(previous.clone());
         }
-        self.files
-            .get(&source.id())
-            // SourceFile can be cloned and given different copied-source metadata
-            // without changing its ID/revision. Only the exact immutable input is
-            // sufficient evidence; equal text or revision alone is not.
-            .filter(|entry| Arc::ptr_eq(&entry.source, source))
-            .map(|entry| entry.parsed.clone())
+        Ok(PhysicalParse {
+            source: source.clone(),
+            limits,
+            parsed: Arc::new(parse(source, ParseOptions { limits }, cancel)?),
+        })
     }
 
     fn publish(
         &mut self,
         revision: Revision,
-        limits: ParseLimits,
-        files: BTreeMap<FileId, CachedParse>,
+        files: BTreeMap<FileId, PhysicalParse>,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
         cancel.check()?;
         if revision >= self.revision {
             self.revision = revision;
-            self.limits = Some(limits);
             self.files = files;
         }
         Ok(())
@@ -90,47 +114,66 @@ pub(super) struct SourcePreparer<'a> {
 /// A logical view paired with the exact immutable parse that owns its locator.
 #[derive(Debug, Clone)]
 pub(crate) struct ParsedModule {
-    physical: Option<Arc<Parse>>,
-    location: Option<ModuleLocation>,
+    input: ParsedInput,
     diagnostics: Arc<[usize]>,
-    // Native root parses are prepared separately and are not source-reuse inputs.
-    limits: Option<ParseLimits>,
+}
+
+#[derive(Debug, Clone)]
+enum ParsedInput {
+    Source {
+        physical: PhysicalParse,
+        key: LoweringInputKey,
+    },
+    Native(Arc<Parse>),
+    Structured,
+}
+
+/// Exact source lowering input. The locator already qualifies its module by the parse.
+/// Source metadata is derived from that physical input and the selected module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LoweringInputKey {
+    file: FileId,
+    location: ModuleLocation,
+    attachments: Option<LibrarySourceKey>,
 }
 
 impl ParsedModule {
     pub(crate) fn root(parsed: Option<Parse>) -> Self {
-        Self {
-            location: parsed.as_ref().map(|parsed| parsed.module().location()),
-            diagnostics: (0..parsed
-                .as_ref()
-                .map_or(0, |parsed| parsed.diagnostics().len()))
-                .collect(),
-            physical: parsed.map(Arc::new),
-            limits: None,
+        match parsed {
+            Some(parsed) => Self {
+                diagnostics: (0..parsed.diagnostics().len()).collect(),
+                input: ParsedInput::Native(Arc::new(parsed)),
+            },
+            None => Self {
+                diagnostics: Arc::default(),
+                input: ParsedInput::Structured,
+            },
         }
     }
 
     pub(crate) fn syntax(&self) -> Option<ModuleSyntax> {
-        Some(
-            self.location
-                .as_ref()?
-                .resolve(self.physical.as_ref()?)
-                .expect("retained module locator"),
-        )
+        match &self.input {
+            ParsedInput::Source { physical, key } => Some(
+                key.location
+                    .resolve(&physical.parsed)
+                    .expect("retained module locator"),
+            ),
+            ParsedInput::Native(parsed) => Some(parsed.module()),
+            ParsedInput::Structured => None,
+        }
     }
 
     pub(crate) fn diagnostics(&self) -> impl ExactSizeIterator<Item = &Diagnostic> {
         self.diagnostics.iter().map(|index| {
             &self
-                .physical
-                .as_ref()
+                .physical()
                 .expect("source diagnostic owner")
                 .diagnostics()[*index]
         })
     }
 
     pub(crate) fn physical(&self) -> Option<&Parse> {
-        self.physical.as_deref()
+        self.shared_parse().map(Arc::as_ref)
     }
 
     pub(crate) fn physical_diagnostics(&self) -> &[Diagnostic] {
@@ -138,11 +181,25 @@ impl ParsedModule {
             .map_or(&[], |parsed| parsed.diagnostics().as_slice())
     }
 
-    fn same_parse(&self, other: &Self) -> bool {
-        match (&self.physical, &other.physical) {
-            (Some(left), Some(right)) => Arc::ptr_eq(left, right),
-            (None, None) => true,
-            _ => false,
+    fn shared_parse(&self) -> Option<&Arc<Parse>> {
+        match &self.input {
+            ParsedInput::Source { physical, .. } => Some(&physical.parsed),
+            ParsedInput::Native(parsed) => Some(parsed),
+            ParsedInput::Structured => None,
+        }
+    }
+
+    fn source_parse(&self) -> Option<&PhysicalParse> {
+        match &self.input {
+            ParsedInput::Source { physical, .. } => Some(physical),
+            _ => None,
+        }
+    }
+
+    fn lowering_key(&self) -> Option<&LoweringInputKey> {
+        match &self.input {
+            ParsedInput::Source { key, .. } => Some(key),
+            _ => None,
         }
     }
 }
@@ -156,20 +213,39 @@ pub(super) struct PreparedSyntax {
 pub(super) struct PreparedSource {
     pub(super) parsed: ParsedModule,
     pub(super) lowered: Arc<LoweredModule>,
-    fresh: bool,
 }
 
-impl PreparedSource {
-    /// Attaches input metadata before sharing a fresh lowering. A retained lowering
-    /// already includes metadata from the same immutable analysis inputs.
-    pub(super) fn attach(
+impl PreparedSyntax {
+    /// Only reuse an exact input, and apply its sidecar before sharing a fresh lowering.
+    pub(super) fn lower(
         mut self,
-        attach: impl FnOnce(&mut LoweredModule) -> Result<(), AnalysisError>,
-    ) -> Result<(ParsedModule, Arc<LoweredModule>), AnalysisError> {
-        if self.fresh {
-            attach(Arc::get_mut(&mut self.lowered).expect("unshared fresh lowering"))?;
-        }
-        Ok((self.parsed, self.lowered))
+        previous: Option<&DeclarationCacheEntry>,
+        attachments: Option<LibraryLowering<'_>>,
+        cancel: &CancellationToken,
+    ) -> Result<PreparedSource, AnalysisError> {
+        cancel.check()?;
+        let ParsedInput::Source { key, .. } = &mut self.parsed.input else {
+            unreachable!("source preparation produces source views only");
+        };
+        key.attachments = attachments.as_ref().map(|input| input.key().clone());
+        let retained = previous
+            .filter(|old| old.parsed.lowering_key() == Some(key))
+            .and_then(|old| old.lowered.upgrade());
+        let lowered = if let Some(retained) = retained {
+            retained
+        } else {
+            let syntax = self.parsed.syntax().expect("prepared source syntax");
+            let mut lowered = lower_module_controlled(self.source, &syntax, cancel);
+            if let Some(attachments) = attachments {
+                attachments.attach(&mut lowered, cancel)?;
+            }
+            Arc::new(lowered)
+        };
+        cancel.check()?;
+        Ok(PreparedSource {
+            parsed: self.parsed,
+            lowered,
+        })
     }
 }
 
@@ -185,50 +261,17 @@ pub(super) fn prepare(
     previous: Option<&DeclarationCache>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSource>, AnalysisError> {
-    // Syntax publication may advance ahead of semantic publication. Retain only
-    // the requested published syntax inputs so a cancelled newer analysis cannot
-    // force an unchanged published lowering to acquire a new parse identity.
-    let mut retained = BTreeMap::new();
-    for source in sources.files() {
-        cancel.check()?;
-        if let Some(old) = previous.and_then(|old| old.files.get(&source.id())) {
-            retained.insert(
-                source.id(),
-                PreparedSyntax {
-                    source: old.source.clone(),
-                    parsed: old.parsed.clone(),
-                },
-            );
-        }
-    }
-    let syntax = prepare_syntax(&mut preparer, sources, Some(&retained), cancel)?;
-    let mut files = BTreeMap::new();
-    for (id, PreparedSyntax { source, parsed }) in syntax {
-        cancel.check()?;
-        let old = previous.and_then(|old| old.files.get(&id)).filter(|old| {
-            old.source.revision() == source.revision()
-                && old.source.module_identity() == source.module_identity()
-                && old.source.inline_range() == source.inline_range()
-                && old.parsed.same_parse(&parsed)
-        });
-        let retained = old.and_then(|old| old.lowered.upgrade());
-        let fresh = retained.is_none();
-        let lowered = retained.unwrap_or_else(|| {
-            Arc::new(lower_module_controlled(
-                source,
-                &parsed.syntax().expect("prepared source syntax"),
-                cancel,
-            ))
-        });
-        files.insert(
-            id,
-            PreparedSource {
-                parsed,
-                lowered,
-                fresh,
-            },
-        );
-    }
+    let prior = |id| previous.and_then(|cache| cache.files.get(&id));
+    let syntax = prepare_syntax(
+        &mut preparer,
+        sources,
+        |id| prior(id).map(|old| &old.parsed),
+        cancel,
+    )?;
+    let files = syntax
+        .into_iter()
+        .map(|(id, input)| Ok((id, input.lower(prior(id), None, cancel)?)))
+        .collect::<Result<_, AnalysisError>>()?;
     cancel.check()?;
     Ok(files)
 }
@@ -239,109 +282,104 @@ pub(super) fn prepare(
 /// their assigned parser diagnostics. No HIR is constructed or retained. Only a
 /// complete, cancellation-checked syntax batch publishes the source parse cache;
 /// subsequent lowering failures do not invalidate these completed syntax results.
-/// `previous` is an optional owned syntax manifest borrowed for this request, not
-/// a semantic snapshot. Its exact source/limit matches take precedence over the
+/// `published` supplies only the earlier syntax result for each requested physical file.
+/// Its exact source/limit matches take precedence over the
 /// latest parse cache to preserve published syntax identity after semantic cancellation.
 /// No previous entries are added to the cache unless present in this input batch.
 /// Native declarations remain on the separate native import path.
 ///
 /// Returns an error for cancellation or an invalid supplied inline range, without
 /// publishing the staged parses or returning a partial manifest.
-pub(super) fn prepare_syntax(
+pub(super) fn prepare_syntax<'a>(
     preparer: &mut SourcePreparer<'_>,
     sources: &SourceSnapshot,
-    previous: Option<&BTreeMap<FileId, PreparedSyntax>>,
+    published: impl Fn(FileId) -> Option<&'a ParsedModule>,
     cancel: &CancellationToken,
 ) -> Result<BTreeMap<FileId, PreparedSyntax>, AnalysisError> {
     let mut files = BTreeMap::new();
     let mut parses = BTreeMap::new();
-    for physical in sources.files() {
+    for source in sources.files() {
         cancel.check()?;
-        let cached = previous
-            .and_then(|files| files.get(&physical.id()))
-            .filter(|old| {
-                Arc::ptr_eq(&old.source, physical) && old.parsed.limits == Some(preparer.limits)
-            })
-            .and_then(|old| old.parsed.physical.clone())
-            .or_else(|| preparer.cache.get(physical, preparer.limits));
-        let parsed = match cached {
-            Some(parsed) => parsed,
-            None => Arc::new(parse(
-                physical,
-                ParseOptions {
-                    limits: preparer.limits,
-                },
-                cancel,
-            )?),
-        };
-        parses.insert(
-            physical.id(),
-            CachedParse {
-                source: physical.clone(),
-                parsed: parsed.clone(),
-            },
-        );
-        let syntax = match physical.inline_range() {
-            Some(range) => ModuleSyntax::at_content_range(&parsed, range)
-                .ok_or(AnalysisError::InvalidSourceRange(physical.id()))?,
-            None => parsed.module(),
-        };
-        let mut pending = VecDeque::from([(physical.clone(), syntax)]);
-        let mut generated = HashSet::default();
-        let mut logical = Vec::new();
-        while let Some((source, syntax)) = pending.pop_front() {
+        let id = source.id();
+        let physical =
+            preparer
+                .cache
+                .get_or_parse(source, preparer.limits, published(id), cancel)?;
+        for logical in discover_modules(&physical, preparer.inline_ids, cancel)? {
             cancel.check()?;
-            for item in syntax.items() {
-                cancel.check()?;
-                let ItemView::ModuleDef(module) = item else {
-                    continue;
-                };
-                let (Some(name), Some(block)) = (module.name_text(), module.body()) else {
-                    continue;
-                };
-                let child = block;
-                let Some(range) = child.content_range() else {
-                    continue;
-                };
-                if !generated.insert((source.id(), name.clone())) {
-                    continue;
-                }
-                let id = *preparer
-                    .inline_ids
-                    .entry((source.id(), name.clone()))
-                    .or_insert_with(FileId::fresh);
-                pending.push_back((
-                    Arc::new(SourceFile::inline_module(&source, &name, id, range)),
-                    child,
-                ));
-            }
-            logical.push(LogicalSource {
-                source,
-                syntax,
-                diagnostics: Vec::new(),
-            });
-        }
-        distribute_diagnostics(&parsed, &mut logical, cancel)?;
-        for logical in logical {
-            cancel.check()?;
+            let file = logical.source.id();
             files.insert(
-                logical.source.id(),
+                file,
                 PreparedSyntax {
                     parsed: ParsedModule {
-                        physical: Some(parsed.clone()),
-                        location: Some(logical.syntax.location()),
+                        input: ParsedInput::Source {
+                            physical: physical.clone(),
+                            key: LoweringInputKey {
+                                file,
+                                location: logical.syntax.location(),
+                                attachments: None,
+                            },
+                        },
                         diagnostics: logical.diagnostics.into(),
-                        limits: Some(preparer.limits),
                     },
                     source: logical.source,
                 },
             );
         }
+        parses.insert(id, physical);
     }
-    preparer
-        .cache
-        .publish(sources.revision(), preparer.limits, parses, cancel)?;
+    preparer.cache.publish(sources.revision(), parses, cancel)?;
     Ok(files)
+}
+
+/// Enumerates logical modules and assigns diagnostics without consulting either cache.
+fn discover_modules(
+    physical: &PhysicalParse,
+    inline_ids: &mut HashMap<(FileId, String), FileId>,
+    cancel: &CancellationToken,
+) -> Result<Vec<LogicalSource>, AnalysisError> {
+    let source = &physical.source;
+    let parsed = &physical.parsed;
+    let root = match source.inline_range() {
+        Some(range) => ModuleSyntax::at_content_range(parsed, range)
+            .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,
+        None => parsed.module(),
+    };
+    let mut pending = VecDeque::from([(source.clone(), root)]);
+    let mut generated = HashSet::default();
+    let mut logical = Vec::new();
+    while let Some((source, syntax)) = pending.pop_front() {
+        cancel.check()?;
+        for item in syntax.items() {
+            cancel.check()?;
+            let ItemView::ModuleDef(module) = item else {
+                continue;
+            };
+            let (Some(name), Some(child)) = (module.name_text(), module.body()) else {
+                continue;
+            };
+            let Some(range) = child.content_range() else {
+                continue;
+            };
+            if !generated.insert((source.id(), name.clone())) {
+                continue;
+            }
+            let id = *inline_ids
+                .entry((source.id(), name.clone()))
+                .or_insert_with(FileId::fresh);
+            pending.push_back((
+                Arc::new(SourceFile::inline_module(&source, &name, id, range)),
+                child,
+            ));
+        }
+        logical.push(LogicalSource {
+            source,
+            syntax,
+            diagnostics: Vec::new(),
+        });
+    }
+    distribute_diagnostics(parsed, &mut logical, cancel)?;
+    Ok(logical)
 }
 
 fn distribute_diagnostics(

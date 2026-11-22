@@ -8,6 +8,7 @@ use crate::{
     analysis::{
         AnalysisDatabase,
         error::AnalysisError,
+        inputs::LibrarySourceKey,
         source_preparation::{self, ParsedModule, SourceParseCache, SourcePreparer},
     },
     collections::HashSet,
@@ -252,6 +253,34 @@ impl ExternalFunction {
     }
 }
 
+/// The root sidecar and its identity travel together into lowering.
+pub(super) struct LibraryLowering<'a> {
+    key: LibrarySourceKey,
+    input: &'a ExternalModule,
+    definitions: &'a DefinitionContext,
+}
+
+impl LibraryLowering<'_> {
+    pub(super) fn key(&self) -> &LibrarySourceKey {
+        &self.key
+    }
+
+    pub(super) fn attach(
+        self,
+        lowered: &mut LoweredModule,
+        cancel: &CancellationToken,
+    ) -> Result<(), AnalysisError> {
+        self.input.attach_members(lowered, cancel)?;
+        self.input.attach_types(lowered, self.definitions, cancel)?;
+        self.input
+            .attach_traits(lowered, self.definitions, cancel)?;
+        self.input
+            .attach_contracts(lowered, self.definitions, cancel)?;
+        self.input.attach_methods(lowered, cancel)?;
+        Ok(())
+    }
+}
+
 impl AnalysisDatabase {
     /// Replaces only caller-supplied offline inputs, retaining packaged core and registrations.
     ///
@@ -280,21 +309,27 @@ impl AnalysisDatabase {
     ) -> Result<BTreeMap<FileId, (ParsedModule, Arc<LoweredModule>)>, AnalysisError> {
         let mut files = BTreeMap::new();
         let mut identities = HashSet::default();
-        for (input, limits) in self.libraries.parse_inputs(self.parse_limits) {
+        let previous = |id| {
+            self.declaration_cache
+                .as_ref()
+                .and_then(|cache| cache.files.get(&id))
+        };
+        for (key, input, limits) in self.libraries.parse_inputs(self.parse_limits) {
             cancel.check()?;
             let mut cache = SourceParseCache::default();
-            let preparer = SourcePreparer {
+            let mut preparer = SourcePreparer {
                 cache: &mut cache,
                 inline_ids: &mut self.inline_ids,
                 limits,
             };
-            for (id, prepared) in source_preparation::prepare(
-                preparer,
+            let syntax = source_preparation::prepare_syntax(
+                &mut preparer,
                 &SourceSnapshot::single_file(input.source.clone()),
-                self.declaration_cache.as_ref(),
+                |id| previous(id).map(|old| &old.parsed),
                 cancel,
-            )? {
-                if !identities.insert(prepared.lowered.source.module_identity().clone())
+            )?;
+            for (id, module) in syntax {
+                if !identities.insert(module.source.module_identity().clone())
                     || files.contains_key(&id)
                 {
                     return Err(DeclarationError(
@@ -302,19 +337,14 @@ impl AnalysisDatabase {
                     )
                     .into());
                 }
-                let (parsed, lowered) = prepared.attach(|lowered| {
-                    // Inline modules retain library admission and real source ownership,
-                    // but do not inherit root-owned constructor/member metadata.
-                    if id == input.source.id() {
-                        input.attach_members(lowered, cancel)?;
-                        input.attach_types(lowered, &self.definitions, cancel)?;
-                        input.attach_traits(lowered, &self.definitions, cancel)?;
-                        input.attach_contracts(lowered, &self.definitions, cancel)?;
-                        input.attach_methods(lowered, cancel)?;
-                    }
-                    Ok(())
-                })?;
-                files.insert(id, (parsed, lowered));
+                // Inline modules do not inherit root-owned sidecars.
+                let attachments = (id == input.source.id()).then(|| LibraryLowering {
+                    key: key.clone(),
+                    input,
+                    definitions: &self.definitions,
+                });
+                let prepared = module.lower(previous(id), attachments, cancel)?;
+                files.insert(id, (prepared.parsed, prepared.lowered));
             }
         }
         cancel.check()?;

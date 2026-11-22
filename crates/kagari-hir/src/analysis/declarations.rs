@@ -208,7 +208,6 @@ impl AnalysisDatabase {
                             *id,
                             DeclarationCacheEntry {
                                 record: file.declared.record.clone(),
-                                source: file.declared.lowered.source.clone(),
                                 parsed: file.parsed.clone(),
                                 diagnostics: file.diagnostics.clone(),
                                 query: Arc::downgrade(file),

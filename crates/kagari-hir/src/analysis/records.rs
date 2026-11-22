@@ -16,10 +16,7 @@ use crate::{
     resolver::resolved::DeclarationNames,
     typeck::ModuleSignatures,
 };
-use kagari_source::{
-    identity::{FileId, Revision},
-    source::SourceFile,
-};
+use kagari_source::identity::{FileId, Revision};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Weak},
@@ -46,7 +43,6 @@ pub(crate) struct SignatureRecord {
 #[derive(Debug, Clone)]
 pub(super) struct DeclarationCacheEntry {
     pub(super) record: Arc<DeclarationRecord>,
-    pub(super) source: Arc<SourceFile>,
     pub(super) parsed: ParsedModule,
     pub(super) diagnostics: Arc<DiagnosticBuffer>,
     pub(super) query: Weak<FileDeclarations>,

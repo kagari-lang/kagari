@@ -210,11 +210,20 @@ impl Ast<'_, ModuleDef> {
 /// A private body ID tied to its exact parse allocation. A foreign parse cannot resolve it.
 /// The weak reference retains neither AST nodes nor source text. This is not a
 /// persistent or cross-revision identifier, even when two parses share a SourceFile.
+/// Equality identifies the same body in the same parse, not equal source ranges.
 #[derive(Debug, Clone)]
 pub struct ModuleLocation {
     file: Weak<ParsedFile>,
     id: ModuleId,
 }
+
+impl PartialEq for ModuleLocation {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Weak::ptr_eq(&self.file, &other.file)
+    }
+}
+
+impl Eq for ModuleLocation {}
 
 impl ModuleLocation {
     /// Resolve against the original parse or one of its clones.

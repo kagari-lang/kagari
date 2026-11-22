@@ -774,6 +774,14 @@ records stage discoverability, orchestration placement and stage-result/fact/que
 Revisit after the user finishes reading the code; names, module moves and execution phases remain
 undecided. This is separate from the selected origin ownership plan.
 
+**Source preparation cleanup:** [parse and lowering reuse contracts](architecture/hir.md#query-work-reuse-and-publication)
+now distinguish exact physical parse inputs, logical module discovery and source lowering identity.
+Changing only an authored library sidecar rebuilds its HIR even when an old parse and lowering both
+remain available. Retention, semantic invalidation and snapshot publication policies are unchanged.
+All 22 selected HIR source preparation, declaration-cache and packaged-core cases pass, along with
+structure, workspace formatting, workspace all-target Clippy and diff checks. Full workspace tests
+and feature/platform matrices remain CI-only.
+
 **Separate deferred work:** [cache retention](hir-model-review.md#cache-policy-is-separate),
 incremental parsing, finer body reuse/reclamation and LSP scheduling.
 [Native frontend ownership](#native-model-replacement) is implemented; broader Native products
