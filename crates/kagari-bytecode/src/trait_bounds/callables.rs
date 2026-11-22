@@ -3,7 +3,10 @@ use crate::module::BytecodeModule;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::{
     callable::witness::OperationWitness,
-    native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
+    native_import::{
+        callables::{NativeCallableApplication, NativeCallableOrigin},
+        foundation::FoundationNative,
+    },
     representation::semantic_representation,
 };
 use kagari_types::callable::CallableImplementation;
@@ -118,7 +121,8 @@ pub(super) fn target_valid(
                     && function.metadata.semantic.result.as_ref() == Some(&call.signature.result)
             }),
         CallableImplementation::Native(binding) => owner.native_imports.iter().any(|import| {
-            import.instance == call.instance
+            FoundationNative::for_id(*binding, definitions).is_none()
+                && import.instance == call.instance
                 && &import.binding == binding
                 && import.signature == call.signature
         }),

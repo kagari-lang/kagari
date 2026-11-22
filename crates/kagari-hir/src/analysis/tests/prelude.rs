@@ -123,11 +123,11 @@ fn range_projection_helpers_are_private_to_the_core_ops_owner() {
             },
         )
         .unwrap();
-    let name = "__range_start_bound";
+    let name = "range_start";
     let file = sources
         .set(
             "ops.kgr",
-            format!("use core::ops::Bound; fn lower() -> Bound<i32> {{ {name}(1..2) }}"),
+            format!("use core::ops::{name} as private_start; fn {name}() -> i32 {{ 42 }} fn lower() -> i32 {{ {name}() }}"),
             SourceLayer::Base,
         )
         .unwrap();
@@ -138,9 +138,8 @@ fn range_projection_helpers_are_private_to_the_core_ops_owner() {
         .unwrap();
     let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
     assert!(
-        diagnostics.iter().any(
-            |d| matches!(&d.kind, DiagnosticKind::UnknownName { name: actual } if actual == name)
-        ),
+        matches!(diagnostics, [diagnostic] if matches!(&diagnostic.kind,
+            DiagnosticKind::ImportNotPublic { path } if path == "core::ops::range_start")),
         "{diagnostics:?}"
     );
 }

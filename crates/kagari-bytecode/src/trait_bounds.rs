@@ -29,12 +29,14 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::dynamic_interface_valid,
+    native_import::foundation::FoundationNative,
     representation::builtin_representation,
     standard::RuntimePrimitive,
     types as abi,
     types::{PublicItem, proofs::ProofCatalog, verify},
 };
 use kagari_types::{
+    callable::CallableImplementation,
     declaration::TraitDef,
     language::Protocol,
     ty::{
@@ -405,7 +407,24 @@ fn linked_bounds_match(
     {
         return Ok(false);
     }
+    if module.native_declarations.iter().any(|declaration| {
+        if let Some(entry) = FoundationNative::for_id(declaration.declaration, definitions) {
+            !entry.declaration_matches(declaration, definitions)
+        } else {
+            matches!(declaration.function.implementation, CallableImplementation::Native(binding)
+                if FoundationNative::for_id(binding, definitions).is_some())
+        }
+    }) || module.public_items.iter().any(|item| {
+        matches!(item, PublicItem::Function(function)
+            if matches!(function.implementation, CallableImplementation::Native(binding)
+                if FoundationNative::for_id(binding, definitions).is_some()))
+    }) {
+        return Ok(false);
+    }
     for import in &module.native_imports {
+        if !FoundationNative::import_allowed(import, &module.identity, definitions) {
+            return Ok(false);
+        }
         let Some(owner) = closure.iter().find(|owner| {
             definitions
                 .resolve(import.instance.declaration)

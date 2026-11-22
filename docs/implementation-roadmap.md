@@ -1310,6 +1310,14 @@ Script bodies, including final defaults, against actual executable behavior. Por
 instruction certificates alone establish consistency, not independent library semantics. Runtime
 retains real bindings; no Runtime-to-HIR edge or Runtime trait solver was introduced.
 
+The [declaration-linked Native helpers plan](native-linkage-reflection-plan.md)
+queues NL01–NL03: bind existing core Native declarations without registering a
+second owner, migrate Range/Result helpers, and retire the legacy script helpers
+and HIR name fallback. NL01 is implemented; NL02–NL03 remain open. The
+[script reflection API](spec/reflection.md#optional-script-reflection) requires a
+separate design; no replacement API ships in these phases. Moving String methods
+and measuring any call fast path remain separate follow-ups.
+
 **Local validation:** structure checking, workspace formatting, workspace all-target Clippy with
 `-D warnings`, fixture formatting and diff checks pass. Selected owner-level tests pass for common
 imports/alias precedence, captured/replayed environments, independent language/conversion shapes,

@@ -22,6 +22,7 @@ use kagari_types::{
 };
 
 pub mod callables;
+pub mod foundation;
 mod linked;
 pub mod protocol;
 pub mod result;

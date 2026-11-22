@@ -152,9 +152,11 @@ mod tests {
         Runtime,
         interpreter_tests::common::{load_bytecode_program_with_runtime, round_trip_bytecode},
     };
+    use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
     use kagari_compiler::{
         bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir,
     };
+    use kagari_contract::native_import::foundation::FoundationNative;
     use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
@@ -175,16 +177,35 @@ mod tests {
         let input = CheckedCompilation::from_program(&checked, &cancel).unwrap();
         let mir = lower_program_to_mir(&input, &Default::default()).unwrap();
         let bytecode = lower_program_to_bytecode(&mir, &cancel).unwrap();
-        let (mut runtime, installed) = load_bytecode_program_with_runtime(
-            Runtime::default(),
-            "ranges",
-            round_trip_bytecode(bytecode.into_unverified()),
-        );
-        let selected = runtime.select_program(&installed).unwrap();
-        let result = runtime
-            .execute_module(&selected, "main", runtime.execution_options())
-            .unwrap();
-        assert_eq!(result.return_value.as_bool(), Some(true));
+        let compiled = bytecode.into_unverified();
+        let decoded = round_trip_bytecode(compiled.clone());
+        let mut foreign = decoded.records().clone();
+        let definitions = decoded.definitions();
+        let import = foreign
+            .modules
+            .iter()
+            .flat_map(|module| &module.native_imports)
+            .find(|import| {
+                FoundationNative::for_id(import.binding, definitions)
+                    == Some(FoundationNative::RangeStart)
+            })
+            .expect("the packaged Range<T> start method calls a private Native entry")
+            .clone();
+        let root = foreign.root.index();
+        foreign.modules[root].native_imports.push(import);
+        assert!(matches!(
+            verify_program(&foreign, definitions, &cancel),
+            Err(BytecodeVerificationError::InvalidHostInterface(_))
+        ));
+        for program in [compiled, decoded] {
+            let (mut runtime, installed) =
+                load_bytecode_program_with_runtime(Runtime::default(), "ranges", program);
+            let selected = runtime.select_program(&installed).unwrap();
+            let result = runtime
+                .execute_module(&selected, "main", runtime.execution_options())
+                .unwrap();
+            assert_eq!(result.return_value.as_bool(), Some(true));
+        }
     }
 
     #[test]

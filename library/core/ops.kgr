@@ -269,9 +269,11 @@ pub native type RangeToInclusive<T>;
 /// value and can be used as `RangeBounds<T>` for any endpoint type `T`.
 pub native type RangeFull;
 
+native fn range_start<T>(range: Range<T>) -> Bound<T>;
+
 impl<T> RangeBounds<T> for Range<T> {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        range_start(self)
     }
 
     fn end_bound(self) -> Bound<T> {

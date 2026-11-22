@@ -319,9 +319,15 @@ This distinction is important for:
 
 ## Optional Script Reflection
 
-If an embedding enables script-visible reflection, the smallest useful surface is read-oriented.
+The [Native linkage plan](../native-linkage-reflection-plan.md#nl03--retire-the-legacy-script-helpers-and-name-fallback)
+retires the current special-cased script helpers without introducing a replacement.
+Script-visible reflection requires a separate design. In particular, enumerating
+field names and instantiated declared types, reading a value as a caller-supplied
+type, and reading a value whose type is not known to the caller are separate use
+cases. The sketches below do not fix an API, module name, or first-release scope.
+Runtime metadata, Host access and debugger inspection do not depend on that design.
 
-Restricted API:
+Restricted API sketch:
 
 ```kagari
 val ty = type_of(value)
@@ -330,7 +336,7 @@ val kind = ty.kind()
 val fields = ty.fields()
 ```
 
-The baseline script-visible API includes:
+A richer script-visible API could include:
 
 - `type_of(value) -> TypeInfo`
 - `TypeInfo.id()`

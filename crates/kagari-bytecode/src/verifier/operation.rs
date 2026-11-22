@@ -19,6 +19,7 @@ use kagari_contract::numeric::NumericSignature;
 use kagari_contract::{
     contracts,
     contracts::RuntimeHelperKind,
+    native_import::foundation::FoundationNative,
     operations,
     operations::UnaryOp as MirUnaryOp,
     representation::semantic_representation,
@@ -26,6 +27,7 @@ use kagari_contract::{
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
+    callable::{CallableImplementation, Signature},
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
     ty::Ty,
 };
@@ -817,6 +819,28 @@ pub(super) fn verify_instruction(
     Ok(())
 }
 
+fn verify_foundation_call(
+    function: &BytecodeFunction,
+    dst: Option<Slot>,
+    args: &[Slot],
+    signature: &Signature,
+) -> Result<(), BytecodeVerificationError> {
+    let semantic = |slot: Slot| function.metadata.semantic.slots.get(&slot.index());
+    if args.len() != signature.params.len()
+        || args
+            .iter()
+            .zip(&signature.params)
+            .any(|(arg, expected)| semantic(*arg) != Some(expected))
+        || dst.and_then(semantic) != Some(&signature.result)
+    {
+        return Err(BytecodeVerificationError::InvalidOperation {
+            function: function.id,
+            reason: "invalid foundation native call types",
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn verify_call(
     module: &BytecodeModule,
     function: &BytecodeFunction,
@@ -858,6 +882,11 @@ pub(super) fn verify_call(
                 || contract.signature.params.len() != args.len()
             {
                 return Err(invalid());
+            }
+            if let CallableImplementation::Native(binding) = contract.implementation
+                && FoundationNative::for_id(binding, definitions).is_some()
+            {
+                verify_foundation_call(function, dst, args, &contract.signature)?;
             }
             for (arg, ty) in args.iter().zip(&contract.signature.params) {
                 expect_register_ty(
@@ -996,6 +1025,9 @@ pub(super) fn verify_call(
                     function: function.id,
                     reason: "shared native requires a checked generic call environment",
                 });
+            }
+            if FoundationNative::for_id(contract.binding, definitions).is_some() {
+                verify_foundation_call(function, dst, args, &contract.signature)?;
             }
             let args = args
                 .iter()

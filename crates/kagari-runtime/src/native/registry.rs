@@ -3,6 +3,7 @@
 mod authored;
 mod dependencies;
 mod forwarding;
+mod foundation;
 mod matching;
 mod scripts;
 #[cfg(test)]
@@ -39,6 +40,7 @@ use kagari_contract::{
     native_import::{
         NativeImport,
         callables::{NativeCallableApplication, NativeCallableOrigin},
+        foundation::FoundationNative,
     },
     standard::RuntimePrimitive,
 };
@@ -176,6 +178,16 @@ impl NativeRegistry {
                     "native declaration lacks an installed binding",
                 ));
             };
+            if let Some(entry) =
+                FoundationNative::for_id(declaration.declaration, admission.target())
+            {
+                if !entry.declaration_matches(&declaration, admission.target()) {
+                    return Err(RuntimeError::module_validation(
+                        "invalid foundation native declaration",
+                    ));
+                }
+                continue;
+            }
             let entry = self
                 .declaration_bindings
                 .get_id(declaration.declaration)
@@ -241,7 +253,12 @@ impl NativeRegistry {
             return Err(invalid());
         };
         let id = *binding;
-        if self.entries.get_id(id).is_some() {
+        if self.entries.get_id(id).is_some()
+            || FoundationNative::for_id(id, &definitions).is_some()
+            || declarations.iter().any(|declaration| {
+                FoundationNative::for_id(declaration.declaration, &definitions).is_some()
+            })
+        {
             return Err(invalid());
         }
         let mut seen = HashSet::new();
@@ -291,23 +308,17 @@ impl NativeRegistry {
     pub(crate) fn link(
         &self,
         import: &NativeImport,
+        importer: &BytecodeModule,
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
         validated: &mut DependencyValidation,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
-        let declaration_id = admission.runtime_id(import.instance.declaration)?;
-        let entry = self
-            .declaration_bindings
-            .get_id(declaration_id)
-            .or_else(|| {
-                admission
-                    .runtime_id(import.binding)
-                    .ok()
-                    .and_then(|binding| self.declaration_bindings.get_id(binding))
-            })
-            .and_then(|binding| self.entries.get_id(*binding))
-            .ok_or_else(|| RuntimeError::module_validation("native binding is not installed"))?;
-        validated.validate(&entry.required_catalog, program, admission)?;
+        let definitions = program.definitions();
+        if !FoundationNative::import_allowed(import, &importer.identity, definitions) {
+            return Err(RuntimeError::module_validation(
+                "private foundation native import",
+            ));
+        }
         let declaration = program
             .modules()
             .iter()
@@ -326,23 +337,47 @@ impl NativeRegistry {
                     .find(|declaration| declaration.declaration == import.instance.declaration)
             })
             .ok_or_else(|| RuntimeError::module_validation("native declaration is absent"))?;
-        let registered_declaration =
-            admission.runtime(declaration, &CancellationToken::default())?;
-        if !import.structurally_valid(program.definitions())
-            || !entry.declarations.iter().any(|expected| {
-                matching::installed(expected, &registered_declaration, program, admission)
-            })
+        let mismatch = || {
+            RuntimeError::module_validation("native binding differs from its registered contract")
+        };
+        if !import.structurally_valid(definitions)
             || declaration.function.implementation != CallableImplementation::Native(import.binding)
         {
-            return Err(RuntimeError::module_validation(
-                "native binding differs from its registered contract",
-            ));
+            return Err(mismatch());
         }
+        let binding =
+            if let Some(entry) = FoundationNative::for_id(declaration.declaration, definitions) {
+                if !entry.declaration_matches(declaration, definitions) {
+                    return Err(mismatch());
+                }
+                foundation::binding(entry)
+            } else {
+                let declaration_id = admission.runtime_id(import.instance.declaration)?;
+                let binding_id = admission.runtime_id(import.binding)?;
+                let entry = self
+                    .declaration_bindings
+                    .get_id(declaration_id)
+                    .or_else(|| self.declaration_bindings.get_id(binding_id))
+                    .and_then(|binding| self.entries.get_id(*binding))
+                    .ok_or_else(|| {
+                        RuntimeError::module_validation("native binding is not installed")
+                    })?;
+                validated.validate(&entry.required_catalog, program, admission)?;
+                let registered = admission.runtime(declaration, &CancellationToken::default())?;
+                if !entry
+                    .declarations
+                    .iter()
+                    .any(|expected| matching::installed(expected, &registered, program, admission))
+                {
+                    return Err(mismatch());
+                }
+                entry.binding.clone()
+            };
         let mut signature = import.signature.clone();
         if let Some(adapter) = &import.result_adapter {
             signature.result = adapter.receiver.clone();
         }
-        entry.binding.check(
+        binding.check(
             &admission.runtime(&signature, &CancellationToken::default())?,
             admission.target(),
         )?;
@@ -397,7 +432,7 @@ impl NativeRegistry {
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Arc::new(LinkedNativeFunction {
             declaration: import.instance.declaration,
-            binding: entry.binding.clone(),
+            binding,
             signature,
             result_adapter: LinkedResultAdapter::link(import, program)?,
             prepared_signature: Default::default(),

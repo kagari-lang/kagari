@@ -96,7 +96,7 @@ impl Runtime {
             .iter()
             .map(|import| {
                 self.native_entries
-                    .link(import, program, admission, validated)
+                    .link(import, module, program, admission, validated)
             })
             .collect::<Result<_, _>>()?;
         Ok(bindings)

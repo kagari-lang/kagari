@@ -1080,7 +1080,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
 
     let module = common::adopt_bytecode(
         &context,
-        common::bytecode_ok("fn main() { val range = 0u64..2u64; range.start_bound(); }"),
+        common::bytecode_ok("fn main() { val range = 0u64..2u64; range.end_bound(); }"),
     );
     verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
     for mutation in 0..6 {
@@ -1124,16 +1124,18 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
     for mutation in 0..5 {
         let mut invalid = module.clone();
         // The user call selects an authored core method, which owns the instruction.
-        let (function, instruction) = invalid.modules.iter_mut()
+        let (function, instruction) = invalid
+            .modules
+            .iter_mut()
             .flat_map(|module| &mut module.functions)
             .find_map(|function| {
                 let instruction = function.instructions.iter_mut().find(|instruction| {
-                    matches!(instruction, BytecodeInstruction::RangeBound { upper: false, range, .. }
+                    matches!(instruction, BytecodeInstruction::RangeBound { upper: true, range, .. }
                         if *range == exclusive_u64)
                 })?;
                 Some((function.id, instruction))
             })
-            .expect("reachable core start_bound implementation");
+            .expect("reachable core end_bound implementation");
         let BytecodeInstruction::RangeBound {
             value,
             range,

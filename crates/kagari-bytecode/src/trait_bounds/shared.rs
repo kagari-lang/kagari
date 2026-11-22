@@ -8,6 +8,7 @@ use crate::{
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
     callable::generic::GenericBody,
+    native_import::foundation::FoundationNative,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_types::{
@@ -83,6 +84,17 @@ pub(super) fn valid(
             else {
                 return Ok(false);
             };
+            if let CallableTarget::Native(id) = target
+                && owner.native_imports.get(id.index()).is_some_and(|import| {
+                    !FoundationNative::import_allowed(
+                        import,
+                        &module.identity,
+                        catalog.definitions(),
+                    )
+                })
+            {
+                return Ok(false);
+            }
             let Some(entry) = entry(owner, *target) else {
                 return Ok(false);
             };
