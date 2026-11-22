@@ -122,9 +122,10 @@ trait FromStr {
 ```
 
 Core supplies conditional Script impls of `Into` for `From` and `TryInto` for
-`TryFrom`. The reverse methods call the selected forward implementation. `Infallible` represents impossible conversion
-failure. Implementations are type-specific: the existence of Default or FromStr
-does not give every type that capability.
+`TryFrom`. The reverse methods call the selected forward implementation. Use `!`
+for the error type when a conversion cannot return an error. Implementations are
+type-specific: the existence of `Default` or `FromStr` does not give every type
+that capability.
 
 **Implemented** — operator/call/index protocols. Each declares `type Output`;
 this compact listing shows its method, not a single combined trait.
@@ -320,7 +321,7 @@ f64 { to_bits(self) -> u64; from_bits(bits: u64) -> f64 }
 
 Numeric types and bool implement FromStr with ParseError; parsing does not
 implicitly trim. Potentially failing integer conversions use TryFromIntError;
-lossless TryFrom conversions use Infallible. Floats retain IEEE-style PartialEq
+lossless `TryFrom` conversions use `!`. Floats retain IEEE-style PartialEq
 and do not automatically implement Eq/Hash.
 
 **Draft — gap** — integer utility surface, expanded per applicable concrete type:

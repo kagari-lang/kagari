@@ -39,7 +39,7 @@ including associated members, constructors, documentation and navigation.
 | `core::cmp` | PartialEq, Eq, PartialOrd, Ord and Ordering |
 | `core::hash` | Hash |
 | `core::fmt` | Debug and Display |
-| `core::convert` | From, Into, TryFrom, TryInto and Infallible |
+| `core::convert` | From, Into, TryFrom and TryInto |
 | `core::iter` | Iterator, Iterable, FromIterator, Sum, Product and eight authored lazy adapter types |
 | `core::str` | FromStr |
 | `core::default` | Default |
@@ -366,9 +366,12 @@ loading validates these selections without source parsing or trait inference.
 
 | Carrier | Output | Residual | Accepted return carrier |
 | --- | --- | --- | --- |
-| Option<T> | T | Option<Infallible> | Option<U> |
-| Result<T, E> | T | Result<Infallible, E> | Result<U, F> where F: From<E> |
-| ControlFlow<B, C> | C | ControlFlow<B, Infallible> | ControlFlow<B, D> |
+| `Option<T>` | `T` | `Option<!>` | `Option<U>` |
+| `Result<T, E>` | `T` | `Result<!, E>` | `Result<U, F>` where `F: From<E>` |
+| `ControlFlow<B, C>` | `C` | `ControlFlow<B, !>` | `ControlFlow<B, D>` |
+
+The [never type `!`](syntax.md#never-type) rules out the continuing variant.
+The outer carrier still identifies which protocol stopped.
 
 Local source structs/enums and registered native nominal types can implement the
 same traits under the existing ownership, coherence and associated-output rules.
@@ -600,7 +603,7 @@ calls use ordinary checked trait selection, including generic receivers.
 
 The runtime foundation implements FromStr for numeric scalars and bool, without
 trimming input; errors use ParseError. Scalar TryFrom uses the existing checked
-numeric conversion rules with Infallible for lossless cases and TryFromIntError
+numeric conversion rules with `!` for lossless cases and `TryFromIntError`
 for narrowing integer cases. Optional helper methods are not required. Numeric
 `as` conversions retain their language rules.
 

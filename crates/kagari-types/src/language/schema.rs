@@ -38,17 +38,11 @@ pub enum CoreEnum {
     Result,
     Bound,
     ControlFlow,
-    Infallible,
 }
 
 impl CoreEnum {
     pub const COMPARISON: [Self; 2] = [Self::Option, Self::Ordering];
-    pub const OPERATIONS: [Self; 4] = [
-        Self::Result,
-        Self::Bound,
-        Self::ControlFlow,
-        Self::Infallible,
-    ];
+    pub const OPERATIONS: [Self; 3] = [Self::Result, Self::Bound, Self::ControlFlow];
 
     pub fn declaration(self) -> DefinitionPath {
         match self {
@@ -57,7 +51,6 @@ impl CoreEnum {
             Self::Result => binding::result_declaration(),
             Self::Bound => binding::bound_declaration(),
             Self::ControlFlow => binding::control_flow_declaration(),
-            Self::Infallible => binding::infallible_declaration(),
         }
     }
 
@@ -83,7 +76,6 @@ impl CoreEnum {
                 ],
             ),
             Self::ControlFlow => (2, &[("Break", Some(0)), ("Continue", Some(1))]),
-            Self::Infallible => (0, &[]),
         };
         let parameter = |position| GenericParam { owner, position };
         table.lookup(&path) == Some(owner)

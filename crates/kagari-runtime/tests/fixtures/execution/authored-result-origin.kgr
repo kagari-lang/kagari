@@ -1,6 +1,6 @@
 use core::result::{ Result as Outcome, Ok, Err };
 
-use core::convert::{ From, Infallible };
+use core::convert::From;
 
 use core::ops::Try;
 
@@ -53,14 +53,14 @@ pub fn rebuilt() -> Outcome<bool, i32> {
     }
 }
 
-fn __forward_err_origin(first: Outcome<Infallible, i32>, replacement: Outcome<bool, i32>) -> Outcome<
+fn __forward_err_origin(first: Outcome<!, i32>, replacement: Outcome<bool, i32>) -> Outcome<
     bool, i32
 > {
     replacement
 }
 
 pub fn shadowed() -> Outcome<bool, i32> {
-    val first: Outcome<Infallible, i32> = Err(7);
+    val first: Outcome<!, i32> = Err(7);
     __forward_err_origin(first, rebuilt())
 }
 

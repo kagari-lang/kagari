@@ -7,8 +7,6 @@
 //! `RangeBounds` inspects endpoints without traversing a range. `Try` and
 //! `FromResidual` describe how `?` can continue a calculation or leave it early.
 
-use core::convert::Infallible;
-
 /// Describes one endpoint, independently of the other end of a range. Match
 /// the variant before using its value: an absent bound is not zero or a
 /// maximum value. For example, the upper endpoint of `1..4` excludes `4`.
@@ -342,7 +340,7 @@ pub trait Try: FromResidual<Self::Residual> {
     type Output;
 
     /// What travels along the early-return path. For `Result<T, E>` this is
-    /// `Result<Infallible, E>`, not just `E`: it identifies which carrier stopped.
+    /// `Result<!, E>`, not just `E`: it identifies which carrier stopped.
     type Residual;
 
     /// Wraps `output` on the successful path, e.g. `Some(output)` for an option.
@@ -361,8 +359,8 @@ pub trait FromResidual<R> {
     fn from_residual(residual: R) -> Self;
 }
 
-impl<B, C> FromResidual<ControlFlow<B, Infallible>> for ControlFlow<B, C> {
-    fn from_residual(residual: ControlFlow<B, Infallible>) -> Self {
+impl<B, C> FromResidual<ControlFlow<B, !>> for ControlFlow<B, C> {
+    fn from_residual(residual: ControlFlow<B, !>) -> Self {
         match residual {
             ControlFlow::Break(value) => ControlFlow::Break(value),
             ControlFlow::Continue(never) => match never {},
@@ -372,7 +370,7 @@ impl<B, C> FromResidual<ControlFlow<B, Infallible>> for ControlFlow<B, C> {
 
 impl<B, C> Try for ControlFlow<B, C> {
     type Output = C;
-    type Residual = ControlFlow<B, Infallible>;
+    type Residual = ControlFlow<B, !>;
 
     fn from_output(output: C) -> Self {
         ControlFlow::Continue(output)

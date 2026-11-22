@@ -63,7 +63,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let conversion = interface(module, "TryFrom", 1)?;
     let error = module.reference_associated_type(&conversion, "Error", 0)?;
     let fallible = enumeration(module, "TryFromIntError", 0)?.apply([])?;
-    let infallible = enumeration(module, "Infallible", 0)?.apply([])?;
+    let never = Type::scalar(BuiltinType::Never);
     for source in SCALARS {
         for target in SCALARS {
             let Some(can_fail) = checked_conversion_fallible(source, target) else {
@@ -74,7 +74,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 if can_fail {
                     fallible.clone()
                 } else {
-                    infallible.clone()
+                    never.clone()
                 },
             )?;
             let entry = override_entry(

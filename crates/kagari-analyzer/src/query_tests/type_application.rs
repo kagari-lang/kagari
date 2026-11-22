@@ -54,13 +54,7 @@ fn native_type_annotations_resolve_aliases_and_qualified_source_declarations() {
 
 #[test]
 fn source_bindings_shadow_native_types_and_the_standard_namespace() {
-    for name in [
-        "String",
-        "ParseError",
-        "Ordering",
-        "RangeFull",
-        "Infallible",
-    ] {
+    for name in ["String", "ParseError", "Ordering", "RangeFull"] {
         let text = format!("struct {name} {{}} fn inspect(value: {name}) {{}}");
         let mut sources = SourceDatabase::default();
         let id = sources

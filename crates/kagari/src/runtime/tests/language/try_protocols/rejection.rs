@@ -4,18 +4,18 @@ use kagari_source::source::SourceFile;
 
 #[test]
 fn invalid_protocols_and_residuals_fail_during_analysis() {
-    let prefix = "use core::ops::{Try,FromResidual,ControlFlow}; use core::convert::Infallible; ";
+    let prefix = "use core::ops::{Try,FromResidual,ControlFlow}; ";
     for (source, code) in [
         (
             "#[lang = \"try\"] pub trait Counterfeit { type Output; type Residual; }",
             "KG_LANGUAGE_ROLE",
         ),
         (
-            "struct Carrier {} impl Try for Carrier { type Output = i32; type Residual = Option<Infallible>; fn from_output(value:i32)->Self {Carrier{}} fn branch(self)->ControlFlow<Option<Infallible>,i32> {ControlFlow::Continue(42)} }",
+            "struct Carrier {} impl Try for Carrier { type Output = i32; type Residual = Option<!>; fn from_output(value:i32)->Self {Carrier{}} fn branch(self)->ControlFlow<Option<!>,i32> {ControlFlow::Continue(42)} }",
             "KG_TYPE_INVALID_TRAIT_IMPL",
         ),
         (
-            "struct Carrier {} impl FromResidual<Option<Infallible>> for Carrier { fn from_residual(value:Option<Infallible>)->Self {Carrier{}} } impl Try for Carrier { type Output = i32; type Residual = Option<Infallible>; fn from_output(value:i32)->Self {Carrier{}} fn branch(self)->ControlFlow<Option<Infallible>,bool> {ControlFlow::Continue(true)} }",
+            "struct Carrier {} impl FromResidual<Option<!>> for Carrier { fn from_residual(value:Option<!>)->Self {Carrier{}} } impl Try for Carrier { type Output = i32; type Residual = Option<!>; fn from_output(value:i32)->Self {Carrier{}} fn branch(self)->ControlFlow<Option<!>,bool> {ControlFlow::Continue(true)} }",
             "KG_TYPE_TRAIT_METHOD_MISMATCH",
         ),
         (
@@ -27,7 +27,7 @@ fn invalid_protocols_and_residuals_fail_during_analysis() {
             "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
         ),
         (
-            "struct Carrier {} impl FromResidual<Option<Infallible>> for Carrier { fn from_residual(value:Option<Infallible>)->Self {Carrier{}} } impl FromResidual<Option<Infallible>> for Carrier { fn from_residual(value:Option<Infallible>)->Self {Carrier{}} }",
+            "struct Carrier {} impl FromResidual<Option<!>> for Carrier { fn from_residual(value:Option<!>)->Self {Carrier{}} } impl FromResidual<Option<!>> for Carrier { fn from_residual(value:Option<!>)->Self {Carrier{}} }",
             "KG_TYPE_INVALID_TRAIT_IMPL",
         ),
     ] {

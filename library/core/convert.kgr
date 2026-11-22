@@ -5,11 +5,6 @@
 
 use core::result::Result;
 
-/// A type with no values. A `Result<T, Infallible>` can only be `Ok`; in
-/// a match, `Err(never) => match never {}` needs no fallback value. In a
-/// `Result<Infallible, E>`, the same reasoning rules out `Ok` instead.
-pub enum Infallible {}
-
 /// Constructs `Self` from `S` without returning an error. Implement `from`
 /// on the destination; the caller can then use either spelling:
 ///

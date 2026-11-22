@@ -1,5 +1,3 @@
-use std::convert::{ Infallible };
-
 use std::num::{ ParseError, TryFromIntError };
 
 fn main() -> i32 {
@@ -13,7 +11,7 @@ fn main() -> i32 {
     val out = i8::try_from(128);
     val empty = i32::from_str("");
     val invalid = bool::from_str("TRUE");
-    val narrow: Result<i8, Infallible> = i8::try_from(42i8);
+    val narrow: Result<i8, !> = i8::try_from(42i8);
     match out {
         Err(TryFromIntError::OutOfRange) => match empty {
             Err(ParseError::Empty) => match invalid {

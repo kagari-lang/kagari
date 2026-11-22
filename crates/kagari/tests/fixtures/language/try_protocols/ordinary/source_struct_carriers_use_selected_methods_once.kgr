@@ -1,7 +1,5 @@
 use core::ops::{ Try, FromResidual, ControlFlow };
 
-use core::convert::Infallible;
-
 struct State {
     var calls: i32
 }
@@ -25,9 +23,11 @@ impl<T> FromResidual<Residual> for Carrier<T> {
 impl<T> Try for Carrier<T> {
     type Output = T;
     type Residual = Residual;
+
     fn from_output(value: T) -> Self {
         Carrier { value: Some(value), state: State { calls: 0 } }
     }
+
     fn branch(self) -> ControlFlow<Residual, T> {
         self.state.calls += 1;
         match self.value {

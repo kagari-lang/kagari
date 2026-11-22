@@ -306,7 +306,7 @@ from Rust pointers. Full-width integers/floats retain all valid bits; no zero,
 NaN, negative-zero or user-constructor invariant supplies a niche by convention.
 
 Niche capacity and reservation arithmetic are checked. Exhausting a child's
-niches falls back to direct encoding. `Option<Infallible>` and similar residuals
+niches falls back to direct encoding. `Option<!>` and similar residuals
 have only their actually inhabited states; the encoding cannot manufacture a
 payload of an uninhabited type. Byte-size gains must be measured in specialized
 field/element storage, separately from fixed-size generic transport.
@@ -377,7 +377,7 @@ within the 24-byte budget; a root/slot/container's descriptor sits outside its
 element bytes. Transient owned snapshots may use descriptor plus 24-byte stack
 storage; they cannot widen every persistent Value or become untraced values.
 Logical slot/element bounds remain independent of byte length: a zero-byte
-Option<Infallible> record still has type provenance and a checked logical index.
+`Option<!>` record still has type provenance and a checked logical index.
 
 Slot/field/element owners retain bytes and the applied descriptor. A borrowed view
 contains the descriptor and a checked byte slice (24 bytes on the measured x64

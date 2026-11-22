@@ -599,9 +599,9 @@ Numeric `TryFrom` pairs are ordinary registered implementations with declared
 `Error` outputs. Scalar numeric code computes conversion outcomes; it does not
 choose a library enum or error declaration.
 
-Option, Result, Ordering, Bound, ParseError, TryFromIntError, Infallible and
-ControlFlow are
-ordinary enum records owned by their core-library modules. Standard Rust bodies
+Option, Result, Ordering, Bound, ParseError, TryFromIntError and ControlFlow are
+ordinary enum records owned by their core-library modules. The never type `!`
+used in residuals and lossless conversions is built in, not a registered enum. Standard Rust bodies
 construct and inspect them through checked declaration handles and pinned nominal
 layouts. No semantic type, fixed runtime tag or dedicated instruction inventories
 these families. Iterator and comparison contracts retain only the checked symbolic

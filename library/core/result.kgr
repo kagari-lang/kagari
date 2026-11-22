@@ -1,7 +1,7 @@
 //! Use `Result<T, E>` when a caller needs either a value or a reason for failure.
 //! If there is no reason to report, `Option<T>` is enough.
 
-use core::convert::{ From, Infallible };
+use core::convert::From;
 
 use core::ops::{ ControlFlow, FromResidual, Try };
 
@@ -46,8 +46,8 @@ pub use self::Result::{ Ok, Err };
 /// When `?` propagates into a different error type `F`, it calls `F`'s direct
 /// `From<E>` conversion once and preserves the original `Err` location and stack.
 /// Matching `Err(e)` and constructing a new `Err(e)` would record a new origin.
-impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
-    fn from_residual(residual: Result<Infallible, E>) -> Self {
+impl<T, E, F: From<E>> FromResidual<Result<!, E>> for Result<T, F> {
+    fn from_residual(residual: Result<!, E>) -> Self {
         match residual {
             Ok(never) => match never {},
             Err(error) => {
@@ -62,7 +62,7 @@ impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
 /// It propagates `Err` values, not runtime traps.
 impl<T, E> Try for Result<T, E> {
     type Output = T;
-    type Residual = Result<Infallible, E>;
+    type Residual = Result<!, E>;
 
     fn from_output(output: T) -> Self {
         Ok(output)
@@ -72,7 +72,7 @@ impl<T, E> Try for Result<T, E> {
         match self {
             Ok(value) => ControlFlow::Continue(value),
             Err(error) => {
-                val residual: Result<Infallible, E> = Err(error);
+                val residual: Result<!, E> = Err(error);
                 ControlFlow::Break(__forward_err_origin(self, residual))
             }
         }

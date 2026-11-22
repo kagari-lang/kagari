@@ -26,6 +26,7 @@ impl From<Input> for Count {
 
 impl TryFrom<Input> for Count {
     type Error = Input;
+
     fn try_from(input: Input) -> Result<Self, Input> {
         input.calls += 1;
         if input.value < 0 {
@@ -47,8 +48,9 @@ fn attempt<S: TryInto<D, Error = Input>, D>(value: S) -> Result<D, Input> {
 pub fn checked_scalars() -> i32 {
     val scalar: Result<char, CharTryFromError> = 0x1f642u32.try_into();
     val overflow: Result<i8, TryFromIntError> = 128.try_into();
-    match (scalar, overflow) {
-        (Ok('🙂'), Err(TryFromIntError::OutOfRange)) => 42,
+    val widened: Result<i32, !> = 42i8.try_into();
+    match (scalar, overflow, widened) {
+        (Ok('🙂'), Err(TryFromIntError::OutOfRange), Ok(42)) => 42,
         _ => 0
     }
 }

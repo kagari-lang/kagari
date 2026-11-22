@@ -52,13 +52,10 @@ pub(super) const FACADES: &[Facade] = &[
             "Explicit infallible and checked conversions.",
             "fn widen(value: i32) -> i64 { i64::from(value) }",
         ),
-        exports: &[
-            (
-                DefinitionKind::Trait,
-                &["From", "Into", "TryFrom", "TryInto"],
-            ),
-            (DefinitionKind::Enum, &["Infallible"]),
-        ],
+        exports: &[(
+            DefinitionKind::Trait,
+            &["From", "Into", "TryFrom", "TryInto"],
+        )],
     },
     Facade {
         path: "default",

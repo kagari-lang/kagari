@@ -5,16 +5,17 @@ use kagari_runtime::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         module::NativeModule,
+        types::Type,
     },
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::language::Protocol;
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 
 pub fn module(standard: &StandardDeclarations) -> NativeResult<NativeModule> {
     let mut module = ModuleBuilder::new("external::try_carrier", standard.catalog())?;
     let option = standard.enumeration("Option")?;
     let none = option.variant("None")?;
-    let residual = option.apply([standard.enumeration("Infallible")?.apply([])?])?;
+    let residual = option.apply([Type::scalar(BuiltinType::Never)])?;
     let flow = standard.enumeration("ControlFlow")?;
     let continued = flow.variant("Continue")?;
     let stopped = flow.variant("Break")?;

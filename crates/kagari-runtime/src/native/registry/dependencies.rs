@@ -81,14 +81,8 @@ pub(super) fn validate_installed_values(
     // loaded without cmp. Read product records only in the product's table.
     let authored = !installed.contains_module(&module.identity);
     if authored {
-        let required = if module.identity == Protocol::From.module() {
-            Some(CoreEnum::Result)
-        } else if module.identity == Protocol::Try.module() {
-            Some(CoreEnum::Infallible)
-        } else {
-            None
-        };
-        if let Some(required) = required {
+        if module.identity == Protocol::From.module() {
+            let required = CoreEnum::Result;
             let path = required.declaration();
             let owner = reachable_owner(module, &path.module, program).ok_or_else(|| {
                 RuntimeError::module_validation(format!(

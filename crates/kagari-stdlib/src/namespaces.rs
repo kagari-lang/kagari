@@ -55,7 +55,6 @@ pub fn type_owner(name: &str) -> ModuleIdentity {
 
         "Task" | "TaskScope" | "SpawnError" => module("core", "task"),
         "Ordering" => module("core", "cmp"),
-        "Infallible" => module("core", "convert"),
         "ParseError" | "TryFromIntError" => module("core", "num"),
         "CharTryFromError" => module("core", "char"),
         "ControlFlow" | "Bound" | "Range" | "RangeInclusive" | "RangeFrom" | "RangeTo"

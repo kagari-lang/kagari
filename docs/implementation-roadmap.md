@@ -2123,6 +2123,15 @@ unused header conflicts, generic caller evidence, installed Script authenticatio
 once-only forwarding with the declared error in a frontend-free artifact consumer. Full workspace
 and exhaustive feature/backend checks remain CI-only.
 
+Two existing checkpoint failures need fixture repair at their owners. The SDK test
+[`executable_from_adapters_reject_forged_source_types_and_targets`](../crates/kagari/src/runtime/tests/language/try_protocols/admission.rs)
+needs an entry that actually materializes a numeric `From` protocol adapter before
+it can test rejected mutations. The HIR test
+[`actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_without_authority`](../crates/kagari-hir/src/analysis/external/foundation.rs)
+needs to reconcile its expected native cursor with the traversal selected by its
+fixture. Keep the artifact-rejection and selected-iteration assertions in their
+respective tests.
+
 Source interface impl targets, derive additions and NC migration remain outside this work. Host
 registration/interop is implemented separately as described above.
 

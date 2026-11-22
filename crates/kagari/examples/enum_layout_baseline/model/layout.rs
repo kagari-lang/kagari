@@ -270,8 +270,8 @@ pub(super) fn run() {
     );
     let nested_origin = plan(&[integer, record(&[result.shape], true)]);
     describe("two_active_origins", &nested_origin, 26);
-    describe("Option<Infallible>", &optional(absent), 0);
-    describe("Infallible", &plan(&[]), 0);
+    describe("Option<!>", &optional(absent), 0);
+    describe("zero-variant enum", &plan(&[]), 0);
 
     let graph = [
         Node::Enum(vec![vec![], vec![1, 0]]),
