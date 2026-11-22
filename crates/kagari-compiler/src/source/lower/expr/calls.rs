@@ -1,16 +1,12 @@
 //! Emit admitted call operands once, then consume canonical instance plans.
 
 use crate::source::{
-    elaborate::model::{CheckedCall, CheckedCallTarget, CheckedExprKind, MethodOperands},
+    elaborate::model::{CheckedCall, CheckedCallTarget, MethodOperands},
     lower::{MirLoweringError, state::FunctionLowerer},
 };
 use kagari_abi::representation::ValueType;
-
-use kagari_hir::{
-    builtin::BuiltinFunction, hir::ids::ExprId, typeck::scalar::ScalarValue, types::TypeId,
-};
-use kagari_mir::instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, ValueBuffer};
-use smallvec::SmallVec;
+use kagari_hir::{hir::ids::ExprId, types::TypeId};
+use kagari_mir::instruction::{CallTarget, Instruction, MirValue};
 use std::{ops::ControlFlow, slice};
 
 impl FunctionLowerer<'_, '_> {
@@ -122,51 +118,5 @@ impl FunctionLowerer<'_, '_> {
             args: values,
         });
         Ok(dst)
-    }
-
-    pub(super) fn lower_runtime_helper_call(
-        &mut self,
-        helper: BuiltinFunction,
-        args: &[ExprId],
-    ) -> Result<ControlFlow<MirValue, (CallTarget, ValueBuffer)>, MirLoweringError> {
-        let (target, operands): (_, SmallVec<[ExprId; 3]>) = match (helper, args) {
-            (BuiltinFunction::TypeOf, [value]) => (
-                CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                smallvec::smallvec![*value],
-            ),
-            (BuiltinFunction::GetField, [base, field]) => (
-                CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
-                    self.checked_field_name(*field)?,
-                )),
-                smallvec::smallvec![*base],
-            ),
-            (BuiltinFunction::SetField, [base, field, value]) => (
-                CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
-                    self.checked_field_name(*field)?,
-                )),
-                smallvec::smallvec![*base, *value],
-            ),
-            (BuiltinFunction::SetIndex, [base, index, value]) => (
-                CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                smallvec::smallvec![*base, *index, *value],
-            ),
-            _ => {
-                return Err(MirLoweringError::MissingBinding(
-                    "checked runtime helper arguments",
-                ));
-            }
-        };
-        Ok(self
-            .lower_values(&operands)?
-            .map_continue(|values| (target, values)))
-    }
-
-    pub(super) fn checked_field_name(&self, expr: ExprId) -> Result<String, MirLoweringError> {
-        match self.source_body().value(expr).map(|value| &value.kind) {
-            Some(CheckedExprKind::Constant(ScalarValue::String(value))) => Ok(value.clone()),
-            _ => Err(MirLoweringError::MissingBinding(
-                "checked reflection field name",
-            )),
-        }
     }
 }

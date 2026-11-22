@@ -1,197 +1,27 @@
-//! Check runtime helper calls and typed declared host field/index paths.
+//! Check typed declared host field/index paths.
 //! Records declared access contracts and path selections for lowering; HIR analysis
 //! does not borrow host state or invoke the registered Rust implementation.
 
 use crate::{
-    builtin::BuiltinFunction,
     hir::{
         expr::ExprKind,
         ids::{ExprId, PlaceId},
         place::PlaceKind,
     },
     native::access::SourcePathStep,
-    resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv,
         body::{BodyChecker, HostPathNode},
-        completion,
-        table::{CallTarget, ResolvedHostPath, ResolvedHostPlacePath},
-        ty::display_type_id,
+        table::{ResolvedHostPath, ResolvedHostPlacePath},
     },
     types::{TypeId, semantic::raise_type},
 };
-use kagari_common::{
-    cancellation::Cancelled,
-    identity::{DefinitionKind, table::DefinitionId},
-};
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    declaration::{host::PathAccess, path::HostPathSegmentDeclaration},
-    scalar::BuiltinType,
-};
+use kagari_types::declaration::{host::PathAccess, path::HostPathSegmentDeclaration};
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn infer_runtime_helper_call_type(
-        &mut self,
-        call_expr: ExprId,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let ResolvedName::RuntimeHelper(builtin) = self.names.expr_resolution(callee)? else {
-            return None;
-        };
-        self.type_table
-            .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
-        let arity = match builtin {
-            BuiltinFunction::TypeOf => 1,
-            BuiltinFunction::GetField => 2,
-            BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
-        };
-        if args.len() != arity {
-            self.infer_call_args(args, env);
-            self.check_builtin_arity("runtime helper", arity, args.len(), callee);
-            return Some(TypeId::Error);
-        }
-        match builtin {
-            BuiltinFunction::TypeOf => {
-                let _ = self.infer_call_args(args, env);
-                Some(TypeId::Builtin(BuiltinType::String))
-            }
-            BuiltinFunction::GetField => {
-                let [base, field_name_expr] = args else {
-                    return Some(TypeId::Error);
-                };
-                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
-                    return Some(TypeId::Unknown);
-                };
-                let Some(field_name) =
-                    self.checked_reflection_field_name(*field_name_expr, env, "get_field")
-                else {
-                    return Some(TypeId::Error);
-                };
-                Some(base_ty.map_or(TypeId::Unknown, |base_ty| {
-                    self.checked_member_type(&base_ty, &field_name, *field_name_expr, false)
-                }))
-            }
-            BuiltinFunction::SetField => {
-                let [base, field_name_expr, value] = args else {
-                    return Some(TypeId::Error);
-                };
-                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
-                    return Some(TypeId::Unknown);
-                };
-                self.check_const_write(*base);
-                let field_name =
-                    self.checked_reflection_field_name(*field_name_expr, env, "set_field");
-                let expected = field_name
-                    .as_ref()
-                    .zip(base_ty.as_ref())
-                    .map(|(name, base_ty)| {
-                        self.checked_member_type(base_ty, name, *field_name_expr, true)
-                    });
-                self.check_reflection_assignment_value(*value, expected.as_ref(), env);
-                if field_name.is_none() {
-                    return Some(TypeId::Error);
-                }
-                Some(base_ty.unwrap_or(TypeId::Unknown))
-            }
-            BuiltinFunction::SetIndex => {
-                let [base, index, value] = args else {
-                    return Some(TypeId::Error);
-                };
-                let Ok(base_ty) = self.infer_reflection_receiver(*base, env) else {
-                    return Some(TypeId::Unknown);
-                };
-                self.check_const_write(*base);
-
-                let index_ty = self.infer_expr_type(*index, env);
-                let expected = base_ty.as_ref().and_then(|base_ty| {
-                    self.checked_index_type(*index, base_ty, &index_ty, *index, env)
-                });
-                self.check_reflection_assignment_value(*value, expected.as_ref(), env);
-                Some(base_ty.unwrap_or(TypeId::Unknown))
-            }
-        }
-    }
-
-    pub(super) fn infer_reflection_receiver(
-        &mut self,
-        receiver: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> Result<Option<TypeId>, Cancelled> {
-        let ty = self.infer_expr_type(receiver, env);
-        let completes = completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            self.type_table,
-            receiver,
-            self.cancel,
-        )?;
-        Ok(completes.then_some(ty))
-    }
-
-    pub(super) fn check_reflection_assignment_value(
-        &mut self,
-        value: ExprId,
-        expected: Option<&TypeId>,
-        env: &mut BodyTypeEnv,
-    ) {
-        let found = self.infer_expr_with_coercion(value, env, expected);
-        let Ok(completes) = completion::expr_can_complete(
-            &self.lowered.module,
-            self.names,
-            self.type_table,
-            value,
-            self.cancel,
-        ) else {
-            return;
-        };
-        if completes
-            && let Some(expected) = expected
-            && expected.conflicts_with(&found)
-        {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                    expected: display_type_id(self.declarations.definitions(), expected),
-                    found: display_type_id(self.declarations.definitions(), &found),
-                })
-                .with_span(self.lowered.module.expr(value).origin.diagnostic_span()),
-            );
-        }
-    }
-
-    pub(super) fn checked_reflection_field_name(
-        &mut self,
-        expression: ExprId,
-        env: &mut BodyTypeEnv,
-        helper: &str,
-    ) -> Option<String> {
-        let ty = self.infer_expr_type(expression, env);
-        let expected = TypeId::Builtin(BuiltinType::String);
-        if ty.conflicts_with(&expected) {
-            self.emit_arg_mismatch(helper, "field", &expected, &ty, expression);
-            return None;
-        }
-        if ty.is_unresolved() {
-            return None;
-        }
-        let name = self.string_literal_value(expression);
-        if name.is_none() {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ReflectionFieldNameNotConstant).with_span(
-                    self.lowered
-                        .module
-                        .expr(expression)
-                        .origin
-                        .diagnostic_span(),
-                ),
-            );
-        }
-        name
-    }
-
     pub(super) fn resolve_host_declared_field(
         &self,
         owner: &TypeId,

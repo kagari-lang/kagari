@@ -1,7 +1,6 @@
 //! Lexical traversal, shadowing, namespace lookup and closure capture collection.
 
 use crate::{
-    builtin::BuiltinFunction,
     collections::{HashMap, HashSet},
     hir::{
         expr::{ClosureParam, Condition, ExprKind},
@@ -470,22 +469,15 @@ impl<'a> BodyResolver<'a> {
         self.names.lookup(name, namespace)
     }
 
-    /// Checks lexical/module bindings, then qualified namespace lookup, then recognized value helpers; path roots select Type independently of locals.
+    /// Checks lexical/module bindings, then qualified lookup. Path roots select Type independently of locals.
     fn resolve_name(&self, name: &str, namespace: NameNamespace) -> Option<ResolvedName> {
         if let Some(binding) = self.binding(name, namespace) {
             return binding.target();
         }
-        if let Some(hit) =
-            self.resolved
-                .catalog
-                .resolve_name(self.names, name, namespace, &self.cancel)
-        {
-            return Some(hit.target.resolved(self.names.unit.as_ref()));
-        }
-        if namespace == NameNamespace::Value {
-            return BuiltinFunction::from_name(name).map(ResolvedName::RuntimeHelper);
-        }
-        None
+        self.resolved
+            .catalog
+            .resolve_name(self.names, name, namespace, &self.cancel)
+            .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
     }
 
     /// Publishes one canonical binding and updates the disposable lexical frame.

@@ -416,9 +416,26 @@ These are current APIs, not a new exporter, directory watcher, publication proto
 or provider product. Neither a generated URI nor an offline sidecar can select a
 Rust implementation, grant layout access or replace installation validation.
 
+### Private core Native bindings
+
+`core::ops` and `core::result` own the private declarations for range endpoint
+projection and `Result` error-origin transfer. There is no second registered
+owner or duplicate HIR signature source. For example, HIR checks
+`range_bound(self, false)` by the ordinary private declaration, and the compiler
+records its applied signature and dependency. The same verified contract is used
+when loading a compiled artifact without source.
+
+The loader selects the Runtime-owned binding by canonical declaration identity,
+not by a function spelling in a script call or a product-supplied intrinsic flag.
+It compares the declaration to the fixed implementation contract. Portable
+verification checks exact call slots, declaring-module authorization and the
+reporting `Result` shape for origin transfer. Normal Native registration cannot
+replace these entries. The Rust implementations use protected value/scoped type
+views, and the Native boundary owns result publication.
+
 ## The standard bundle and runtime boundaries
 
-Engine and Runtime constructors start with no Native providers. A source-enabled
+Engine and Runtime constructors start with no optional Native providers. A source-enabled
 builder exposes the verified core declarations before installation. To add stdlib:
 
 ```rust

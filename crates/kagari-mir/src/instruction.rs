@@ -388,31 +388,14 @@ impl CallTarget {
             Self::InterfaceMethod(_) | Self::Shared(_) => EffectSet::runtime_call(),
             Self::Native(_) => EffectSet::native_call(),
             Self::RuntimePrimitive(intrinsic) => runtime_primitive_effects(*intrinsic),
-            Self::RuntimeHelper(helper) => helper.effects(),
+            Self::RuntimeHelper(RuntimeHelper::DynamicCall) => EffectSet::runtime_call(),
         }
     }
 }
 
-impl RuntimeHelper {
-    pub fn effects(&self) -> EffectSet {
-        match self {
-            Self::DynamicCall => EffectSet::runtime_call(),
-            Self::ReflectTypeOf | Self::ReflectGetField(_) => {
-                EffectSet::runtime_call().union(EffectSet::aggregate_read())
-            }
-            Self::ReflectSetField(_) | Self::ReflectSetIndex => {
-                EffectSet::runtime_call().union(EffectSet::aggregate_write())
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum RuntimeHelper {
-    ReflectTypeOf,
-    ReflectGetField(String),
-    ReflectSetField(String),
-    ReflectSetIndex,
+    /// Non-executable placeholder for update canonicalization.
     DynamicCall,
 }
 

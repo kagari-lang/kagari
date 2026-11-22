@@ -1,0 +1,14 @@
+fn grow<T>(x: T) {
+    grow((x, x));
+}
+
+fn main() -> i32 {
+    (
+        if true {
+            return 42;
+        } else {
+            return 7;
+        }
+    ) ==
+        grow(1);
+}

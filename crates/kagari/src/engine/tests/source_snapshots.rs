@@ -23,6 +23,7 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_stdlib::io;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::{
     callable::CallableImplementation,
@@ -320,34 +321,27 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
 
 #[test]
 fn unchanged_installed_environment_reuses_analysis_results() {
-    let engine = KagariEngine::with_native_modules(
-        Default::default(),
-        standard_library().modules().unwrap(),
-    )
-    .unwrap();
+    let mut builder = KagariEngine::builder().unwrap();
+    let output = io::module(builder.declarations(), |_, _, _| Ok(())).unwrap();
+    builder.install(output).unwrap();
+    let engine = builder.build().unwrap();
     let id = engine
         .set_source(
-            "memory://reflect.kgr",
-            "fn main() { type_of(1); }".into(),
+            "memory://installed-io.kgr",
+            "use std::io::print; fn main() { print(\"ready\"); }".into(),
             SourceLayer::Base,
         )
         .unwrap();
     let token = CancellationToken::default();
 
-    let allowed = engine.analyze(engine.source_snapshot(), &token).unwrap();
-    let restricted = engine.analyze(engine.source_snapshot(), &token).unwrap();
+    let initial = engine.analyze(engine.source_snapshot(), &token).unwrap();
+    let reused = engine.analyze(engine.source_snapshot(), &token).unwrap();
     assert!(Arc::ptr_eq(
-        allowed.file(id).unwrap(),
-        restricted.file(id).unwrap()
+        initial.file(id).unwrap(),
+        reused.file(id).unwrap()
     ));
-    assert!(
-        restricted
-            .file(id)
-            .unwrap()
-            .result()
-            .diagnostics()
-            .is_empty()
-    );
+    let diagnostics = reused.file(id).unwrap().result().diagnostics();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 #[test]

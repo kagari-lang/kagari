@@ -7,7 +7,7 @@ use kagari_hir::{
     hir::expr::ExprKind,
     imports::{DirectiveResolution, SourceItem, bindings::LookupOutcome},
     resolver::{resolved::ResolvedName, table::NameResolution},
-    typeck::scalar::ScalarValue,
+    typeck::{scalar::ScalarValue, table::CallTarget},
 };
 use kagari_source::identity::*;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -346,13 +346,18 @@ fn qualified_call_navigation_selects_only_the_terminal_name() {
 }
 
 #[test]
-fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
+fn absent_imports_leave_names_available_and_ambiguous_names_block_lookup() {
     let cases = [
-        ("use missing as type_of;", "type_of(1)", "type_of", None),
         (
-            "const type_of: i32 = 1; fn type_of() {}",
-            "type_of(1)",
-            "type_of",
+            "use missing as released; fn released() -> i32 { 8 }",
+            "released()",
+            "released",
+            None,
+        ),
+        (
+            "const collide: i32 = 1; fn collide() {}",
+            "collide()",
+            "collide",
             Some(NameResolution::Ambiguous),
         ),
         (
@@ -391,7 +396,7 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
             assert_eq!(
                 facts.names.items.lookup(
                     alias,
-                    if alias == "type_of" || alias == "number" {
+                    if matches!(alias, "collide" | "number") {
                         NameNamespace::Value
                     } else {
                         NameNamespace::Type
@@ -404,6 +409,26 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
             assert!(facts.names.imports.directives.iter().any(|directive|
                 matches!(&directive.resolution, DirectiveResolution::Named(outcomes)
                     if outcomes.types == LookupOutcome::Absent && outcomes.values == LookupOutcome::Absent)));
+        }
+        if alias == "released" {
+            let target = facts
+                .lowered
+                .module
+                .functions
+                .iter()
+                .find(|function| function.name == alias)
+                .unwrap();
+            let (id, _) = facts
+                .lowered
+                .module
+                .nodes
+                .expressions()
+                .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
+                .unwrap();
+            assert_eq!(
+                facts.typed.type_table().call_resolution(id).unwrap().target,
+                CallTarget::Function(target.id)
+            );
         }
         for (id, expr) in facts
             .lowered

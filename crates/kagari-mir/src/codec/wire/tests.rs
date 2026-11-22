@@ -1,10 +1,13 @@
-use super::{ProgramRecord, function::MirModuleRecord, instruction::InstructionRecord};
+use super::{
+    ProgramRecord, calls::CallTargetRecord, function::MirModuleRecord,
+    instruction::InstructionRecord,
+};
 use crate::{
     codec::{Header, MirCodecError, decode_program, encode_program, options},
     debug::{MirFunctionDebugMetadata, MirLexicalScope},
     function::{BasicBlock, MirFunction, MirModule, MirTemp},
     ids::{BlockId, InstanceId, TempId},
-    instruction::{Constant, Instruction, MirValue, Terminator},
+    instruction::{CallTarget, Constant, Instruction, MirValue, RuntimeHelper, Terminator},
     program::{ProgramErrorKind, records::MirProgram, verify_program},
     verify::{MirVerificationErrorKind, verify_mir},
 };
@@ -153,6 +156,30 @@ fn retired_instruction_tag_is_rejected_without_renumbering_make_range() {
     ));
 
     let retired: InstructionRecord = options().deserialize(&13u32.to_le_bytes()).unwrap();
+    assert!(options().serialize(&retired).is_err());
+    assert!(matches!(
+        retired.decode(&decoding, &cancel),
+        Err(DefinitionMappingError::InvalidContract)
+    ));
+}
+
+#[test]
+fn dynamic_call_wire_tag_survives_retired_reflection_helpers() {
+    let context = DefinitionContext::new().unwrap();
+    let encoding = context.snapshot().encode([]).unwrap();
+    let cancel = Default::default();
+    let target = CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall);
+    let record = CallTargetRecord::encode(&target, &encoding, &cancel).unwrap();
+    let decoding = encoding.table.decode().unwrap();
+    let bytes = [8, 0, 0, 0, 4, 0, 0, 0];
+    assert_eq!(options().serialize(&record).unwrap(), bytes);
+    let decoded: CallTargetRecord = options().deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded.decode(&decoding, &cancel).unwrap(),
+        CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall)
+    ));
+
+    let retired: CallTargetRecord = options().deserialize(&[8, 0, 0, 0, 0, 0, 0, 0]).unwrap();
     assert!(options().serialize(&retired).is_err());
     assert!(matches!(
         retired.decode(&decoding, &cancel),

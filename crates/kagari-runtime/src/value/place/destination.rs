@@ -28,15 +28,6 @@ impl Destination<'_> {
         self.write(slots, value)
     }
 
-    pub(super) fn publish_scoped<'gc>(
-        self,
-        slots: &mut Slots<'_, 'gc>,
-        value: ScopedValue<'gc>,
-    ) -> Result<(), GcError> {
-        self.check(slots)?;
-        self.write(slots, value)
-    }
-
     fn check(self, slots: &mut Slots<'_, '_>) -> Result<(), GcError> {
         match self {
             Self::Source(location) => slots.get(location).map(|_| ()),

@@ -1,9 +1,6 @@
 use crate::{
     Runtime,
-    interpreter_tests::common::{
-        compile_test_bytecode, load_bytecode_module, load_bytecode_program, load_test_module,
-        test_function_module, test_runtime,
-    },
+    interpreter_tests::common::{compile_test_bytecode, test_runtime},
 };
 use crate::{
     RuntimeConfig,
@@ -19,10 +16,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, RuntimeHelper, Slot,
-        StructId,
-    },
+    instruction::{BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, Slot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
 use kagari_common::identity::{
@@ -278,4 +272,3 @@ fn with_path_contract(
 }
 
 mod host_paths;
-mod reflection;

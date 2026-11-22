@@ -133,7 +133,11 @@ fn reports_production_value_category_names() {
     let interface = runtime
         .make_interface(&owner, 0, &RootedValue::from(7i32))
         .unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let scalar = RootedValue::from(7i32);
     for (value, expected) in [
+        (&scalar, "i32"),
         (&interface, "interface"),
         (&host, "host_root"),
         (&path, "host_path_view"),
@@ -148,4 +152,8 @@ fn reports_production_value_category_names() {
             .unwrap();
         assert_eq!(actual, expected);
     }
+    runtime.collect_garbage().unwrap();
+    let after = runtime.gc_stats();
+    assert_eq!(after.objects, baseline.objects);
+    assert_eq!(after.root_registrations, baseline.root_registrations);
 }

@@ -21,7 +21,6 @@ use kagari_compiler::{
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::ty::{NominalTy, Ty};
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
@@ -230,37 +229,6 @@ pub fn unique_types(types: impl IntoIterator<Item = ValueType>) -> Vec<ValueType
         }
     }
     unique
-}
-
-/// Explicit Point layout for reflection permission fixtures.
-pub fn point_function_module(
-    name: &str,
-    instructions: Vec<BytecodeInstruction>,
-    return_type: ValueType,
-    registers: Vec<ValueType>,
-    constants: Vec<ConstantOperand>,
-) -> DefinitionMetadata<BytecodeModule> {
-    let mut module =
-        test_function_module(name, instructions, return_type, registers, constants).into_records();
-    let program = compile_test_bytecode("struct Point { var x: i32 }");
-    module.structures = program.records().modules[program.records().root.index()]
-        .structures
-        .clone();
-    let point = Ty::Struct(NominalTy {
-        declaration: module.structures[0].declaration,
-        arguments: vec![],
-        associated_types: Default::default(),
-    });
-    let metadata = &mut module.functions[0].metadata;
-    if return_type == ValueType::HeapObject {
-        metadata.semantic.result = Some(point.clone());
-    }
-    for (index, ty) in metadata.slots.iter().enumerate() {
-        if *ty == ValueType::HeapObject {
-            metadata.semantic.slots.insert(index, point.clone());
-        }
-    }
-    DefinitionMetadata::checked(program.definitions().clone(), module, &Default::default()).unwrap()
 }
 
 /// Empty Runtime for generic execution fixtures; providers are explicit per case.

@@ -1,8 +1,15 @@
 use super::{Case, Expected, RootedValue, run_routes};
 
 #[test]
-fn resolved_runtime_helpers() {
-    run_routes(&Case::new("resolved-runtime-helpers", "use std::io::print;\nstruct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| RootedValue::from(5_i32))).effects(&["i32"], &["i32"]));
+fn typed_access_with_declared_native_call() {
+    run_routes(
+        &Case::new(
+            "typed-access-with-declared-native-call",
+            include_str!("../../../tests/fixtures/language/language_contract/evaluation/typed-access-with-declared-native-call.kgr"),
+            Expected::Value(|_| RootedValue::from(5_i32)),
+        )
+        .effects(&["before return"], &["before return"]),
+    );
 }
 
 #[test]
@@ -19,15 +26,6 @@ fn bare_function_is_not_return_value() {
     run_routes(&Case::new(
         "bare-function-is-not-return-value",
         "fn answer() -> i32 { 42 } fn main() -> i32 { answer }",
-        Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET"),
-    ));
-}
-
-#[test]
-fn bare_helper_is_not_a_value() {
-    run_routes(&Case::new(
-        "bare-helper-is-not-a-value",
-        "fn main() { val f = type_of; }",
         Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET"),
     ));
 }

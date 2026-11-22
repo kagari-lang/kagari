@@ -707,6 +707,10 @@ iteration and the normalized ArrayCopyWithinBounds intrinsic. Public copy_within
 calls must lower their RangeBounds protocol calls before bytecode verification.
 Validators reject missing endpoints, invalid element types, mismatched Bound
 payloads and read-only destinations before execution. Earlier products are rejected.
+Current artifacts construct ranges with `MakeRange` and project bounds through
+[private core Native imports](../native-registration.md#private-core-native-bindings).
+The old `RangeBound` instruction and script reflection tags are rejected; surviving
+opcode tags are unchanged.
 
 Version 83/runtime ABI v83 restrict repeat-array instructions to element types
 without shared mutable identities. Source analysis and portable verification share

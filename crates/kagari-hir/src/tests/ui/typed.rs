@@ -59,19 +59,24 @@ fn reports_invalid_const_initializer_expression() {
 }
 
 #[test]
-fn reports_reflection_write_on_const_value() {
+fn rejects_nested_tuple_assignment_to_const() {
     let fixture = Fixture::new(
-        include_str!("../../../tests/fixtures/ui/bare/reports_reflection_write_on_const_value.kgr"),
+        include_str!(
+            "../../../tests/fixtures/ui/bare/rejects_nested_tuple_assignment_to_const.kgr"
+        ),
         "test.kg",
         Environment::Bare,
     );
     let diagnostics = fixture.result().diagnostics();
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ConstWriteNotAllowed {
-                const_name: "ROOT".to_string(),
-            }
-    }));
+    assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        &diagnostic.kind,
+        DiagnosticKind::InvalidConstInitializer { const_name, .. } if const_name == "ROOT"
+    )));
+    assert!(diagnostics.iter().any(|diagnostic| matches!(
+        diagnostic.kind,
+        DiagnosticKind::InvalidAssignmentTarget { .. }
+    )));
 }
 
 #[test]

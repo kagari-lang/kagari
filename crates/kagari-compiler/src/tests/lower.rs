@@ -21,7 +21,7 @@ use kagari_hir::{aggregates::implementations::ImplementationSearchError, program
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     function::MirFunction,
-    instruction::{CallTarget, Instruction, MirValue, RuntimeHelper, Terminator},
+    instruction::{Instruction, MirValue, Terminator},
     verify::{MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_source::diagnostic::DiagnosticKind;
@@ -464,35 +464,28 @@ fn returning_aggregate_member_stops_later_members() {
 }
 
 #[test]
-fn terminating_primitive_operands_do_not_emit_helpers_or_later_calls() {
+fn terminating_equality_operand_prevents_later_calls() {
     let context = DefinitionContext::new().unwrap();
-    for expression in [
-        "(if true { return 42; } else { return 7; }) == grow(1)",
-        "type_of(if true { return 42; } else { return 7; })",
-    ] {
-        let analyzed = common::program_ok(&format!(
-            "fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ {expression}; }}"
-        ));
-
-        let ir = lower_budgeted_root(
-            &analyzed,
-            &MirLoweringOptions {
-                max_generic_instances: 0,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        assert_eq!(ir.functions.len(), 1);
-        assert!(
-            ir.functions[0]
-                .blocks
-                .iter()
-                .filter(|block| matches!(block.terminator, Some(Terminator::Unreachable)))
-                .all(|block| block.instructions.is_empty()),
-            "{expression}"
-        );
-        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
-    }
+    let analyzed = common::program_ok(include_str!(
+        "../../tests/fixtures/terminating-equality-operand.kgr"
+    ));
+    let ir = lower_budgeted_root(
+        &analyzed,
+        &MirLoweringOptions {
+            max_generic_instances: 0,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(ir.functions.len(), 1);
+    assert!(
+        ir.functions[0]
+            .blocks
+            .iter()
+            .filter(|block| matches!(block.terminator, Some(Terminator::Unreachable)))
+            .all(|block| block.instructions.is_empty())
+    );
+    common::adopt_bytecode(&context, common::bytecode_with_edited_root(&analyzed, &ir));
 }
 
 #[test]
@@ -938,15 +931,6 @@ fn main() -> i32 {
             .iter()
             .any(|instruction| matches!(instruction, Instruction::WriteAggregateIndex { .. }))
     );
-    assert!(!instructions.iter().any(|instruction| matches!(
-        instruction,
-        Instruction::Call {
-            callee: CallTarget::RuntimeHelper(
-                RuntimeHelper::ReflectSetField(_) | RuntimeHelper::ReflectSetIndex
-            ),
-            ..
-        }
-    )));
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).

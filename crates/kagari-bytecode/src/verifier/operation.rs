@@ -18,7 +18,6 @@ use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::numeric::NumericSignature;
 use kagari_contract::{
     contracts,
-    contracts::RuntimeHelperKind,
     native_import::foundation::FoundationNative,
     operations,
     operations::UnaryOp as MirUnaryOp,
@@ -1052,22 +1051,6 @@ pub(super) fn verify_call(
                 function: function.id,
                 reason: "dynamic invocation has no executable contract",
             });
-        }
-        CallTarget::RuntimeHelper(helper) => {
-            let kind = match helper {
-                RuntimeHelper::ReflectTypeOf => RuntimeHelperKind::TypeOf,
-                RuntimeHelper::ReflectGetField(_) => RuntimeHelperKind::GetField,
-                RuntimeHelper::ReflectSetField(_) => RuntimeHelperKind::SetField,
-                RuntimeHelper::ReflectSetIndex => RuntimeHelperKind::SetIndex,
-                RuntimeHelper::DynamicCall => unreachable!(),
-            };
-            let args = args
-                .iter()
-                .map(|arg| register_ty(function, *arg))
-                .collect::<Result<Vec<_>, _>>()?;
-            let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
-            contracts::verify_runtime_helper_call(dst, kind, &args)
-                .map_err(|error| contract_error(function, error))?;
         }
     }
     Ok(())

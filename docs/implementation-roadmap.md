@@ -1310,13 +1310,20 @@ Script bodies, including final defaults, against actual executable behavior. Por
 instruction certificates alone establish consistency, not independent library semantics. Runtime
 retains real bindings; no Runtime-to-HIR edge or Runtime trait solver was introduced.
 
-The [declaration-linked Native helpers plan](native-linkage-reflection-plan.md)
-queues NL01–NL03: bind existing core Native declarations without registering a
-second owner, migrate Range/Result helpers, and retire the legacy script helpers
-and HIR name fallback. NL01–NL02 are implemented; NL03 remains open. The
-[script reflection API](spec/reflection.md#optional-script-reflection) requires a
-separate design; no replacement API ships in these phases. Moving String methods
-and measuring any call fast path remain separate follow-ups.
+[Private core Native bindings](native-registration.md#private-core-native-bindings)
+now link authored Range and Result declarations without a second module owner.
+The HIR name fallback and old script helpers are gone. A
+[script reflection API](spec/reflection.md#optional-script-reflection), moving
+String methods, and measuring Native call fast paths remain separate follow-ups.
+
+The linkage migration was checked locally with selected HIR/analyzer resolution,
+source reuse and diagnostics, compiler/codec verification, typed and Host access,
+Range/Result execution, and the SDK's converted-Result artifact with default
+features disabled. The core fixture was regenerated. A broader stdlib selection
+reported 187 passes and 61 failures; sampled failures still reach `InvalidImports`
+or `UnknownName` for unavailable collection declarations. This does not establish
+an unchanged failure set. The existing collection, enum and managed-payload
+follow-ups below and the full CI matrix remain open.
 
 **Local validation:** structure checking, workspace formatting, workspace all-target Clippy with
 `-D warnings`, fixture formatting and diff checks pass. Selected owner-level tests pass for common
@@ -1377,7 +1384,7 @@ Earlier NM evidence applies only to unchanged code, not to this implementation's
 retains registration/provider products, prebuild binary versus generated-code representation,
 standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
 export-sidecar encoding/directory publication/refresh. New Native field adapters, concrete reference
-access/runtime design, output/reflection extraction and broader LSP scheduling are outside these
+access/runtime design, library output/inspection and broader LSP scheduling were outside these
 three phases. Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
 general provider installation redesign was added.
 

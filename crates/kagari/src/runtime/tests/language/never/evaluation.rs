@@ -85,7 +85,6 @@ fn returning_expressions_preserve_control_flow_and_short_circuiting() {
         ("or_taken", "false || STOP; 0", 52),
         ("and_skipped", "false && STOP; 0", 11),
         ("or_skipped", "true || STOP; 0", 11),
-        ("helper_skipped", "false && (type_of(STOP) == \"\"); 0", 11),
     ]);
 }
 
@@ -96,7 +95,7 @@ fn returning_expressions_stop_calls_and_generic_instantiation() {
         ("function_argument", "take(count, STOP)", 52),
         ("generic_argument", "generic_take(count, STOP)", 52),
         ("bound_argument", "bound_take(count, count)", 52),
-        ("helper_argument", "type_of(STOP); 0", 52),
+
         ("native_receiver", "STOP.sort(); 0", 52),
         ("native_argument", "Vec::from([1]).sort_by(STOP); 0", 52),
         (
@@ -145,21 +144,10 @@ fn returning_expressions_skip_accesses_and_uncommitted_writes() {
             "matrix(index(STOP))[grow(1)][0] += grow(2); 0",
             52,
         ),
+        ("array_write_value", "array[0] = STOP; 0", 52),
         (
-            "reflect_field_value",
-            "set_field(count, \"value\", STOP); 0",
-            52,
-        ),
-        ("reflect_index_value", "set_index(array, 0, STOP); 0", 52),
-        (
-            "reflect_index",
-            "set_index(array, STOP, later(count)); 0",
-            52,
-        ),
-        ("reflect_read_receiver", "get_field(STOP, \"value\"); 0", 52),
-        (
-            "reflect_write_receiver",
-            "set_index(STOP, tick(count), tick(count)); 0",
+            "array_write_receiver",
+            "STOP[later(count)] = later(count); 0",
             52,
         ),
     ]);

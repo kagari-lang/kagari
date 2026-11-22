@@ -106,7 +106,7 @@ impl RemapDefinitions for CallTarget {
             Self::SourceFunction(field0) => CallTarget::SourceFunction(mapper.reference(field0)?),
             Self::Function(field0) => CallTarget::Function(*(field0)),
             Self::Value => CallTarget::Value,
-            Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper(*(field0)),
+
             Self::TraitMethod { method, interface } => CallTarget::TraitMethod {
                 method: mapper.reference(method)?,
                 interface: (interface).remap_definitions(mapper)?,
@@ -130,7 +130,7 @@ impl DefinitionReferences for CallTarget {
             }
             Self::Function(_) => {}
             Self::Value => {}
-            Self::RuntimeHelper(_) => {}
+
             Self::TraitMethod { method, interface } => {
                 check_cancel(cancel)?;
                 visit(method)?;

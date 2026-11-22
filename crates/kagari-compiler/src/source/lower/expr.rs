@@ -168,20 +168,6 @@ impl FunctionLowerer<'_, '_> {
             CheckedExprKind::Call(call) | CheckedExprKind::Format { call, .. } => {
                 self.lower_call(expr_id, call)
             }
-
-            CheckedExprKind::Helper { helper, operands } => {
-                let (callee, args) = match self.lower_runtime_helper_call(helper, &operands)? {
-                    ControlFlow::Break(value) => return Ok(value),
-                    ControlFlow::Continue(call) => call,
-                };
-                let dst = self.alloc_temp(self.expr_type(expr_id)?);
-                self.emit(Instruction::Call {
-                    dst: Some(dst),
-                    callee,
-                    args,
-                });
-                Ok(dst)
-            }
             CheckedExprKind::Diverging(prefix) => match self.lower_values(&prefix)? {
                 ControlFlow::Break(value) => Ok(value),
                 ControlFlow::Continue(_) => Err(MirLoweringError::MissingBinding(

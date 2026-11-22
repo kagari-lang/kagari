@@ -17,5 +17,4 @@ mod standard;
 mod jit_source;
 mod numeric;
 mod owned_library;
-mod reflection;
 mod statics;

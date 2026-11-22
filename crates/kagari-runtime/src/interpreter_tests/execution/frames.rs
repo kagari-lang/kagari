@@ -633,6 +633,19 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 }
 
 #[test]
+fn executes_source_lowered_place_assignments() {
+    let (mut runtime, program) = load_test_module(include_str!(
+        "../../../tests/fixtures/execution/place-assignment.kgr"
+    ));
+    let loaded = runtime.select_program(&program).unwrap();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
+        .expect("vm should execute");
+
+    assert_eq!(report.return_value.as_i32(), Some(12));
+}
+
+#[test]
 fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
     // Semantic receiver contracts reject layout substitution before execution.
     for write in [false, true] {

@@ -120,6 +120,7 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
         "val value: i32 = VALUE;",
         "var value = 1; value = VALUE;",
         "var value = 1; value += VALUE;",
+        "val cells = [1]; cells[0] = VALUE;",
     ] {
         for (value, valid) in [
             ("if true { return 42; } else { return 7; }", true),
@@ -145,20 +146,40 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
             assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
         }
     }
-    let analysis = crate::analyze_source(
-        &SourceFile::new(
-            "readonly-terminating-assignment.kgr",
-            "fn main() -> i32 { val value = 1; value = if true { return 42; } else { return 7; }; 0 }",
+    for (setup, target, expected_reason) in [
+        (
+            "val value = 1;",
+            "value",
+            "`val` binding cannot be reassigned",
         ),
-        standard_modules(),
-    ).expect("installed declaration analysis");
-    assert!(
-        analysis
-            .diagnostics()
-            .iter()
-            .any(|d| matches!(d.kind, DiagnosticKind::InvalidAssignmentTarget { .. }))
-    );
-    assert!(analysis.into_codegen().is_err());
+        (
+            "val cell = Cell { value: 1 };",
+            "cell.value",
+            "`val` field `value` cannot be assigned",
+        ),
+        (
+            "val cells = [1];",
+            "cells[true]",
+            "indexed value is not assignable",
+        ),
+    ] {
+        let analysis = crate::analyze_source(
+            &SourceFile::new(
+                "invalid-terminating-assignment.kgr",
+                format!("struct Cell {{ val value: i32 }} fn main() -> i32 {{ {setup} {target} = if true {{ return 42; }} else {{ return 7; }}; 0 }}"),
+            ),
+            standard_modules(),
+        ).expect("installed declaration analysis");
+        assert!(
+            analysis.diagnostics().iter().any(|d| matches!(
+                &d.kind,
+                DiagnosticKind::InvalidAssignmentTarget { reason } if reason == expected_reason
+            )),
+            "{target}: {:?}",
+            analysis.diagnostics()
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
 }
 
 #[test]
@@ -464,7 +485,6 @@ fn terminating_indexes_preserve_receiver_rules_without_requiring_an_index_value(
         "array[INDEX] = 7;",
         "array[INDEX] += 7;",
         "tuple[INDEX] = 7;",
-        "set_index(array, INDEX, 7);",
     ] {
         for (index, valid) in [
             ("if true { return 42; } else { return 7; }", true),

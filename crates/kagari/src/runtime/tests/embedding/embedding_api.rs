@@ -9,8 +9,7 @@ use crate::{
 };
 use kagari_runtime::{
     error::RuntimeErrorKind, host::HostError, module::entry::ProgramEntry,
-    native::conversion::context::ConversionContext, reload::ReloadValidationError,
-    value::carriers::RootedValue,
+    reload::ReloadValidationError, value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib::io;
@@ -307,50 +306,5 @@ fn output_requires_explicit_io_installation() {
     assert_eq!(
         *events.lock().unwrap(),
         [("first".to_owned(), ""), ("second".to_owned(), "\n")]
-    );
-}
-
-#[test]
-fn reflection_helper_is_available() {
-    let engine = KagariEngine::with_native_modules(
-        Default::default(),
-        standard_library().modules().unwrap(),
-    )
-    .unwrap();
-
-    let type_of_artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("type_of.kgr", r#"fn main() -> String { type_of(7) }"#),
-            ArtifactOptions::default(),
-        )
-        .expect("reflection source should compile with reflection profile");
-    let mut runtime = engine.runtime(ExecutionContext::default());
-
-    let type_of_module = runtime
-        .load_program(
-            &Program::from_artifact(type_of_artifact, &Default::default(), &Default::default())
-                .unwrap(),
-            LoadOptions {
-                program_name: Some("type_of".to_owned()),
-            },
-        )
-        .expect("type_of module should load");
-
-    let result = runtime
-        .execute(
-            &type_of_module,
-            ProgramEntry::Main,
-            &[],
-            &ExecutionContext::default(),
-        )
-        .unwrap()
-        .return_value;
-    let owner = runtime.select_program(&type_of_module).unwrap();
-    assert_eq!(
-        ConversionContext::new(&mut runtime, &owner)
-            .unwrap()
-            .decode::<String>(&result)
-            .unwrap(),
-        "i32"
     );
 }

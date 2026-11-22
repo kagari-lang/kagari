@@ -142,7 +142,7 @@ fn call_targets_preserve_owner_kind_arguments_results_and_physical_signature() {
 }
 
 #[test]
-fn runtime_primitives_helpers_and_artifact_names_are_not_debug_dumps() {
+fn runtime_primitives_dynamic_call_and_artifact_names_are_not_debug_dumps() {
     let mut fixture = Fixture::new();
     for (primitive, name) in [
         (RuntimePrimitive::ValuePartialCmp, "value_partial_cmp"),
@@ -159,24 +159,10 @@ fn runtime_primitives_helpers_and_artifact_names_are_not_debug_dumps() {
             format!("call dst=s0, target=runtime_primitive.{name}, args=[s2, s1]")
         );
     }
-    for (helper, expected) in [
-        (RuntimeHelper::ReflectTypeOf, "reflect_type_of"),
-        (
-            RuntimeHelper::ReflectGetField("x\n\"".into()),
-            "reflect_get_field \"x\\n\\\"\"",
-        ),
-        (
-            RuntimeHelper::ReflectSetField("x\t\\".into()),
-            "reflect_set_field \"x\\t\\\\\"",
-        ),
-        (RuntimeHelper::ReflectSetIndex, "reflect_set_index"),
-        (RuntimeHelper::DynamicCall, "dynamic_call"),
-    ] {
-        assert_eq!(
-            fixture.render(&call(CallTarget::RuntimeHelper(helper))),
-            format!("call dst=s0, target=runtime_helper.{expected}, args=[s2, s1]")
-        );
-    }
+    assert_eq!(
+        fixture.render(&call(CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall))),
+        "call dst=s0, target=runtime_helper.dynamic_call, args=[s2, s1]"
+    );
     fixture.program.modules[0].functions[0].name = "bad\nname\u{202e}\u{1b}".into();
     let rendered = fixture.render(&call(CallTarget::ModuleFunction {
         module: ModuleRef::new(0),

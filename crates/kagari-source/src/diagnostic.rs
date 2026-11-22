@@ -197,15 +197,11 @@ pub enum DiagnosticKind {
     ConstCycle {
         const_name: String,
     },
-    ConstWriteNotAllowed {
-        const_name: String,
-    },
     CallArityMismatch {
         function_name: String,
         expected: usize,
         found: usize,
     },
-    ReflectionFieldNameNotConstant,
     ArgumentTypeMismatch {
         function_name: String,
         parameter_name: String,
@@ -431,9 +427,7 @@ impl DiagnosticKind {
             Self::InvalidLiteral { .. } => "KG_TYPE_INVALID_LITERAL",
             Self::PatternTypeMismatch { .. } => "KG_TYPE_PATTERN_MISMATCH",
             Self::ConstCycle { .. } => "KG_TYPE_CONST_CYCLE",
-            Self::ConstWriteNotAllowed { .. } => "KG_TYPE_CONST_WRITE_NOT_ALLOWED",
             Self::CallArityMismatch { .. } => "KG_TYPE_CALL_ARITY_MISMATCH",
-            Self::ReflectionFieldNameNotConstant => "KG_TYPE_REFLECTION_FIELD_NAME_NOT_CONSTANT",
             Self::ArgumentTypeMismatch { .. } => "KG_TYPE_ARGUMENT_TYPE_MISMATCH",
             Self::StandardConstraintNotSatisfied { .. } => {
                 "KG_TYPE_STANDARD_CONSTRAINT_NOT_SATISFIED"
@@ -667,12 +661,7 @@ impl Display for DiagnosticKind {
             Self::ConstCycle { const_name } => {
                 write!(f, "cyclic const dependency involving `{const_name}`")
             }
-            Self::ConstWriteNotAllowed { const_name } => {
-                write!(
-                    f,
-                    "cannot perform write-like operation on const `{const_name}`"
-                )
-            }
+
             Self::CallArityMismatch {
                 function_name,
                 expected,
@@ -681,9 +670,7 @@ impl Display for DiagnosticKind {
                 f,
                 "call arity mismatch in `{function_name}`: expected {expected} arguments, found {found}"
             ),
-            Self::ReflectionFieldNameNotConstant => {
-                write!(f, "reflection field name must be a compile-time String")
-            }
+
             Self::ArgumentTypeMismatch {
                 function_name,
                 parameter_name,

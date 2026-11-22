@@ -694,10 +694,8 @@ The bytecode verifier checks:
 - jump targets point to valid instruction boundaries
 - functions return values compatible with their declared return type
 - instruction operands match the expected type layout when type metadata is retained
-- runtime reflection helpers have the same verified arity and representation
-  contract in IR and bytecode: field/index receivers are heap values, indexes
-  are integers, reflective writes cannot store host handles, and result
-  slots match the helper's static result where known
+- private core Native helpers require the declaring module as caller and exact
+  semantic argument/result slots in addition to ordinary Native import checks
 - field/path writes and semantic reference access respect their checked writeability
   contracts; source `val` / `var` binding rules remain owned by source/MIR checking
 - `PathId` operands exist in the path table

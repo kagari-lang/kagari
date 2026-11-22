@@ -232,7 +232,6 @@ fn erroneous_calls_and_indices_never_enter_codegen() {
         "fn main() { 1(); }",
         "fn main() { 1[0]; }",
         "fn main() { [1][true]; }",
-        "fn main() { type_of(); }",
     ] {
         let analysis = analyze_source(&SourceFile::new("bad", source), standard_modules())
             .expect("installed declaration analysis");

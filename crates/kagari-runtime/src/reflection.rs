@@ -4,11 +4,9 @@ mod tests;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind, reason::IndexError, trap::TrapReason},
-    execution::roots::ExecutionRoots,
-    frame::{arguments::FrameArguments, types::compatibility::TypeView},
+    frame::types::compatibility::TypeView,
     host::HostRegistry,
     module::StructLayoutRef,
-    native::conversion::arguments::ArgumentValues,
     range::RangeValue,
     resource::ResourceState,
     value::{
@@ -16,7 +14,6 @@ use crate::{
         arrays::ArrayObject,
         carriers::{RootedValue, ScopedValue},
         kind::ObjectKind,
-        place::{PublishedResult, ResultPlace},
         properties::ValueProperties,
         strings::StringObject,
     },
@@ -73,9 +70,9 @@ impl From<RuntimeError> for ReflectionError {
     }
 }
 
-/// Runtime helpers and Host wrappers share one physical reflection policy.
+/// Operations on protected values supplied by the Rust caller.
 #[derive(Clone, Copy)]
-pub(crate) enum Operation<'name> {
+enum Operation<'name> {
     TypeOf,
     GetField(&'name str),
     SetField(&'name str),
@@ -83,14 +80,6 @@ pub(crate) enum Operation<'name> {
 }
 
 impl Operation<'_> {
-    fn arity(self) -> usize {
-        match self {
-            Self::TypeOf | Self::GetField(_) => 1,
-            Self::SetField(_) => 2,
-            Self::SetIndex => 3,
-        }
-    }
-
     fn error(self, error: RuntimeError) -> RuntimeError {
         match self {
             Self::TypeOf => error,
@@ -106,51 +95,6 @@ impl Operation<'_> {
             Self::SetField(_) | Self::SetIndex => ReflectionError::from(error).into_write_error(),
         }
     }
-}
-
-/// Execute with the caller's original inputs and publish before the closed scope
-/// ends. A callback cannot invalidate these values or repeat a completed write.
-pub(crate) fn invoke<'result>(
-    runtime: &mut Runtime,
-    operation: Operation<'_>,
-    arguments: ArgumentValues<'_>,
-    destination: ResultPlace<'result>,
-) -> Result<PublishedResult<'result>, RuntimeError> {
-    runtime.resources.poll_execution()?;
-    if arguments.len() != operation.arity() {
-        return Err(RuntimeError::module_validation(
-            "reflection helper argument count",
-        ));
-    }
-    value_check::candidate_arguments(runtime, FrameArguments::pack(arguments))?;
-    let Runtime {
-        memory,
-        host,
-        resources,
-        ..
-    } = runtime;
-    let result = memory.scope(resources, |cx, roots| {
-        ExecutionRoots::with(roots, cx, |slots| {
-            arguments.check_bounds(slots)?;
-            let mut inputs = [ScopedValue::unit(); 3];
-            for (index, input) in inputs.iter_mut().take(arguments.len()).enumerate() {
-                *input = arguments.scoped(slots, index)?;
-            }
-            match apply(slots.scope(), operation, &inputs, host, resources) {
-                Ok(value) => destination.publish_scoped(slots, value).map(Ok),
-                Err(error) => Ok(Err(error)),
-            }
-        })
-    });
-    result
-        .map_err(|error| runtime.managed_input_error(error))?
-        .map_err(|error| {
-            operation.error(
-                runtime
-                    .resources
-                    .admit_execution_error(error.into_runtime(runtime)),
-            )
-        })
 }
 
 fn apply<'gc>(

@@ -5,7 +5,7 @@
       {
         "message": "primary",
         "span": {
-          "end": 29,
+          "end": 25,
           "path": "test.kg",
           "start": 19
         }
@@ -14,7 +14,7 @@
     "message": "invalid const initializer in const `VALUE`: unsupported const initializer expression",
     "notes": [],
     "primary": {
-      "end": 29,
+      "end": 25,
       "path": "test.kg",
       "start": 19
     },
@@ -26,16 +26,16 @@
       {
         "message": "primary",
         "span": {
-          "end": 29,
+          "end": 25,
           "path": "test.kg",
           "start": 19
         }
       }
     ],
-    "message": "invalid const initializer in const `VALUE`: expected `i32`, found `String`",
+    "message": "invalid const initializer in const `VALUE`: expected `i32`, found `bool`",
     "notes": [],
     "primary": {
-      "end": 29,
+      "end": 25,
       "path": "test.kg",
       "start": 19
     },

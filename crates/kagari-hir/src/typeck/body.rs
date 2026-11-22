@@ -361,7 +361,6 @@ impl<'a> BodyChecker<'a> {
                         }
                     }
                     ResolvedName::Function(_)
-                    | ResolvedName::RuntimeHelper(_)
                     | ResolvedName::Namespace(_)
                     | ResolvedName::Module(_)
                     | ResolvedName::TypeAlias(_)
@@ -558,10 +557,6 @@ impl<'a> BodyChecker<'a> {
                     self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
                 {
                     method_ty
-                } else if let Some(helper_ty) =
-                    self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
-                {
-                    helper_ty
                 } else if let Some(method_ty) =
                     self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {
@@ -593,7 +588,7 @@ impl<'a> BodyChecker<'a> {
                 } else if !completes {
                     TypeId::Unknown
                 } else {
-                    self.checked_member_type(&receiver_ty, name, expr_id, false)
+                    self.checked_member_type(&receiver_ty, name, expr_id)
                 }
             }
             ExprKind::Index { receiver, index } => {

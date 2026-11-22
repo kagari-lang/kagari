@@ -1,7 +1,6 @@
 //! Canonical lexical bindings and node-keyed facts, separate from checked type/call facts.
 
 use crate::{
-    builtin::BuiltinFunction,
     collections::HashMap,
     hir::{
         ids::{
@@ -53,8 +52,7 @@ pub enum ResolvedName {
     Local(LocalId),
     /// A parent-local child module header.
     Module(ModuleId),
-    /// A recognized compiler/runtime helper surface.
-    RuntimeHelper(BuiltinFunction),
+
     /// A local struct declaration.
     Struct(StructId),
     /// A local enum declaration.

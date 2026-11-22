@@ -1,3 +1,0 @@
-fn main() -> String {
-    type_of(7)
-}

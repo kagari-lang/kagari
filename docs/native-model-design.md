@@ -114,9 +114,11 @@ library/member attribution and remap identities, not persist process-local handl
 
 ### Library APIs versus compiler intrinsics
 
-Output/reflection extraction is deferred. Preserve existing print/log, type_of, get_field,
-set_field and set_index semantics, declared access and evaluation order. A frontend model cleanup
-is not permission to redesign these APIs or silently admit unsupported executable operations.
+Output is an explicitly installed library. Private core Native helpers link
+against [checked authored declarations](native-registration.md#private-core-native-bindings)
+rather than frontend name exceptions. The former script reflection helpers are
+removed; [script reflection](spec/reflection.md#optional-script-reflection) is a
+separate design, not an extension of name lookup.
 
 ## 3. Declaration records
 

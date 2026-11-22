@@ -190,15 +190,6 @@ impl Builder<'_, '_> {
                     CallTarget::TerminatingCallee => {
                         return Err(self.error(Some(span), "terminating callee completes normally"));
                     }
-                    CallTarget::RuntimeHelper(helper) => {
-                        let operands = call
-                            .receiver
-                            .into_iter()
-                            .chain(args.iter().copied())
-                            .collect::<Vec<_>>();
-                        self.expressions(&operands)?;
-                        CheckedExprKind::Helper { helper, operands }
-                    }
                     _ => CheckedExprKind::Call(self.call(id, call, &args)?),
                 }
             }
@@ -519,7 +510,7 @@ impl Builder<'_, '_> {
                 self.expression(callee)?;
                 CheckedCallTarget::Value { callee }
             }
-            CallTarget::TerminatingCallee | CallTarget::RuntimeHelper(_) => {
+            CallTarget::TerminatingCallee => {
                 return Err(self.error(span, "non-callable contract in ordinary call"));
             }
         };

@@ -428,11 +428,10 @@ boundaries, including both ends: find returns zero and replace inserts there.
 Inputs remain immutable. Native providers implement these methods; no String trait, regex or locale API is added. The slice
 trap is IndexOutOfBounds for all invalid byte ranges, including UTF-8 boundaries.
 
-Unqualified compiler helpers such as print and reflection names are consulted only
-after lexical and declared names. A same-named function is an ordinary script call;
-a non-callable local is a call-target error. Logging requires an explicitly declared
-and installed host.log binding. Reflection remains subject to declared member access
-and metadata; it is not how native libraries dispatch their methods.
+Output and logging use ordinary declarations and installed Native bindings.
+There is no fallback for alternate spellings or for [script reflection](reflection.md#optional-script-reflection).
+A same-named user function is an ordinary call; a non-callable local is a
+call-target error.
 
 ### Explicit String traversal
 

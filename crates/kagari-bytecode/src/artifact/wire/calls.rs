@@ -100,7 +100,21 @@ pub(in crate::artifact) enum CallTargetRecord {
         return_type: ValueType,
     },
     RuntimePrimitive(RuntimePrimitive),
-    RuntimeHelper(RuntimeHelper),
+    RuntimeHelper(RuntimeHelperRecord),
+}
+
+#[derive(Serialize, Deserialize)]
+pub(in crate::artifact) enum RuntimeHelperRecord {
+    // Keep the retired tags in Serde's positional decoder; conversion rejects them.
+    #[serde(skip_serializing)]
+    RetiredTypeOf,
+    #[serde(skip_serializing)]
+    RetiredGetField,
+    #[serde(skip_serializing)]
+    RetiredSetField,
+    #[serde(skip_serializing)]
+    RetiredSetIndex,
+    DynamicCall,
 }
 
 impl CallTargetRecord {
@@ -151,7 +165,9 @@ impl CallTargetRecord {
                 return_type: *return_type,
             },
             CallTarget::RuntimePrimitive(field0) => Self::RuntimePrimitive(*field0),
-            CallTarget::RuntimeHelper(field0) => Self::RuntimeHelper(field0.clone()),
+            CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+                Self::RuntimeHelper(RuntimeHelperRecord::DynamicCall)
+            }
         })
     }
 
@@ -193,7 +209,42 @@ impl CallTargetRecord {
                 return_type,
             },
             Self::RuntimePrimitive(field0) => CallTarget::RuntimePrimitive(field0),
-            Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper(field0),
+            Self::RuntimeHelper(RuntimeHelperRecord::DynamicCall) => {
+                CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall)
+            }
+            Self::RuntimeHelper(_) => return Err(DefinitionMappingError::InvalidContract),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CallTargetRecord;
+    use crate::{
+        artifact::codec,
+        instruction::{CallTarget, RuntimeHelper},
+    };
+    use bincode::Options;
+    use kagari_common::identity::{map::DefinitionContext, mapping::DefinitionMappingError};
+
+    #[test]
+    fn dynamic_call_wire_tag_survives_retired_reflection_helpers() {
+        let context = DefinitionContext::new().unwrap();
+        let encoding = context.snapshot().encode([]).unwrap();
+        let cancel = Default::default();
+        let target = CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall);
+        let record = CallTargetRecord::encode(&target, &encoding, &cancel).unwrap();
+        let decoding = encoding.table.decode().unwrap();
+        let bytes = [8, 0, 0, 0, 4, 0, 0, 0];
+        assert_eq!(codec().serialize(&record).unwrap(), bytes);
+        let decoded: CallTargetRecord = codec().deserialize(&bytes).unwrap();
+        assert_eq!(decoded.decode(&decoding, &cancel).unwrap(), target);
+
+        let retired: CallTargetRecord = codec().deserialize(&[8, 0, 0, 0, 0, 0, 0, 0]).unwrap();
+        assert!(codec().serialize(&retired).is_err());
+        assert!(matches!(
+            retired.decode(&decoding, &cancel),
+            Err(DefinitionMappingError::InvalidContract)
+        ));
     }
 }

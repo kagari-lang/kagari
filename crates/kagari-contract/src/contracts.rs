@@ -30,62 +30,6 @@ pub enum ContractError {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeHelperKind {
-    TypeOf,
-    GetField,
-    SetField,
-    SetIndex,
-}
-
-pub fn verify_runtime_helper_call(
-    dst: Option<ValueType>,
-    helper: RuntimeHelperKind,
-    args: &[ValueType],
-) -> Result<(), ContractError> {
-    let arity = match helper {
-        RuntimeHelperKind::TypeOf | RuntimeHelperKind::GetField => 1,
-        RuntimeHelperKind::SetField => 2,
-        RuntimeHelperKind::SetIndex => 3,
-    };
-    if args.len() != arity {
-        return Err(ContractError::InvalidOperation {
-            reason: "runtime helper arity mismatch",
-        });
-    }
-    match helper {
-        RuntimeHelperKind::TypeOf => verify_call_dst(dst, ValueType::Str),
-        RuntimeHelperKind::GetField => {
-            expect_type(args[0], ValueType::HeapObject, "reflection field base")?;
-            if dst.is_none() {
-                return Err(ContractError::InvalidOperation {
-                    reason: "reflection field read needs a destination",
-                });
-            }
-            Ok(())
-        }
-        RuntimeHelperKind::SetField | RuntimeHelperKind::SetIndex => {
-            expect_type(args[0], ValueType::HeapObject, "reflection write base")?;
-            let value = if helper == RuntimeHelperKind::SetIndex {
-                if !matches!(args[1], ValueType::I32 | ValueType::I64 | ValueType::U64) {
-                    return Err(ContractError::InvalidOperation {
-                        reason: "reflection index must be an integer",
-                    });
-                }
-                args[2]
-            } else {
-                args[1]
-            };
-            if value == ValueType::HostHandle {
-                return Err(ContractError::InvalidOperation {
-                    reason: "host handles cannot be stored by reflection",
-                });
-            }
-            verify_call_dst(dst, ValueType::HeapObject)
-        }
-    }
-}
-
 /// The signature sets call arity and operand representations. The closed engine
 /// guard independently checks its consumed storage and result shape.
 pub fn verify_native_call(

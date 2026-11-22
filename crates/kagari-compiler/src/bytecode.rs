@@ -705,8 +705,8 @@ fn lower_instruction(
                 MirCallTarget::RuntimePrimitive(intrinsic) => {
                     CallTarget::RuntimePrimitive(*intrinsic)
                 }
-                MirCallTarget::RuntimeHelper(helper) => {
-                    CallTarget::RuntimeHelper(lower_runtime_helper(helper))
+                MirCallTarget::RuntimeHelper(MirRuntimeHelper::DynamicCall) => {
+                    CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall)
                 }
             },
             args: args.iter().map(|arg| context.value(*arg)).collect(),
@@ -1078,16 +1078,6 @@ fn lower_binary_op(op: MirBinaryOp) -> BinaryOp {
         MirBinaryOp::AndAnd | MirBinaryOp::OrOr => {
             unreachable!("short-circuit ops should be lowered into branches before bytecode")
         }
-    }
-}
-
-fn lower_runtime_helper(helper: &MirRuntimeHelper) -> RuntimeHelper {
-    match helper {
-        MirRuntimeHelper::ReflectTypeOf => RuntimeHelper::ReflectTypeOf,
-        MirRuntimeHelper::ReflectGetField(name) => RuntimeHelper::ReflectGetField(name.clone()),
-        MirRuntimeHelper::ReflectSetField(name) => RuntimeHelper::ReflectSetField(name.clone()),
-        MirRuntimeHelper::ReflectSetIndex => RuntimeHelper::ReflectSetIndex,
-        MirRuntimeHelper::DynamicCall => RuntimeHelper::DynamicCall,
     }
 }
 

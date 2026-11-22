@@ -1,0 +1,14 @@
+use std::io::print;
+
+struct Cell {
+    var n: i32
+}
+
+fn main() -> i32 {
+    val cell = Cell { n: 1 };
+    val values = [1];
+    cell.n = 2;
+    values[0] = 3;
+    print("before return");
+    cell.n + values[0]
+}

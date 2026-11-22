@@ -1,0 +1,5 @@
+const ROOT: ((i32, bool), bool) = ((1, true), false);
+
+fn main() {
+    ROOT[0][0] = 2;
+}

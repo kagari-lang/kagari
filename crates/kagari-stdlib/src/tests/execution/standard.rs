@@ -56,21 +56,26 @@ fn executes_bytecode_foundation_collection_bindings() {
         "../../../tests/fixtures/execution/foundation-collections.kgr"
     ));
     let decoded = round_trip_bytecode(program);
-    let (runtime, loaded) = load_bytecode_program("standard_collections.kbc", decoded);
-    let _loaded_program = loaded;
-    let loaded = runtime.select_program(&_loaded_program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+    let (mut runtime, program) = load_bytecode_program("standard_collections.kbc", decoded);
+    let loaded = runtime.select_program(&program).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats();
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
         .expect("vm should execute");
 
     assert_eq!(
-        ConversionContext::new(&mut vm, &loaded)
+        ConversionContext::new(&mut runtime, &loaded)
             .unwrap()
             .decode::<(u64, bool, u64, bool)>(&report.return_value)
             .unwrap(),
         (1, true, 1, true),
     );
+    drop(report);
+    runtime.collect_garbage().unwrap();
+    let after = runtime.gc_stats();
+    assert_eq!(after.objects, baseline.objects);
+    assert_eq!(after.root_registrations, baseline.root_registrations);
 }
 
 #[test]
@@ -103,17 +108,14 @@ fn standard_vec_mutation_updates_shared_sequence_handles() {
 
 #[test]
 fn struct_field_updates_mutate_shared_struct_handle_in_place() {
-    let (runtime, loaded) = load_bytecode_program(
-        "test.kgr",
-        compile_test_bytecode(include_str!(
-            "../../../tests/fixtures/execution/struct-alias.kgr"
-        )),
-    );
-    let program = loaded;
+    let program = compile_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/struct-alias.kgr"
+    ));
+    let (mut runtime, program) =
+        load_bytecode_program("struct-alias.kbc", round_trip_bytecode(program));
     let loaded = runtime.select_program(&program).unwrap();
-    let mut vm = runtime;
-    let report = vm
-        .execute_module(&loaded, ProgramEntry::Main, vm.execution_options())
+    let report = runtime
+        .execute_module(&loaded, ProgramEntry::Main, runtime.execution_options())
         .expect("vm should execute");
 
     assert_eq!(report.return_value.as_i32(), Some(9));

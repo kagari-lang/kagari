@@ -7,9 +7,7 @@ use kagari_contract::representation::builtin_representation;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use crate::{
-    instruction::{
-        BytecodeInstruction as I, CallTarget, ConstantOperand, RuntimeHelper, ScalarOperand, Slot,
-    },
+    instruction::{BytecodeInstruction as I, CallTarget, ConstantOperand, ScalarOperand, Slot},
     module::{BytecodeFunction, BytecodeModule, slots::TypeShape},
     program::{BytecodeProgram, ModuleRef},
     suspension::FlowBudget,
@@ -936,44 +934,6 @@ pub(super) fn verify(
                                         }
                                     }
                                     result = Fact::typed(target.signature.result.clone());
-                                }
-
-                                CallTarget::RuntimeHelper(
-                                    RuntimeHelper::ReflectGetField(name)
-                                    | RuntimeHelper::ReflectSetField(name),
-                                ) => {
-                                    if let Some(Ty::Struct(nominal)) = facts[0].ty.as_deref()
-                                        && let Some(field) = module
-                                            .structures
-                                            .iter()
-                                            .find(|s| {
-                                                s.declaration == nominal.declaration
-                                                    && s.arguments == nominal.arguments
-                                            })
-                                            .and_then(|s| s.fields.iter().find(|f| f.name == *name))
-                                    {
-                                        if matches!(
-                                            callee,
-                                            CallTarget::RuntimeHelper(
-                                                RuntimeHelper::ReflectSetField(_)
-                                            )
-                                        ) {
-                                            if !flows(&facts[1], &field.ty) {
-                                                return Err(invalid());
-                                            }
-                                            result = facts[0].clone();
-                                        } else {
-                                            result = Fact::typed(field.ty.clone());
-                                        }
-                                    }
-                                }
-                                CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex) => {
-                                    if let Some(Ty::Array(item)) = facts[0].ty.as_deref()
-                                        && !flows(&facts[2], item)
-                                    {
-                                        return Err(invalid());
-                                    }
-                                    result = facts[0].clone();
                                 }
                                 CallTarget::ClosureRegister { register, .. } => {
                                     if let Some(Ty::Function {

@@ -6,7 +6,6 @@ use crate::{
     frame::FrameStack,
     module::managed::source::RevisionSource,
     native::conversion::{arguments::ArgumentValues, context::ConversionContext},
-    reflection::{self, Operation},
     value::place::ResultPlace,
 };
 use kagari_bytecode::instruction::{CallTarget, RuntimeHelper, Slot};
@@ -65,20 +64,11 @@ impl FrameStack {
                 builtin::invoke_in(&mut conversion, *primitive, arguments, place)
                     .map_err(RuntimeError::from)?
             }
-            CallTarget::RuntimeHelper(helper) => {
-                let operation = match helper {
-                    RuntimeHelper::ReflectTypeOf => Operation::TypeOf,
-                    RuntimeHelper::ReflectGetField(name) => Operation::GetField(name),
-                    RuntimeHelper::ReflectSetField(name) => Operation::SetField(name),
-                    RuntimeHelper::ReflectSetIndex => Operation::SetIndex,
-                    RuntimeHelper::DynamicCall => {
-                        runtime.resources.ensure_execution_allowed()?;
-                        return Err(RuntimeError::from(EngineFault::HostInvariant(
-                            "runtime_helper_dynamic_call",
-                        )));
-                    }
-                };
-                reflection::invoke(runtime, operation, arguments, place)?
+            CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+                runtime.resources.ensure_execution_allowed()?;
+                return Err(RuntimeError::from(EngineFault::HostInvariant(
+                    "runtime_helper_dynamic_call",
+                )));
             }
             _ => {
                 return Err(runtime

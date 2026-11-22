@@ -302,11 +302,11 @@ type_of(player).field("info").field("level").set(player, 12)
 
 Reflection metadata may help build or validate path descriptors, but execution uses resolved `PathId` values and host adapters rather than string field lookup.
 
-The current `get_field` and `set_field` helpers accept supported Kagari heap
-objects, including ordinary structs declared by Native Modules. External Host
-storage is accessed through installed adapters, including declared typed paths
-such as `player.hp` where the path and access are registered. Host type metadata
-alone does not install a reflective access adapter.
+The Rust Runtime inspection APIs operate on supported Kagari heap objects,
+including ordinary structs declared by Native modules. External Host storage
+is accessed through installed adapters, including declared typed paths such as
+`player.hp` where the path and access are registered. Host type metadata alone
+does not install a reflective access adapter.
 
 This distinction is important for:
 
@@ -319,33 +319,17 @@ This distinction is important for:
 
 ## Optional Script Reflection
 
-The [Native linkage plan](../native-linkage-reflection-plan.md#nl03--retire-the-legacy-script-helpers-and-name-fallback)
-retires the current special-cased script helpers without introducing a replacement.
-Script-visible reflection requires a separate design. In particular, enumerating
-field names and instantiated declared types, reading a value as a caller-supplied
-type, and reading a value whose type is not known to the caller are separate use
-cases. The sketches below do not fix an API, module name, or first-release scope.
-Runtime metadata, Host access and debugger inspection do not depend on that design.
+Kagari does not currently provide script reflection. The old special-cased
+`type_of`, `get_field`, `set_field`, and `set_index` calls were retired without
+replacement. Ordinary field/index syntax remains checked and does not require
+reflection. Runtime metadata, Rust Host access and debugger inspection remain
+available independently.
 
-Restricted API sketch:
-
-```kagari
-val ty = type_of(value)
-val name = ty.name()
-val kind = ty.kind()
-val fields = ty.fields()
-```
-
-A richer script-visible API could include:
-
-- `type_of(value) -> TypeInfo`
-- `TypeInfo.id()`
-- `TypeInfo.name()`
-- `TypeInfo.kind()`
-- metadata iteration over registered fields, variants, methods, and traits
-
-This API returns metadata objects.
-It does not imply ordinary dynamic field access or mutation.
+Script-visible reflection requires a separate design. Enumerating field names
+and instantiated declared types, reading a value as a caller-supplied type, and
+reading a value of unknown type are distinct use cases. No API, module name or
+first-release scope is committed. Metadata access alone grants neither value
+access nor mutation authority.
 
 ## Reflective Reads
 
@@ -491,14 +475,14 @@ The initial metadata and reflection scope includes:
 - metadata needed for GC tracing
 - metadata needed for typed path descriptor validation
 - metadata needed for hot reload ABI fingerprints
-- `type_of` for script-visible type metadata
+
 - optional read-only metadata objects for tooling and diagnostics
 
 ## Initial Scope Exclusions
 
 The initial metadata and reflection scope excludes:
 
-- default script-visible runtime reflection
+- script-visible runtime reflection (separate design)
 - reflection-based field mutation in ordinary game logic
 - unrestricted reflective writes
 - unrestricted dynamic invocation
@@ -518,6 +502,6 @@ The implementation can be staged in this order:
 5. field and variant metadata
 6. typed path descriptor metadata
 7. ABI fingerprints for hot reload validation
-8. optional read-only `type_of` and metadata APIs
-9. reflective reads through declared metadata
-10. privileged reflective writes only if a concrete embedding needs them
+
+Any script-facing metadata or value-access API requires separate design before
+implementation.

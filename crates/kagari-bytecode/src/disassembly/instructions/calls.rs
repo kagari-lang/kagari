@@ -119,19 +119,8 @@ pub(super) fn target(
             };
             write!(writer, "runtime_primitive.{name}")
         }
-        CallTarget::RuntimeHelper(helper) => {
-            write!(writer, "runtime_helper.")?;
-            match helper {
-                RuntimeHelper::ReflectTypeOf => write!(writer, "reflect_type_of"),
-                RuntimeHelper::ReflectGetField(name) => {
-                    write!(writer, "reflect_get_field {}", quoted(name))
-                }
-                RuntimeHelper::ReflectSetField(name) => {
-                    write!(writer, "reflect_set_field {}", quoted(name))
-                }
-                RuntimeHelper::ReflectSetIndex => write!(writer, "reflect_set_index"),
-                RuntimeHelper::DynamicCall => write!(writer, "dynamic_call"),
-            }
+        CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+            write!(writer, "runtime_helper.dynamic_call")
         }
     }
 }

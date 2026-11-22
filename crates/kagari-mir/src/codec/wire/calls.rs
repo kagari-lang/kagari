@@ -137,7 +137,21 @@ pub(crate) enum CallTargetRecord {
         return_type: ValueType,
     },
     RuntimePrimitive(RuntimePrimitive),
-    RuntimeHelper(RuntimeHelper),
+    RuntimeHelper(RuntimeHelperRecord),
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) enum RuntimeHelperRecord {
+    // Keep the retired tags in Serde's positional decoder; conversion rejects them.
+    #[serde(skip_serializing)]
+    RetiredTypeOf,
+    #[serde(skip_serializing)]
+    RetiredGetField,
+    #[serde(skip_serializing)]
+    RetiredSetField,
+    #[serde(skip_serializing)]
+    RetiredSetIndex,
+    DynamicCall,
 }
 
 impl CallTargetRecord {
@@ -178,7 +192,9 @@ impl CallTargetRecord {
                 return_type: *return_type,
             },
             CallTarget::RuntimePrimitive(field0) => Self::RuntimePrimitive(*field0),
-            CallTarget::RuntimeHelper(field0) => Self::RuntimeHelper(field0.clone()),
+            CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
+                Self::RuntimeHelper(RuntimeHelperRecord::DynamicCall)
+            }
         })
     }
 
@@ -215,7 +231,10 @@ impl CallTargetRecord {
                 return_type,
             },
             Self::RuntimePrimitive(field0) => CallTarget::RuntimePrimitive(field0),
-            Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper(field0),
+            Self::RuntimeHelper(RuntimeHelperRecord::DynamicCall) => {
+                CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall)
+            }
+            Self::RuntimeHelper(_) => return Err(DefinitionMappingError::InvalidContract),
         })
     }
 }

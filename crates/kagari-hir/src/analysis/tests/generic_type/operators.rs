@@ -4,31 +4,16 @@ use crate::tests::standard::standard_modules;
 use kagari_source::diagnostic::DiagnosticKind;
 
 #[test]
-fn reflective_writes_share_target_context_and_recovery_member_comparison() {
+fn aggregate_writes_share_target_context_and_recovery_member_comparison() {
     for (body, valid, mismatch) in [
-        (
-            "set_field(box, \"value\", Marker { value: 42 });",
-            true,
-            false,
-        ),
-        ("set_index(array, 0, Marker { value: 42 });", true, false),
-        (
-            "set_field(box, \"value\", Marker<bool> { value: 42 });",
-            false,
-            true,
-        ),
-        (
-            "set_index(array, 0, Marker<bool> { value: 42 });",
-            false,
-            true,
-        ),
-        ("set_field(box, \"pair\", (1, missing));", false, false),
-        ("set_field(box, \"pair\", (true, missing));", false, true),
-        ("set_index(pairs, 0, (1, missing));", false, false),
-        ("set_index(pairs, 0, (true, missing));", false, true),
+        ("box.value = Marker { value: 42 };", true, None),
+        ("array[0] = Marker { value: 42 };", true, None),
+        ("box.value = Marker<bool> { value: 42 };", false, Some(true)),
+        ("box.pair = (1, missing);", false, Some(false)),
+        ("pairs[0] = (true, missing);", false, Some(true)),
     ] {
         let source = SourceFile::new(
-            "reflective-context.kgr",
+            "aggregate-write-context.kgr",
             format!(
                 "struct Marker<T> {{ val value: i32 }} struct Box {{ var value: Marker<i32>, var pair: (i32, bool) }} fn main() {{ val box = Box {{ value: Marker {{ value: 0 }}, pair: (1, true) }}; val array: [Marker<i32>] = [Marker {{ value: 0 }}]; val pairs = [(1, true)]; {body} }}"
             ),
@@ -41,14 +26,22 @@ fn reflective_writes_share_target_context_and_recovery_member_comparison() {
             "{body}: {:?}",
             analysis.diagnostics()
         );
-        assert_eq!(
-            analysis.diagnostics().iter().any(|diagnostic| matches!(
-                diagnostic.kind,
-                DiagnosticKind::AssignmentTypeMismatch { .. }
-            )),
-            mismatch,
-            "{body}"
-        );
+        if let Some(mismatch) = mismatch {
+            assert_eq!(
+                analysis.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::AssignmentTypeMismatch { .. }
+                )),
+                mismatch,
+                "{body}"
+            );
+        }
+        if body.contains("missing") {
+            assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+                &diagnostic.kind,
+                DiagnosticKind::UnknownName { name } if name == "missing"
+            )));
+        }
         assert_eq!(analysis.into_codegen().is_ok(), valid, "{body}");
     }
 }

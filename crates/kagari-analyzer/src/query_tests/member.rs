@@ -390,11 +390,11 @@ fn duplicate_variants_remain_queryable_but_cannot_reach_codegen() {
 }
 
 #[test]
-fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
-    let text = "struct Left { val value: i32 } struct Right { var value: bool } fn read(a: Left, b: Right) { get_field(a, \"value\"); set_field(b, \"value\", true); } fn bad(a: Left) { set_field(a, \"value\", false); }";
+fn typed_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
+    let text = "struct Left { val value: i32 } struct Right { var value: bool } fn read(a: Left, b: Right) { a.value; b.value = true; } fn bad(a: Left) { a.value = false; }";
     let mut sources = SourceDatabase::default();
     let id = sources
-        .set("reflection-members.kgr", text.into(), SourceLayer::Base)
+        .set("typed-members.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
 
@@ -403,17 +403,11 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
         .unwrap();
     let file = first.file(id).unwrap();
     let uses: Vec<_> = text
-        .match_indices("\"value\"")
+        .match_indices(".value")
         .map(|(offset, _)| offset + 1)
         .collect();
-    let left = file
-        .queries()
-        .definition_at(uses[0])
-        .expect("reflection read field");
-    let right = file
-        .queries()
-        .definition_at(uses[1])
-        .expect("reflection write field");
+    let left = file.queries().definition_at(uses[0]).expect("read field");
+    let right = file.queries().definition_at(uses[1]).expect("write field");
     assert_ne!(left.id, right.id);
     assert_eq!(
         left.source_location().unwrap().range.start,
@@ -426,16 +420,20 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
     assert_eq!(
         file.queries().definition_at(uses[2]),
         Some(left),
-        "readonly and mismatch errors retain target"
+        "a readonly write retains the field target"
     );
     assert_eq!(
         file.queries().type_at(uses[0]),
-        Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::String))
+        Some(TypeId::Builtin(kagari_types::scalar::BuiltinType::I32))
     );
-    assert_eq!(file.result().diagnostics().len(), 2);
+    let diagnostics = file.result().diagnostics();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(
+        matches!(&diagnostics[0].kind, DiagnosticKind::InvalidAssignmentTarget { reason } if reason == "`val` field `value` cannot be assigned")
+    );
     let edit = format!("// shifted 😀\r\n{text}");
     sources
-        .set("reflection-members.kgr", edit.clone(), SourceLayer::Overlay)
+        .set("typed-members.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let second = db
         .snapshot(sources.snapshot(), &Default::default())
@@ -464,7 +462,7 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
     );
     let body_edit = edit.replace("false", "true");
     sources
-        .set("reflection-members.kgr", body_edit, SourceLayer::Overlay)
+        .set("typed-members.kgr", body_edit, SourceLayer::Overlay)
         .unwrap();
     let third = db
         .snapshot(sources.snapshot(), &Default::default())
@@ -486,9 +484,9 @@ fn reflection_field_navigation_retains_owner_and_survives_errors_and_body_reuse(
 
 #[test]
 fn partial_receiver_arguments_do_not_hide_independent_missing_fields() {
-    for (receiver, missing_fields) in [("Box<Missing>", 2), ("Missing", 0)] {
+    for (receiver, missing_fields) in [("Box<Missing>", 1), ("Missing", 0)] {
         let text = format!(
-            "struct Box<T> {{ val known: i32, val unknown: T }} fn bad(value: {receiver}) {{ value.absent; get_field(value, \"absent\"); value.known; value.unknown; }} fn good() -> i32 {{ 42 }}"
+            "struct Box<T> {{ val known: i32, val unknown: T }} fn bad(value: {receiver}) {{ value.absent; value.known; value.unknown; }} fn good() -> i32 {{ 42 }}"
         );
         let mut sources = SourceDatabase::default();
         let id = sources

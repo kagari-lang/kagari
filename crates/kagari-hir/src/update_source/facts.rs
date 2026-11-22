@@ -84,7 +84,7 @@ impl BodyBuilder {
                     .parameter(id)
                     .map(|param| param.ty.clone()),
             ),
-            ResolvedName::RuntimeHelper(_) => return Ok(()),
+
             ResolvedName::Namespace(_) | ResolvedName::Module(_) => return Ok(()),
             _ => return Err(DefinitionMappingError::InvalidContract),
         };
@@ -142,7 +142,7 @@ impl BodyBuilder {
 
                 (FactKind::TraitCall, vec![*method])
             }
-            CallTarget::Value | CallTarget::RuntimeHelper(_) => (FactKind::Call, vec![]),
+            CallTarget::Value => (FactKind::Call, vec![]),
             CallTarget::TerminatingCallee => return Ok(()),
         };
         self.fact(span, kind, targets, types, budget)?;

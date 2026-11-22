@@ -3,11 +3,11 @@ mod destination;
 use crate::{
     Runtime,
     error::RuntimeError,
-    execution::roots::{ExecutionRoots, Slots, ValueLocation},
+    execution::roots::{ExecutionRoots, ValueLocation},
     frame::values::FrameSlots,
     module::execution::layout::Location,
     native::binding::NativeResult,
-    value::{carriers::ScopedValue, place::destination::Destination, view::ValueView},
+    value::{place::destination::Destination, view::ValueView},
 };
 use kagari_gc::error::GcError;
 use std::{marker::PhantomData, rc::Rc};
@@ -79,18 +79,6 @@ impl<'call> ResultPlace<'call> {
             | GcError::Representation => RuntimeError::module_validation(error.to_string()),
             error => runtime.managed_memory_error(error),
         })?;
-        Ok(self.published())
-    }
-
-    /// Publish a newly allocated/reflected result while its original closed GC
-    /// scope is still live. This consumes the same destination and validation as
-    /// publish; no temporary source cell or Host lease extends the value's life.
-    pub(crate) fn publish_scoped<'gc>(
-        self,
-        slots: &mut Slots<'_, 'gc>,
-        value: ScopedValue<'gc>,
-    ) -> Result<PublishedResult<'call>, GcError> {
-        self.destination.publish_scoped(slots, value)?;
         Ok(self.published())
     }
 

@@ -212,7 +212,6 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Function(_)
                         | ResolvedName::Namespace(_)
                         | ResolvedName::Module(_)
-                        | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::TypeAlias(_)
                         | ResolvedName::NativeType(_)
                         | ResolvedName::Struct(_)
@@ -309,9 +308,7 @@ impl<'a> BodyChecker<'a> {
                     ResolvedName::Source(_)
                     | ResolvedName::Namespace(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
-                    ResolvedName::RuntimeHelper(_) => {
-                        "standard function item is not assignable".to_string()
-                    }
+
                     ResolvedName::TypeAlias(_) => "type alias is not assignable".to_string(),
                     ResolvedName::NativeType(_) => "native type is not assignable".to_string(),
                     ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
@@ -365,19 +362,9 @@ impl<'a> BodyChecker<'a> {
         receiver: &TypeId,
         name: &str,
         site: ExprId,
-        write: bool,
     ) -> TypeId {
         if let Some(field) = self.resolve_field(receiver, name) {
             self.type_table.insert_expr_field(site, field.id);
-            if write && !field.writeability.is_var() {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget {
-                        reason: format!("field `{name}` is read-only"),
-                    })
-                    .with_span(self.lowered.module.expr(site).origin.diagnostic_span()),
-                );
-            }
-            // Read-only targets still provide RHS context and independent errors.
             return field.ty;
         }
         if !matches!(receiver, TypeId::Unknown | TypeId::Error) {
@@ -389,25 +376,6 @@ impl<'a> BodyChecker<'a> {
             );
         }
         TypeId::Error
-    }
-
-    pub(super) fn const_root_name(&self, expr_id: ExprId) -> Option<String> {
-        match &self.lowered.module.expr(expr_id).kind {
-            ExprKind::Name { .. } => match self.names.expr_resolution(expr_id) {
-                Some(ResolvedName::Const(id)) => self
-                    .lowered
-                    .module
-                    .consts
-                    .iter()
-                    .find(|item| item.id == id)
-                    .map(|item| item.name.clone()),
-                _ => None,
-            },
-            ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. } => {
-                self.const_root_name(*receiver)
-            }
-            _ => None,
-        }
     }
 
     pub(super) fn resolve_field(
@@ -583,15 +551,6 @@ impl<'a> BodyChecker<'a> {
                 ty: IntegerType::I32,
             } => usize::try_from(*value).ok(),
             _ => None,
-        }
-    }
-
-    pub(super) fn check_const_write(&mut self, expr_id: ExprId) {
-        if let Some(const_name) = self.const_root_name(expr_id) {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ConstWriteNotAllowed { const_name })
-                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
-            );
         }
     }
 }

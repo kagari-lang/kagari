@@ -18,7 +18,6 @@
 use kagari_common::{identity::table::DefinitionId, span::Span};
 use kagari_contract::numeric::NumericConversion;
 use kagari_hir::{
-    builtin::BuiltinFunction,
     callable::AppliedCallSignature,
     compile_input::body::{BodyKey, BodyRoot, bindings::BindingId},
     hir::{
@@ -120,10 +119,6 @@ pub enum CheckedExprKind {
     },
     AssociatedConstant(ResolvedAssociatedConst),
     Call(CheckedCall),
-    Helper {
-        helper: BuiltinFunction,
-        operands: Vec<ExprId>,
-    },
     /// Evaluate this source-order prefix; its last operand exits before the parent operation.
     Diverging(Vec<ExprId>),
     Convert {

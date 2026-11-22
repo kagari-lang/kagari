@@ -15,7 +15,6 @@ use crate::{
         BodyTypeEnv, GenericBounds,
         body::BodyChecker,
         completion, inference, members,
-        scalar::ScalarValue,
         table::CallTarget,
         ty::{TypeContext, display_type_id, resolve_named_type},
     },
@@ -75,7 +74,7 @@ impl<'a> BodyChecker<'a> {
                         return_type: result.as_ref().clone(),
                     },
                 );
-                self.check_builtin_arity("closure", params.len(), args.len(), callee);
+                self.check_call_arity("closure", params.len(), args.len(), callee);
                 for (index, ty) in params.iter().enumerate() {
                     self.check_arg_type(
                         "closure",
@@ -92,7 +91,7 @@ impl<'a> BodyChecker<'a> {
             {
                 let arguments = self.infer_typed_args(args, params.iter().cloned(), env);
                 self.record_operator(call_expr, callee, &callee_ty, interface, env);
-                self.check_builtin_arity("callable", params.len(), args.len(), callee);
+                self.check_call_arity("callable", params.len(), args.len(), callee);
                 for (index, ty) in params.iter().enumerate() {
                     self.check_arg_type(
                         "callable",
@@ -575,32 +574,6 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn emit_arg_mismatch(
-        &mut self,
-        function_name: &str,
-        parameter_name: &str,
-        expected: &TypeId,
-        found: &TypeId,
-        span_expr: ExprId,
-    ) {
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                function_name: function_name.to_owned(),
-                parameter_name: parameter_name.to_owned(),
-                expected: display_type_id(self.declarations.definitions(), expected),
-                found: display_type_id(self.declarations.definitions(), found),
-            })
-            .with_span(self.lowered.module.expr(span_expr).origin.diagnostic_span()),
-        );
-    }
-
-    pub(super) fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
-        match self.type_table.scalar_value(expr_id)? {
-            ScalarValue::String(value) => Some(value.clone()),
-            _ => None,
-        }
-    }
-
     pub(super) fn finish_inferred_arguments(
         &mut self,
         substitution: &mut TypeSubstitution,
@@ -824,13 +797,7 @@ impl<'a> BodyChecker<'a> {
         self.infer_typed_args(args, iter::empty(), env)
     }
 
-    pub(super) fn check_builtin_arity(
-        &mut self,
-        name: &str,
-        expected: usize,
-        found: usize,
-        callee: ExprId,
-    ) {
+    fn check_call_arity(&mut self, name: &str, expected: usize, found: usize, callee: ExprId) {
         if expected != found {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::CallArityMismatch {

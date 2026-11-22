@@ -5,7 +5,6 @@ use crate::{
         AggregateCatalog,
         implementations::{ImplementationSearchContext, ImplementationSearchError},
     },
-    builtin::BuiltinFunction,
     callable::AppliedCallSignature,
     collections::HashMap,
     hir::{
@@ -74,8 +73,7 @@ pub enum CallTarget {
     Function(FunctionId),
     /// A callable value whose callee expression must be evaluated.
     Value,
-    /// A recognized runtime helper with its special operand contract.
-    RuntimeHelper(BuiltinFunction),
+
     /// A selected trait method through an applied interface.
     TraitMethod {
         /// Canonical method definition identity.

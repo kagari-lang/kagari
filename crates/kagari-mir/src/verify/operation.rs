@@ -12,7 +12,7 @@ use kagari_abi::representation::ValueType;
 use kagari_contract::{
     callable::receiver::accepts_owned,
     contracts,
-    contracts::{ContractError, RuntimeHelperKind},
+    contracts::ContractError,
     native_import::foundation::FoundationNative,
     numeric::NumericSignature,
     operations,
@@ -456,21 +456,6 @@ pub(super) fn verify(
                     context.expect(arg.ty, *ty, "closure argument")?;
                 }
                 contracts::verify_call_dst(dst.map(|v| v.ty), *return_type).map_err(contract)?;
-            }
-            CallTarget::RuntimeHelper(helper) => {
-                let kind = match helper {
-                    RuntimeHelper::ReflectTypeOf => RuntimeHelperKind::TypeOf,
-                    RuntimeHelper::ReflectGetField(_) => RuntimeHelperKind::GetField,
-                    RuntimeHelper::ReflectSetField(_) => RuntimeHelperKind::SetField,
-                    RuntimeHelper::ReflectSetIndex => RuntimeHelperKind::SetIndex,
-                    RuntimeHelper::DynamicCall => unreachable!(),
-                };
-                contracts::verify_runtime_helper_call(
-                    dst.map(|value| value.ty),
-                    kind,
-                    &args.iter().map(|value| value.ty).collect::<Vec<_>>(),
-                )
-                .map_err(contract)?;
             }
         },
         Instruction::MakeRange {

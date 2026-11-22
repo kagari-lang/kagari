@@ -1247,19 +1247,9 @@ registration, checked Host root/path access, retained opaque objects and host wa
 The standard library does not install generic script reference wrappers, a filesystem,
 a network stack or unrestricted Rust references.
 
-Existing compiler/host bridges, shown separately to avoid inventing generic methods:
-
-```text
-type_of(value) -> String
-
-get_field(base, "literal_field_name")         compiler-checked field result
-set_field(base, "literal_field_name", value)  compiler-checked; returns base
-set_index(base, index, value)                 compiler-checked; returns base
-```
-
-These sketches are not arbitrary reflective access signatures. Field names must
-be literals and accesses remain checked; type_of currently returns String, not a
-new TypeInfo product.
+There is no script reflection module. The legacy compiler helpers were retired
+without replacement. Existing Rust Host and debugger inspection remains separate;
+[script reflection](spec/reflection.md#optional-script-reflection) needs its own design.
 
 **Separately installed text output:** `std::io::print(message: String)` writes
 without adding a newline; `std::io::println(message: String)` adds one. Both

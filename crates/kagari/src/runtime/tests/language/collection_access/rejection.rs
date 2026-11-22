@@ -9,7 +9,6 @@ fn readonly_operations_cannot_recover_write_access() {
         "fn main() { var a: std::collections::List<i32> = Vec::from([1]); a[0] = 2; }",
         "fn main() { val a: std::collections::List<i32> = Vec::from([1]); a[0] += 2; }",
         "fn main() { val a: std::collections::List<i32> = Vec::from([1]); Vec::push(a, 2); }",
-        "fn main() { val a: std::collections::List<i32> = Vec::from([1]); set_index(a, 0, 2); }",
         "use std::collections::{HashMap, Map};\nfn main() { val a: Map<i32, i32> = HashMap::new(); a.insert(3, 4); }",
         "use std::collections::{HashMap, Map};\nfn main() { val a: Map<i32, i32> = HashMap::new(); HashMap::clear(a); }",
         "use std::collections::{HashSet, Set};\nfn main() { val a: Set<i32> = HashSet::new(); a.remove(1); }",

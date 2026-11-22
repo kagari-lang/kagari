@@ -60,20 +60,6 @@ fn native_publication_writes_caller_banks_before_suffix_retirement() -> Result<(
                 destination.publish(slots, &ValueView::from(42_i64)),
                 Err(GcError::Representation)
             ));
-            let replacement = ScopedValue::managed(StringObject::alloc(
-                slots.scope(),
-                "reflected result".into(),
-            )?);
-            Destination::Frame(&banks, Some(&managed)).publish_scoped(slots, replacement)?;
-            assert_eq!(
-                slots.len(execution, ValueBank::Local)?,
-                0,
-                "closed publication needs no scratch cell"
-            );
-            assert!(matches!(
-                destination.publish_scoped(slots, ScopedValue::from(99i64)),
-                Err(GcError::Representation)
-            ));
             assert_eq!(slots.storage(execution)?.scalars[0], 42);
             assert!(slots.storage(execution)?.initialized[0]);
             Ok(frame)
@@ -94,7 +80,7 @@ fn native_publication_writes_caller_banks_before_suffix_retirement() -> Result<(
                 .downcast::<StringObject>(value.object().unwrap())?;
             assert_eq!(
                 slots.scope().read(object, |text| text.as_str().to_owned()),
-                "reflected result"
+                "result 🙂"
             );
             slots.retire_frame(frame)
         })

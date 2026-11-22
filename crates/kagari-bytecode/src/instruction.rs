@@ -287,12 +287,9 @@ pub enum CallTarget {
     RuntimeHelper(RuntimeHelper),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeHelper {
-    ReflectTypeOf,
-    ReflectGetField(String),
-    ReflectSetField(String),
-    ReflectSetIndex,
+    /// Non-executable placeholder for update canonicalization.
     DynamicCall,
 }
 

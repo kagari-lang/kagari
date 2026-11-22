@@ -1,19 +1,17 @@
 use crate::AnalyzerQueries;
+use kagari_common::span::Span;
 use kagari_hir::{analysis::*, types::*};
 use kagari_hir::{
-    builtin::BuiltinFunction, hir::expr::ExprKind, resolver::resolved::ResolvedName,
-    typeck::table::CallTarget,
+    hir::expr::ExprKind, resolver::resolved::ResolvedName, typeck::table::CallTarget,
 };
-use kagari_source::identity::*;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    identity::FileId,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_types::scalar::BuiltinType;
 
-const HELPERS: [(&str, BuiltinFunction); 4] = [
-    ("type_of", BuiltinFunction::TypeOf),
-    ("get_field", BuiltinFunction::GetField),
-    ("set_field", BuiltinFunction::SetField),
-    ("set_index", BuiltinFunction::SetIndex),
-];
+const FORMER_HELPERS: [&str; 4] = ["type_of", "get_field", "set_field", "set_index"];
 
 fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
     let mut sources = SourceDatabase::default();
@@ -27,9 +25,9 @@ fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
 }
 
 #[test]
-fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
-    for (name, helper) in HELPERS {
-        let text = format!("fn bad() {{ {name}(); }} fn good(x: i32) -> i32 {{ x }}");
+fn undeclared_former_helpers_report_an_unknown_callee() {
+    for name in FORMER_HELPERS {
+        let text = format!("fn bad() {{ {name}(1); }} fn good(x: i32) -> i32 {{ x }}");
         let (snapshot, file) = analyze(&text);
         let file = snapshot.file(file).unwrap();
         let facts = file.result().facts();
@@ -40,10 +38,7 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
             .expressions()
             .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
-        assert_eq!(
-            facts.names.expr_resolution(callee),
-            Some(ResolvedName::RuntimeHelper(helper))
-        );
+        assert_eq!(facts.names.expr_resolution(callee), None);
         let (call, _) = facts
             .lowered
             .module
@@ -51,21 +46,19 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .unwrap();
+        assert!(facts.typed.type_table().call_resolution(call).is_none());
+        let offset = text.find(name).unwrap();
+        let diagnostics = file.result().diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{name}: {diagnostics:?}");
         assert_eq!(
-            facts
-                .typed
-                .type_table()
-                .call_resolution(call)
-                .unwrap()
-                .target,
-            CallTarget::RuntimeHelper(helper)
+            diagnostics[0].kind,
+            DiagnosticKind::UnknownName { name: name.into() }
         );
-        assert!(
-            file.result()
-                .diagnostics()
-                .iter()
-                .any(|d| d.kind.code() == "KG_TYPE_CALL_ARITY_MISMATCH")
+        assert_eq!(
+            diagnostics[0].span,
+            Some(Span::new(offset, offset + name.len()))
         );
+        assert!(file.queries().definition_at(offset).is_none());
         assert_eq!(
             file.queries().type_at(text.rfind(" x }").unwrap() + 1),
             Some(TypeId::Builtin(BuiltinType::I32))
@@ -75,9 +68,10 @@ fn helper_targets_survive_invalid_arguments_without_reinterpreting_names() {
 }
 
 #[test]
-fn declarations_and_lexical_bindings_shadow_every_helper() {
-    for (name, _) in HELPERS {
-        let text = format!("fn {name}(x: i32) -> i32 {{ x }} fn main() -> i32 {{ {name}(4) }}");
+fn former_helper_spellings_resolve_as_ordinary_functions_and_parameters() {
+    for name in FORMER_HELPERS {
+        let declaration = format!("fn {name}(x: i32) -> i32 {{ x }}");
+        let text = format!("{declaration} fn main() -> i32 {{ {name}(4) }}");
         let (snapshot, file) = analyze(&text);
         let file = snapshot.file(file).unwrap();
         assert!(
@@ -93,37 +87,48 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
             .expressions()
             .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
             .unwrap();
-        assert!(matches!(
+        let function = facts
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap();
+        assert_eq!(
             facts
                 .typed
                 .type_table()
                 .call_resolution(call)
                 .unwrap()
                 .target,
-            CallTarget::Function(_)
-        ));
-        assert!(
-            file.queries()
-                .definition_at(text.rfind(name).unwrap())
-                .is_some()
+            CallTarget::Function(function.id)
         );
+        let declaration_site = file
+            .queries()
+            .definition_at(text.find(name).unwrap())
+            .unwrap();
+        assert_eq!(
+            file.queries().definition_at(text.rfind(name).unwrap()),
+            Some(declaration_site)
+        );
+        assert!(file.result().clone().into_codegen().is_ok());
 
-        let text = format!("fn bad({name}: i32) {{ {name}(4); }}");
+        let text = format!("{declaration} fn bad({name}: i32) {{ {name}(4); }}");
         let (snapshot, file) = analyze(&text);
         let file = snapshot.file(file).unwrap();
-        assert!(
-            file.result()
-                .diagnostics()
-                .iter()
-                .any(|d| d.kind.code() == "KG_TYPE_INVALID_CALL_TARGET")
-        );
+        let diagnostics = file.result().diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{name}: {diagnostics:?}");
+        assert!(matches!(
+            diagnostics[0].kind,
+            DiagnosticKind::InvalidCallTarget { .. }
+        ));
         let facts = file.result().facts();
         let (callee, _) = facts
             .lowered
             .module
             .nodes
             .expressions()
-            .find(|(_, expr)| matches!(expr.kind, ExprKind::Name { .. }))
+            .find(|(_, expr)| matches!(&expr.kind, ExprKind::Name { name: n, .. } if n == name))
             .unwrap();
         assert!(matches!(
             facts.names.expr_resolution(callee),
@@ -135,10 +140,6 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
 #[test]
 fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targets() {
     for name in [
-        "type_of",
-        "get_field",
-        "set_field",
-        "set_index",
         "answer",
         "Point",
         "Mode",
