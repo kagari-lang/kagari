@@ -158,9 +158,22 @@ chooses line breaks. See [syntax architecture](../architecture/syntax.md#formatt
 Formatting changes whitespace only. It preserves non-whitespace tokens **including
 comments**, literal spelling and interpolation text; it performs no import sorting,
 parenthesis removal or comma insertion. Comments retain their text/order and
-leading/trailing/dangling attachment; prose is not reflowed. Complete interpolated
-strings are preserved verbatim, including physical newlines, continuation whitespace
-and delimiter spelling, even when layout requests a different newline style.
+leading/trailing/dangling attachment; prose is not reflowed. In a file or inline
+module with items, one blank line follows the last `//!` in the module header,
+before the first item's outer docs, attributes or declaration. A doc-only module
+gets no extra padding. Within a module, trait,
+impl, struct field list or enum variant list, one blank line separates a preceding
+sibling (including any trailing comment) from the next sibling's leading `///` block.
+In traits and impls, a method is separated from each adjacent member by one blank
+line even without documentation. Consecutive undocumented associated types and
+constants stay compact. Leading comments and attributes stay with their method;
+trailing comments stay with the preceding member. These rules add no padding
+before the first member, between undocumented fields or variants, or in statements
+and expression lists.
+
+Complete interpolated strings are preserved verbatim, including physical newlines,
+continuation whitespace and delimiter spelling, even when layout requests a
+different newline style.
 Holes accept only identifiers with optional `:?`, not expressions or comments.
 Output has a final newline. Reformatting with the same options is idempotent.
 

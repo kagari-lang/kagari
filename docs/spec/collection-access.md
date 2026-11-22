@@ -242,10 +242,11 @@ set, while retain and dedup remove rejected elements as they proceed. No atomic
 bulk commit or rollback-only storage buffer is required.
 
 Call `iter()` on a collection to use the `Iterator` transformation and terminal API described in
-[builtins](builtins.md#iteration-protocols). MapIterator retains its source cursor and mapper. Constructing it does not call
-the mapper. Aliases share progress, and next consumes its input before invoking
-the mapper. Source cursors remain ordinary GC edges, including through erased Iterator
-interfaces. Reentry and structural invalidation are policies of the concrete
+[builtins](builtins.md#iteration-protocols). `MapIterator<T, U>` retains the source
+cursor as an `Iterator<Item = T>` and the transform as a `fn(T) -> U`. Construction
+does not pull or transform an item. Each `next` calls the source interface once;
+`None` skips the transform, and a trap in the transform does not undo a successful
+pull. The retained cursor is an ordinary GC edge and aliases share its progress. Reentry and structural invalidation are policies of the concrete
 cursor, not extra checks imposed by MapIterator. See [native declarations](standard-declarations.md).
 
 APIs outside the plan's accepted rows, including windows/chunks, capacity APIs,

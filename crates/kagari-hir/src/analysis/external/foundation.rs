@@ -452,7 +452,7 @@ fn actual_foundation_exports_admit_roles_arithmetic_iteration_and_conversion_wit
         .unwrap();
     let mut altered = ops.clone();
     change_export(&mut altered, |text| {
-        let method = text.find("    fn add(self, arg1: Rhs)").unwrap();
+        let method = text.find("    fn add(self, rhs: Rhs)").unwrap();
         let result = method + text[method..].find(" -> ").unwrap();
         let end = result + text[result..].find(';').unwrap();
         format!("{} -> i64{}", &text[..result], &text[end..])

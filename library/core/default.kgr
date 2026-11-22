@@ -1,19 +1,33 @@
-//! Construction of a type's chosen default value.
-/// Use this bound when a caller needs a value without knowing how to construct it.
-/// A type supplies its own policy; its fields need not all implement `Default`.
-/// For example, `Option<T>` chooses `None` even if `T` has no default.
+//! Use `Default` when a type has a useful starting value that needs no input.
+//! Use a constructor or a conversion when the caller must supply data.
+
+/// Implement `default` to choose the starting value; Kagari does not derive it
+/// from a struct's fields. A generic caller needs only the `T: Default` bound:
 ///
 /// ```kagari
 /// use core::default::Default;
-/// struct Level { val number: i32 }
-/// impl Default for Level {
-///     fn default() -> Self { Level { number: 1 } }
+///
+/// struct Level {
+///     val number: i32
 /// }
-/// fn initial<T: Default>() -> T { T::default() }
+///
+/// impl Default for Level {
+///     fn default() -> Self {
+///         Level { number: 1 }
+///     }
+/// }
+///
+/// fn initial<T: Default>() -> T {
+///     T::default()
+/// }
 /// ```
 ///
-/// `initial::<Level>().number` returns `1`.
+/// In `val level: Level = initial();`, the annotation selects `Level` and
+/// `level.number` is `1`, just as with `Level::default()`. The implementation
+/// need not default every field: `Option<T>`, for example, chooses `None`
+/// without requiring `T: Default`.
 pub trait Default {
-    /// Returns the value chosen by this implementation. No receiver is needed.
+    /// Constructs the default for `Self`. Use `Type::default()` to name the type
+    /// or `Default::default()` when the expected type is known.
     fn default() -> Self;
 }

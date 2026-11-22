@@ -137,7 +137,11 @@ mod trait_tests {
         let queries = snapshot.queries();
         for (reference, name, docs) in [
             ("Equal>", "Eq", "Marks equality as reflexive"),
-            ("eq(b)", "eq", "Returns true if `self` and `arg1` are equal"),
+            (
+                "eq(b)",
+                "eq",
+                "Returns true if `self` and `other` are equal",
+            ),
         ] {
             let offset = text.find(reference).unwrap();
             let target = queries.definition_at(file, offset).unwrap();

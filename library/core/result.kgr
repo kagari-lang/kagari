@@ -1,31 +1,51 @@
-//! Success and failure values with separate payload types.
+//! Use `Result<T, E>` when a caller needs either a value or a reason for failure.
+//! If there is no reason to report, `Option<T>` is enough.
+
 use core::convert::{ From, Infallible };
 
 use core::ops::{ ControlFlow, FromResidual, Try };
-/// Returns either the requested value or an error explaining why it is unavailable.
-/// Choose `Result<T, E>` instead of `Option<T>` when a caller needs the reason.
-/// Match both variants to handle a failure as data rather than a trap:
+
+/// A success (`Ok`) or an error (`Err`). Returning `Err` does not trap: the
+/// caller can match on the result and decide how to recover.
 ///
 /// ```kagari
-/// use core::result::{Result, Ok, Err};
-/// fn answer(found: bool) -> Result<i32, bool> {
-///     if found { Ok(42) } else { Err(false) }
+/// use alloc::string::String;
+///
+/// use core::result::{ Result, Ok, Err };
+///
+/// fn answer(found: bool) -> Result<i32, String> {
+///     if found {
+///         Ok(42)
+///     } else {
+///         Err("missing answer")
+///     }
 /// }
+///
 /// fn handled(found: bool) -> i32 {
-///     match answer(found) { Ok(n) => n, Err(_) => 0 }
+///     match answer(found) {
+///         Ok(n) => n,
+///         Err(_) => 0
+///     }
 /// }
 /// ```
 ///
-/// `handled(true)` returns `42` and `handled(false)` returns `0`.
+/// `handled(true)` returns `42`. On `false`, `answer` returns `Err("missing answer")`;
+/// `handled` chooses `0` instead. To pass the error on, use `answer(found)?` in a
+/// `Result`-returning function: it yields `42` on success and returns early on failure.
 pub enum Result<T, E> {
     /// Contains the successful value of type `T`.
     Ok(T),
-    /// Contains the error of type `E`, not a successful value.
+
+    /// Contains an error of type `E`. Constructing `Err(e)` captures the current
+    /// source location and stack on the result, not on the payload `e`.
     Err(E),
 }
 
 pub use self::Result::{ Ok, Err };
 
+/// When `?` propagates into a different error type `F`, it calls `F`'s direct
+/// `From<E>` conversion once and preserves the original `Err` location and stack.
+/// Matching `Err(e)` and constructing a new `Err(e)` would record a new origin.
 impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
     fn from_residual(residual: Result<Infallible, E>) -> Self {
         match residual {
@@ -38,12 +58,16 @@ impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
     }
 }
 
+/// `?` continues with the `Ok` payload without running an error conversion.
+/// It propagates `Err` values, not runtime traps.
 impl<T, E> Try for Result<T, E> {
     type Output = T;
     type Residual = Result<Infallible, E>;
+
     fn from_output(output: T) -> Self {
         Ok(output)
     }
+
     fn branch(self) -> ControlFlow<Self::Residual, T> {
         match self {
             Ok(value) => ControlFlow::Continue(value),

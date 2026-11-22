@@ -1,36 +1,51 @@
-//! Optional values and their constructors.
+//! Use `Option<T>` for a lookup that can miss without anything going wrong.
+//! If the caller needs to know *why* there is no value, return `Result<T, E>` instead.
+
 use core::convert::Infallible;
 
 use core::default::Default;
 
 use core::ops::{ ControlFlow, FromResidual, Try };
-/// Represents a value that may be absent. Use `Option<T>` when absence is an
-/// ordinary outcome and the caller does not need an error explaining why.
-/// Match on `Some` to use its payload and on `None` to handle absence separately:
+
+/// A value that is either present (`Some`) or absent (`None`). Match to choose
+/// a fallback, or use `?` to pass absence back to the caller:
 ///
 /// ```kagari
-/// use core::option::{Option, Some, None};
+/// use core::option::{ Option, Some, None };
+///
 /// fn value_or_zero(value: Option<i32>) -> i32 {
-///     match value { Some(n) => n, None => 0 }
+///     match value {
+///         Some(n) => n,
+///         None => 0
+///     }
+/// }
+///
+/// fn is_zero(value: Option<i32>) -> Option<bool> {
+///     Some(value? == 0)
 /// }
 /// ```
 ///
 /// `value_or_zero(Some(7))` returns `7`; `value_or_zero(None)` returns `0`.
+/// `is_zero(Some(7))` returns `Some(false)`, but `is_zero(None)` returns `None`
+/// before the comparison. No error or diagnostic stack is created for absence.
 pub enum Option<T> {
     /// Contains one value of type `T`.
     Some(T),
-    /// Represents absence and carries no payload.
+
+    /// No value. Write `None` without parentheses in expressions and patterns.
     None,
 }
 
 pub use self::Option::{ Some, None };
-/// Absence requires no value of `T`, so `T` need not implement `Default`.
+
+/// Defaults to `None`, even when `T` has no default.
 impl<T> Default for Option<T> {
     fn default() -> Self {
         None
     }
 }
-/// A missing value can return early from an option with any success type.
+
+/// Carries `None` into an `Option` with any payload type: there is no `T` to convert.
 impl<T> FromResidual<Option<Infallible>> for Option<T> {
     fn from_residual(residual: Option<Infallible>) -> Self {
         match residual {
@@ -39,13 +54,16 @@ impl<T> FromResidual<Option<Infallible>> for Option<T> {
         }
     }
 }
-/// `Some(value)?` continues with `value`; `None?` returns absence early.
+
+/// `?` yields the payload of `Some`; on `None` it returns from the nearest function or closure.
 impl<T> Try for Option<T> {
     type Output = T;
     type Residual = Option<Infallible>;
+
     fn from_output(output: T) -> Self {
         Some(output)
     }
+
     fn branch(self) -> ControlFlow<Self::Residual, T> {
         match self {
             Some(value) => ControlFlow::Continue(value),

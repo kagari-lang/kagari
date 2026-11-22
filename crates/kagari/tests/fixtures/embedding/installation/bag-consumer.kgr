@@ -24,7 +24,8 @@ pub fn main() ->((i32, i32, i32), i32, Option<i32>, (i32, i32), (i32, i32, i32))
     bag.push(5);
     val direct = traversal(bag);
     val calls_after_for = bag.iter_calls;
-    val mapped = bag.iter().map(|x| x * 2);
+    val cursor: Iterator<Item = i32> = bag.iter();
+    val mapped = cursor.map(|x| x * 2);
     val first = mapped.next();
     var count = 0;
     var last = 0;

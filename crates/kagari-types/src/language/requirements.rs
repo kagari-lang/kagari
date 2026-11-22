@@ -211,35 +211,29 @@ fn check(owner: DefinitionId, actual: &TraitDef, table: &DefinitionTable) -> Opt
             binding::result(table, argument, projection("Error")?)?,
         ),
         _ if role.is_some_and(Protocol::operator) => {
-            let mut params = vec![("self", this.clone())];
-            if generic {
-                params.push(("arg1", argument));
+            let (selector, operand) = match role? {
+                Protocol::Add => ("add", Some("rhs")),
+                Protocol::Sub => ("sub", Some("rhs")),
+                Protocol::Mul => ("mul", Some("rhs")),
+                Protocol::Div => ("div", Some("divisor")),
+                Protocol::Rem => ("rem", Some("divisor")),
+                Protocol::BitAnd => ("bitand", Some("rhs")),
+                Protocol::BitOr => ("bitor", Some("rhs")),
+                Protocol::BitXor => ("bitxor", Some("rhs")),
+                Protocol::Shl => ("shl", Some("count")),
+                Protocol::Shr => ("shr", Some("count")),
+                Protocol::Neg => ("neg", None),
+                Protocol::Not => ("not", None),
+                Protocol::Index => ("index", Some("key")),
+                Protocol::Fn => ("call", Some("args")),
+                _ => return None,
+            };
+            let result = projection("Output")?;
+            let mut params = vec![("self", this)];
+            if let Some(operand) = operand {
+                params.push((operand, argument));
             }
-            return Some(
-                actual.methods.len() == 1
-                    && method(
-                        0,
-                        match role? {
-                            Protocol::Add => "add",
-                            Protocol::Sub => "sub",
-                            Protocol::Mul => "mul",
-                            Protocol::Div => "div",
-                            Protocol::Rem => "rem",
-                            Protocol::BitAnd => "bitand",
-                            Protocol::BitOr => "bitor",
-                            Protocol::BitXor => "bitxor",
-                            Protocol::Shl => "shl",
-                            Protocol::Shr => "shr",
-                            Protocol::Neg => "neg",
-                            Protocol::Not => "not",
-                            Protocol::Index => "index",
-                            Protocol::Fn => "call",
-                            _ => return None,
-                        },
-                        &params,
-                        &projection("Output")?,
-                    ),
-            );
+            (selector, params, result)
         }
         _ => return None,
     };

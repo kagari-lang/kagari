@@ -63,7 +63,10 @@ Identity operators require statically known concrete object operands, as specifi
 in [value semantics](value-semantics.md#operators-and-defaults).
 
 A declared bound supplies interface-construction evidence for a type parameter or
-an associated projection already proved by the bounded solver. This works in
+an associated projection already proved by the bounded solver. Inside a trait's
+default method, its own `Self` can use the enclosing trait bound in the same way:
+`Iterator::map` stores `self` as `Iterator<Item = Self::Item>`, not as an iterator
+of an arbitrary item type. This works in
 specialized functions and shared generic methods, including defaults, overrides,
 private helpers and retained closures. For example:
 

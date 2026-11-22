@@ -89,6 +89,14 @@ fn formatted(text: &str, width: usize) -> String {
 #[case::static_binding_comment("static-binding-comment", include_str!("../tests/fixtures/layout/static-binding-comment.input.kgr"), include_str!("../tests/fixtures/layout/static-binding-comment.expected.kgr"), 100, true, Some(30))]
 #[case::attributed_generic_struct("attributed-generic-struct", include_str!("../tests/fixtures/layout/attributed-generic-struct.input.kgr"), include_str!("../tests/fixtures/layout/attributed-generic-struct.expected.kgr"), 100, true, None)]
 #[case::enum_variants("enum-variants", include_str!("../tests/fixtures/layout/enum-variants.input.kgr"), include_str!("../tests/fixtures/layout/enum-variants.expected.kgr"), 100, true, None)]
+#[case::documented_siblings(
+    "documented-siblings",
+    include_str!("../tests/fixtures/layout/documented-siblings.input.kgr"),
+    include_str!("../tests/fixtures/layout/documented-siblings.expected.kgr"),
+    100,
+    true,
+    Some(30)
+)]
 #[case::trait_associated_items("trait-associated-items", include_str!("../tests/fixtures/layout/trait-associated-items.input.kgr"), include_str!("../tests/fixtures/layout/trait-associated-items.expected.kgr"), 100, true, None)]
 #[case::grouped_use_alias("grouped-use-alias", include_str!("../tests/fixtures/layout/grouped-use-alias.input.kgr"), include_str!("../tests/fixtures/layout/grouped-use-alias.expected.kgr"), 100, true, None)]
 #[case::match_enum_pattern("match-enum-pattern", include_str!("../tests/fixtures/layout/match-enum-pattern.input.kgr"), include_str!("../tests/fixtures/layout/match-enum-pattern.expected.kgr"), 100, true, None)]

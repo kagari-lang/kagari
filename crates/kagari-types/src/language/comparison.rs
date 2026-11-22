@@ -72,7 +72,10 @@ pub fn trait_shape_valid(owner: DefinitionId, actual: &TraitDef, table: &Definit
         table,
         method,
         name,
-        &[("self", Ty::SelfType(owner)), ("arg1", Ty::SelfType(owner))],
+        &[
+            ("self", Ty::SelfType(owner)),
+            ("other", Ty::SelfType(owner)),
+        ],
         &result,
     )
 }
@@ -114,7 +117,7 @@ mod tests {
             conversion_adapter: None,
             methods: vec![FnDecl {
                 name: "partial_cmp".into(),
-                params: ["self", "arg1"]
+                params: ["self", "other"]
                     .map(|name| Param {
                         name: name.into(),
                         ty: Ty::SelfType(owner),

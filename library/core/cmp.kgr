@@ -1,81 +1,118 @@
 //! Equality and ordering for values of the same type.
+
 use core::option::Option;
+
 /// Describes how the left value compares to the right when the two can be ordered.
-/// `Equal` is a comparison result; an incomparable pair has no `Ordering` at all.
+/// `cmp` returns an `Ordering` directly; `partial_cmp` uses `Some(Equal)` for
+/// a tie and `None` for an incomparable pair. Import `Less`, `Equal` and
+/// `Greater` directly from `core::cmp` to match on the result.
 pub enum Ordering {
     /// The left value comes before the right value.
     Less,
-    /// Neither value comes before the other; the values compare equal.
+
+    /// The two values compare equal.
     Equal,
+
     /// The left value comes after the right value.
     Greater,
 }
 
 pub use self::Ordering::{ Less, Equal, Greater };
+
 /// Defines what it means for two values to be equal under `==`; `!=` negates that answer.
 /// Use `PartialEq` rather than `Eq` as a bound when all you need is to compare values.
 /// Equality must be symmetric and transitive: if `a == b`, then `b == a`, and if
 /// `a == b` and `b == c`, then `a == c`. These are promises by the implementer,
 /// not compiler checks. Unlike `Eq`, `PartialEq` allows a value to be unequal to itself.
 ///
-/// For example, points can be compared by their position while ignoring a label:
+/// For a custom struct or enum, implement `eq` in the type's defining module.
+/// This controls value equality, not object identity: two distinct points can
+/// be equal by position even if they carry different labels.
 ///
 /// ```kagari
 /// use core::cmp::PartialEq;
-/// struct Point { val x: i32, val label: i32 }
-/// impl PartialEq for Point {
-///     fn eq(self, other: Self) -> bool { self.x == other.x }
+///
+/// struct Point {
+///     val x: i32,
+///     val label: i32
 /// }
-/// fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
+///
+/// impl PartialEq for Point {
+///     fn eq(self, other: Self) -> bool {
+///         self.x == other.x
+///     }
+/// }
+///
+/// fn same<T: PartialEq>(a: T, b: T) -> bool {
+///     a == b
+/// }
 /// ```
 ///
 /// `same(Point { x: 3, label: 1 }, Point { x: 3, label: 2 })` is true.
 #[lang = "partial_eq"]
 pub trait PartialEq {
-    /// Returns true if `self` and `arg1` are equal according to this implementation.
-    fn eq(self, arg1: Self) -> bool;
+    /// Returns true if `self` and `other` are equal according to this implementation.
+    fn eq(self, other: Self) -> bool;
 }
+
 /// Marks equality as reflexive: every value must equal itself. Choose this stronger
-/// bound when callers rely on that law. The compiler requires `PartialEq`, but does
-/// not prove reflexivity. For the integer-based `Point` above, `impl Eq for Point {}`
-/// is sufficient. Floating-point NaN is unequal to itself, so floats cannot promise `Eq`.
+/// bound when callers rely on that law. There is no extra method to implement:
+/// for the integer-based `Point` above, `impl Eq for Point {}` is sufficient.
+/// The compiler requires `PartialEq` but does not prove reflexivity. Floating-point
+/// NaN is unequal to itself, so floats cannot promise `Eq`.
 #[lang = "eq"]
 pub trait Eq: PartialEq {}
+
 /// Supports `<`, `<=`, `>` and `>=` even when some pairs cannot be ordered.
 /// An incomparable pair (for example, a float compared with NaN) makes all four
-/// operators false. Return `Some(Equal)` for equal values, not `None`.
+/// operators false. Use `partial_cmp` to distinguish this case from a tie:
+/// it must return `Some(Equal)` exactly when `==` is true.
 /// Implementers must keep ordering transitive and reverse `Less` and `Greater`
 /// when the operands are swapped. The compiler checks the signature, not these laws.
 #[lang = "partial_ord"]
 pub trait PartialOrd: PartialEq {
-    /// Returns `Some` containing the order of `self` relative to `arg1`, or `None`
+    /// Returns `Some` containing the order of `self` relative to `other`, or `None`
     /// if the pair is incomparable.
-    fn partial_cmp(self, arg1: Self) -> Option<Ordering>;
+    fn partial_cmp(self, other: Self) -> Option<Ordering>;
 }
+
 /// Gives every pair of values an order. Use `Ord` when the caller cannot treat
 /// any pair as incomparable, for example when sorting. `partial_cmp` must return
 /// `Some` of the same result as `cmp`, with `Equal` exactly when `eq` is true.
 /// The compiler requires both parent traits but does not prove that they agree.
 ///
-/// Extend the `PartialEq` example by ordering points on the same field:
+/// Extend the `PartialEq` example by ordering points on the same field. Delegate
+/// `partial_cmp` to `cmp` so method calls and operators use one ordering rule:
 ///
 /// ```kagari
-/// use core::cmp::{Eq, PartialOrd, Ord, Ordering, Less, Equal, Greater};
-/// use core::option::{Option, Some};
+/// use core::cmp::{ Eq, PartialOrd, Ord, Ordering, Less, Equal, Greater };
+///
+/// use core::option::{ Option, Some };
+///
 /// impl Eq for Point {}
+///
 /// impl Ord for Point {
 ///     fn cmp(self, other: Self) -> Ordering {
-///         if self.x < other.x { Less } else if self.x > other.x { Greater } else { Equal }
+///         if self.x < other.x {
+///             Less
+///         } else if self.x > other.x {
+///             Greater
+///         } else {
+///             Equal
+///         }
 ///     }
 /// }
+///
 /// impl PartialOrd for Point {
-///     fn partial_cmp(self, other: Self) -> Option<Ordering> { Some(self.cmp(other)) }
+///     fn partial_cmp(self, other: Self) -> Option<Ordering> {
+///         Some(self.cmp(other))
+///     }
 /// }
 /// ```
 ///
 /// `Point { x: 2, label: 9 } < Point { x: 3, label: 1 }` is true.
 #[lang = "ord"]
 pub trait Ord: Eq + PartialOrd {
-    /// Returns `Less`, `Equal` or `Greater` for `self` compared with `arg1`.
-    fn cmp(self, arg1: Self) -> Ordering;
+    /// Returns `Less`, `Equal` or `Greater` for `self` compared with `other`.
+    fn cmp(self, other: Self) -> Ordering;
 }

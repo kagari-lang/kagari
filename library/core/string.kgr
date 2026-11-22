@@ -1,7 +1,12 @@
-//! The source name for immutable UTF-8 text.
-/// The type of a string literal, including the empty literal `""`. Passing a
-/// String does not give the callee permission to change its contents. A byte
-/// offset need not be a character boundary; String has no indexing operator.
-/// Import `alloc::string::String` to name the type without the standard
-/// prelude. Importing it does not install methods such as `trim` or `slice`.
+//! The `String` scalar declaration is available without the optional standard
+//! library. Use `alloc::string::String` to name it without the standard prelude.
+
+/// Immutable UTF-8 text. Both `""` and `"é"` are `String` literals; `'é'` is
+/// a `char`. Passing a string to a function cannot change its contents.
+///
+/// `String` has no indexing operator. Installing `std::string` adds methods
+/// such as `len` and `slice`; importing the type alone does not. With those
+/// methods, `"é!".len()` is `3u64` and `"é!".slice(0, 2)` returns `"é"`.
+/// The end offset is exclusive: `slice(0, 1)` on the same text traps because
+/// byte offset 1 falls inside `é`.
 pub native type String;

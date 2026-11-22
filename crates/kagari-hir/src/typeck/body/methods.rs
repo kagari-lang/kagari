@@ -58,36 +58,28 @@ impl<'a> BodyChecker<'a> {
         let Some(target @ TypeId::Trait(interface)) = expected else {
             return source;
         };
-        if source == *target
-            || !source.is_resolved_in(
-                &env.generics
-                    .iter()
-                    .filter_map(|param| self.declarations.generic_type(*param))
-                    .collect::<Vec<_>>(),
-            )
-        {
+        if source == *target {
             return source;
         }
-        if let TypeId::Trait(child) = &source
-            && self
-                .aggregates
-                .trait_closure(child, &source, self.cancel)
-                .is_ok_and(|parents| parents.iter().any(|parent| parent.satisfies(interface)))
-        {
-            self.type_table.insert_interface_coercion(
-                expr_id,
-                ResolvedInterfaceCoercion {
-                    implementation: ResolvedInterfaceImplementation::Upcast,
-                    concrete_type: source,
-                    interface_type: interface.clone(),
-                },
-            );
-            return target.clone();
-        }
+        let parameters: Vec<_> = env
+            .generics
+            .iter()
+            .filter_map(|param| self.declarations.generic_type(*param))
+            .collect();
+
         if matches!(
             source,
             TypeId::Generic(_) | TypeId::Projection { .. } | TypeId::SelfType(_)
         ) {
+            // A projected receiver can carry the default body's `Self` in a sibling output.
+            // Only the bound-witness path may use that lexical owner.
+            let self_owner = match &env.self_type {
+                Some(TypeId::SelfType(owner)) => Some(owner),
+                _ => None,
+            };
+            if !source.is_resolved_in(&parameters, self_owner) {
+                return source;
+            }
             let proof =
                 self.aggregates
                     .assumed_interfaces(&source, &env.generic_bounds, self.cancel);
@@ -136,6 +128,25 @@ impl<'a> BodyChecker<'a> {
                     return source;
                 }
             }
+        }
+        if !source.is_resolved_in(&parameters, None) {
+            return source;
+        }
+        if let TypeId::Trait(child) = &source
+            && self
+                .aggregates
+                .trait_closure(child, &source, self.cancel)
+                .is_ok_and(|parents| parents.iter().any(|parent| parent.satisfies(interface)))
+        {
+            self.type_table.insert_interface_coercion(
+                expr_id,
+                ResolvedInterfaceCoercion {
+                    implementation: ResolvedInterfaceImplementation::Upcast,
+                    concrete_type: source,
+                    interface_type: interface.clone(),
+                },
+            );
+            return target.clone();
         }
         match self.aggregates.concrete_interface_implementation(
             self.declarations.definitions(),

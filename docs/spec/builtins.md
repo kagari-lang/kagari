@@ -530,8 +530,8 @@ See [ordering.kgr](../../examples/syntax/ordering.kgr).
 ## Arithmetic operator protocols
 
 `core::ops::{Add, Sub, Mul, Div, Rem}` are explicitly imported traits with one explicit RHS
-parameter and an associated `Output`. Each declares `fn add(self, rhs: Rhs) ->
-Self::Output` (respectively sub/mul/div/rem). Operator expressions and method calls
+parameter and an associated `Output`. For example, `Add` declares
+`fn add(self, rhs: Rhs) -> Self::Output`. Operator expressions and method calls
 select the same applied implementation. Multiple applications of the same protocol
 are selected by the RHS type; unrelated same-named traits remain ambiguous.
 Different operand/result types are allowed;
@@ -550,7 +550,7 @@ from the receiver. `&&`/`||` remain bool-only short-circuit operators.
 
 ## Read-only indexing protocol
 
-`core::ops::Index<I>` declares `type Output` and `fn index(self, rhs: I) ->
+`core::ops::Index<Key>` declares `type Output` and `fn index(self, key: Key) ->
 Self::Output`. `container[i]` and `container.index(i)` use the selected method.
 Arrays supply builtin integer indexing; existing Tuple and host-path syntax
 retain their specialized rules. No Map/String indexing is added by this checkpoint.
@@ -650,7 +650,9 @@ Iterator method overrides retain precedence.
 | `for_each(fn(T) -> ())` | () |
 
 The adapters in [core::iter](../../library/core/iter.kgr) are shared Script
-objects. They wrap the receiver without advancing it or invoking a callback.
+objects. Each stores its upstream cursor as an `Iterator` interface with the
+corresponding `Item` binding; `zip` and `chain` store both cursors. Construction
+never calls `next` or invokes an element callback.
 `left.iter().zip(right)` evaluates `left.iter()` before `right`, then obtains
 the right cursor once. `chain` follows the same construction order. Copies
 share source progress and adapter state. An item stays consumed if its callback

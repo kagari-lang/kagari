@@ -55,6 +55,7 @@ lifetime safety remain required.
 - [Temporary scripts](#temporary-scripts-referencing-existing-installations):
   compile newly supplied code against versioned public contracts and explicitly
   link existing installations without duplicating game objects or statics.
+- [Map callback representation](#map-callback-representation): open decision on the iterator API before comparing callback types.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under
@@ -65,6 +66,45 @@ not rerun behavior tests or performance probes. The remaining SA entries still
 have their described representation or missing feature. Test preparation progress
 and pending measurements belong to the [existing task](test-preparation-plan.md),
 not a separate review finding. Reconfirm affected behavior when activating a task.
+
+## Map callback representation
+
+In [core](../library/core/iter.kgr), `Iterator.map<U>` returns `MapIterator<Self::Item, U>`.
+For `Iterator<Item = T>`, the result is `MapIterator<T, U>` regardless of the cursor's
+concrete type. The adapter stores `source: Iterator<Item = T>` and calls `source.next()`
+through that interface. The separate `fn(T) -> U` transform runs only on `Some`.
+
+**Why the direct return fails:** changing the trait method's result to `MapIterator<Self, U>`
+breaks HIR checking of core's `impl<T> Iterable for Iterator<Item = T>`. Binding `Item = T`
+resolves `Self::Item`, not the concrete `Self` nested in the proposed result. Under the
+[interface compatibility rules](spec/traits.md#interface-compatibility-rules), `map` is
+then not interface-compatible. That rejects the *whole* `Iterator<Item = T>` interface,
+not just calls to `map`: the identity `Iterable` impl needs that interface as both its
+receiver and its `Iter` output. The method's generic `U` is not the problem.
+
+**Decision:** erase the source at the field boundary. Keep `map` on `Iterator`,
+its named result and existing override dispatch. The other [core iterator adapters](spec/builtins.md#iteration-protocols)
+use the same interface fields without exposing concrete source types in their results.
+
+The source representation and the callback representation are separate decisions.
+[Rust 1.85.0's `Map<I, F>`](https://github.com/rust-lang/rust/blob/1.85.0/library/core/src/iter/adapters/map.rs)
+owns both `iter: I` and `f: F`. Its `next(&mut self)` calls `self.iter.next().map(&mut self.f)`
+with `F: FnMut(I::Item) -> B`. This explains how to retain the cursor without a pull
+closure; it does not establish a benefit from specializing the mapper in Kagari.
+Kagari aliases share cursor progress, and its [callable protocol](spec/traits.md#unified-callable-protocol)
+permits stateful callbacks without Rust's exclusive receiver borrow.
+
+**Deferred comparison:** hold the `Iterator<Item = T>` source field, input and
+mapper work fixed in each pair; vary only the stored `fn(T) -> U` versus a field
+of type `F` with `F: Fn(T) -> U`. Compare a named function, a capturing
+closure and a callable object (adapted to `fn` versus called through its bound).
+A function value used as `F` can still dispatch indirectly. Measure construction
+separately from repeated `next()` calls on one mapped cursor and a full
+`map(f).fold(...)` traversal. Sample concrete and interface routes separately where
+the selected API admits them; check equal results and callback counts. Report compilation
+cost and specialized code size apart from execution, and distinguish actual JIT
+execution from interpreter fallback. No benchmark has been run for this comparison;
+removing the upstream pull closure is not evidence for either callback choice.
 
 ## HIR architecture and module organization
 

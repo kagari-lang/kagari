@@ -1,28 +1,49 @@
-//! Conversion from text with an explicit failure result.
+//! Parsing text by destination type. The input is an `alloc::string::String`.
+
 use alloc::string::String;
 
 use core::result::Result;
-/// Parses text into a value of a particular type. The implementation chooses
-/// the accepted syntax and error type. Return `Err` for rejected input so the
-/// caller can inspect the error or propagate it with `?`. Implementing
-/// `Display` does not automatically provide a parser or imply a round trip.
+
+/// Constructs a value from text. Call `from_str` on the type you want.
+/// With the standard library installed, `i32::from_str("42")` returns `Ok(42)`.
+/// Its numeric and `bool` parsers do not trim whitespace and return
+/// `core::num::ParseError` on failure. A script-defined parser needs no provider.
+///
+/// For a new type, choose which spellings to accept and what a caller needs
+/// to know on failure. Here `On` accepts exactly `"on"`; `parse("ON")`
+/// returns `Err("ON")`, preserving the rejected input.
 ///
 /// ```kagari
 /// use alloc::string::String;
+///
 /// use core::result::Result;
+///
 /// use core::str::FromStr;
+///
 /// struct On {}
+///
 /// impl FromStr for On {
 ///     type Err = String;
+///
 ///     fn from_str(text: String) -> Result<Self, String> {
-///         if text == "on" { Result::Ok(On {}) } else { Result::Err(text) }
+///         if text == "on" {
+///             Result::Ok(On {})
+///         } else {
+///             Result::Err(text)
+///         }
 ///     }
 /// }
-/// fn parse(text: String) -> Result<On, String> { On::from_str(text) }
+///
+/// fn parse(text: String) -> Result<On, String> {
+///     On::from_str(text)
+/// }
 /// ```
 pub trait FromStr {
-    /// The information returned when the input is not accepted.
+    /// The error carried by `Result::Err`. Each destination chooses its own
+    /// error type; a generic caller cannot assume it is `ParseError`.
     type Err;
-    /// Parses `text`, returning the constructed value or the implementation's error.
+
+    /// Returns `Ok` for an accepted spelling and `Err` for rejected input, so
+    /// the caller can match the error or propagate it with `?`.
     fn from_str(text: String) -> Result<Self, Self::Err>;
 }

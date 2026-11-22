@@ -61,6 +61,12 @@ impl Comments {
         Ok(Self(attachments))
     }
 
+    pub fn is_leading_doc(&self, token: &LexicalToken<'_>) -> bool {
+        token.kind() == SyntaxKind::LineComment
+            && token.text().starts_with("///")
+            && self.attachment(token) == Some(Attachment::Leading)
+    }
+
     pub fn attachment(&self, token: &LexicalToken<'_>) -> Option<Attachment> {
         self.0.get(&token.span().start).copied()
     }

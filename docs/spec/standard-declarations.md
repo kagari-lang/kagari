@@ -654,6 +654,15 @@ Other generated views include library-owned types,
 inherent methods and Native trait implementations. `MapIterator.next` instead
 navigates to its ordinary Script implementation in `core::iter`.
 
+For [authored core API docs](../../library/core/), use the trait or type as the
+place to explain when to choose it, what its caller observes, and which choices
+belong to the implementer. Keep a member's hover useful on its own: for example,
+`Iterator::zip` says which cursor advances when only one side has an item. It
+need not repeat the trait tutorial. Show the implementation and a caller with an
+observable result when the signature alone cannot explain the operation. Core
+examples should include their own imports and run without stdlib unless they
+explicitly build on a preceding example or name an optional provider.
+
 Current direct/offline equivalence and static-authority coverage lives in
 [HIR external tests](../../crates/kagari-hir/src/analysis/external/tests.rs) and
 [SDK registration-source tests](../../crates/kagari/src/engine/tests/registration_sources.rs).

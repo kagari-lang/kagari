@@ -285,7 +285,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             interface.methods().next().unwrap().documentation(),
-            "Returns true if `self` and `arg1` are equal according to this implementation."
+            "Returns true if `self` and `other` are equal according to this implementation."
         );
     }
 

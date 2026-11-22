@@ -1,6 +1,9 @@
 use super::*;
 use crate::tests::standard::standard_modules;
-use crate::{hir::expr::ExprKind, typeck::table::CallTarget};
+use crate::{
+    hir::expr::ExprKind,
+    typeck::table::{CallTarget, ResolvedInterfaceImplementation},
+};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
 
@@ -863,6 +866,62 @@ fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
         );
         assert_eq!(analysis.into_codegen().is_ok(), accepted, "{source}");
     }
+}
+
+#[test]
+fn default_self_interface_conversion_requires_the_owning_bound_and_output() {
+    let source = SourceFile::new(
+        "default-self-interface.kgr",
+        include_str!("../../../tests/fixtures/typeck/traits/default-self-interface.kgr"),
+    );
+    let analysis = crate::analyze_source(&source, standard_modules()).unwrap();
+    let rejected: Vec<_> = analysis
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| match &diagnostic.kind {
+            DiagnosticKind::AssignmentTypeMismatch { expected, found } if found == "Self" => {
+                expected.as_str()
+            }
+            other => panic!("unexpected diagnostic: {other:?}"),
+        })
+        .collect();
+    assert_eq!(rejected, ["Reader<Item = i32>", "Other"]);
+
+    let facts = analysis.facts();
+    let conversions: Vec<_> = facts
+        .lowered
+        .module
+        .nodes
+        .expressions()
+        .filter_map(|(id, _)| facts.typed.type_table.interface_coercion(id))
+        .collect();
+    assert_eq!(conversions.len(), 2);
+    let own = conversions
+        .iter()
+        .find(|c| matches!(c.concrete_type, TypeId::SelfType(_)))
+        .unwrap();
+    let peer = conversions
+        .iter()
+        .find(|c| matches!(c.concrete_type, TypeId::Projection { .. }))
+        .unwrap();
+    assert_eq!(
+        own.interface_type.associated_types.values().next().unwrap(),
+        peer.interface_type
+            .associated_types
+            .values()
+            .next()
+            .unwrap()
+    );
+    assert!(
+        matches!(&peer.implementation, ResolvedInterfaceImplementation::Bound { interface } if interface == &peer.interface_type)
+    );
+    assert_eq!(
+        own.concrete_type,
+        TypeId::SelfType(own.interface_type.declaration)
+    );
+    assert!(
+        matches!(&own.implementation, ResolvedInterfaceImplementation::Bound { interface } if interface == &own.interface_type)
+    );
 }
 
 #[test]

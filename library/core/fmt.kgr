@@ -1,28 +1,49 @@
-//! Diagnostic and user-facing representations of values.
+//! In a cooked string, `"{name}"` uses `Display` and `"{name:?}"` uses `Debug`.
+//! Each occurrence reads and formats its value from left to right, even when
+//! the same name appears twice. Raw strings do not interpolate.
+
 use alloc::string::String;
-/// Describes a value for a developer inspecting program state. Choose `Display`
-/// instead when the text is part of a user interface. Debug output need not be
-/// stable between versions or parseable back into the value.
+
+/// Describes a value for a developer inspecting program state. Choose details
+/// that distinguish otherwise similar values: for a newline character, `Display`
+/// returns the line break itself, but `Debug` shows the visible text `'\n'`.
+/// Callers should not rely on diagnostic text as a stable serialization format.
 #[lang = "debug"]
 pub trait Debug {
-    /// Returns the diagnostic text; does not print it.
+    /// Returns the `String` inserted by `"{name:?}"`; the caller decides whether to print it.
     fn debug(self) -> String;
 }
-/// Describes a value for a reader, rather than exposing its internal fields.
-/// The implementation chooses one representation. If it should round-trip
-/// through `FromStr`, document and implement that agreement explicitly.
+
+/// Gives a value a user-facing representation. Choose the text a reader needs,
+/// not necessarily the names of fields or variants. For example, `label` below
+/// returns `"on"` for a lit lamp and `"off"` otherwise.
 ///
 /// ```kagari
 /// use alloc::string::String;
+///
 /// use core::fmt::Display;
-/// struct Lamp { val lit: bool }
-/// impl Display for Lamp {
-///     fn display(self) -> String { if self.lit { "on" } else { "off" } }
+///
+/// struct Lamp {
+///     val lit: bool
 /// }
-/// fn label(lamp: Lamp) -> String { lamp.display() }
+///
+/// impl Display for Lamp {
+///     fn display(self) -> String {
+///         if self.lit {
+///             "on"
+///         } else {
+///             "off"
+///         }
+///     }
+/// }
+///
+/// fn label(lamp: Lamp) -> String {
+///     "{lamp}"
+/// }
 /// ```
 #[lang = "display"]
 pub trait Display {
-    /// Returns the chosen user-facing text; does not write to an output stream.
+    /// Returns the text to insert for `"{name}"`. If callers should be able to
+    /// parse it back, implement `FromStr` for the same spelling and document it.
     fn display(self) -> String;
 }

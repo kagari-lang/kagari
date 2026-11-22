@@ -653,11 +653,15 @@ impl TypeId {
 
     /// Checks that no unresolved state, generic binder, `Self` or projection remains in the type tree.
     pub fn is_concrete(&self) -> bool {
-        self.is_resolved_in(&[])
+        self.is_resolved_in(&[], None)
     }
 
-    /// A caller-owned binder is known context even before monomorphization.
-    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
+    /// Caller-owned binders, including the specified lexical `Self`, are known before monomorphization.
+    pub(crate) fn is_resolved_in(
+        &self,
+        parameters: &[GenericParameterType],
+        self_owner: Option<&DefinitionId>,
+    ) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
@@ -678,12 +682,14 @@ impl TypeId {
                     pending.push(result);
                 }
                 Self::Generic(parameter) if parameters.contains(parameter) => {}
+                Self::SelfType(owner) if Some(owner) == self_owner => {}
                 Self::Projection {
                     receiver,
                     arguments,
                     interface,
                     ..
-                } if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {
+                } if !parameters.is_empty() || self_owner.is_some() => {
+                    pending.push(receiver);
                     pending.extend(arguments);
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());

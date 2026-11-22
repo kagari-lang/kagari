@@ -1,19 +1,48 @@
 //! Hash codes for key-based lookup.
-/// Supplies a hash code, not a unique ID. Equal keys must return the same code;
-/// unequal keys may collide, so callers still need to compare them. A custom
-/// implementation requires explicit `PartialEq` and `Eq` for the same receiver
-/// under the same bounds. The compiler does not prove the equality law. Do not change
-/// the part of a key used for hashing while it is stored in a hash collection.
+
+/// Supplies a hash code, not a unique ID. Hash-based lookup uses the code to
+/// narrow the search, then tests equality: unequal keys can have the same code.
+/// If `a == b`, however, `a.hash() == b.hash()` must hold.
+///
+/// Implement `PartialEq`, `Eq` and `Hash` in the key type's defining module for
+/// the same receiver under the same bounds. Choose the hash inputs to agree with
+/// `eq`: if equality ignores a display label, hashing must ignore it too.
+/// The compiler checks the implementations, not the results they return.
+///
+/// While a key is stored, keep its equality and hash stable, even through aliases
+/// or a hot reload. Changing either can make lookup miss an existing key; the
+/// collection does not reindex it for you.
 ///
 /// ```kagari
-/// use core::cmp::{PartialEq, Eq};
+/// use core::cmp::{ PartialEq, Eq };
+///
 /// use core::hash::Hash;
-/// struct Key { val id: i64 }
-/// impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.id == other.id } }
+///
+/// struct Key {
+///     val id: i64
+/// }
+///
+/// impl PartialEq for Key {
+///     fn eq(self, other: Self) -> bool {
+///         self.id == other.id
+///     }
+/// }
+///
 /// impl Eq for Key {}
-/// impl Hash for Key { fn hash(self) -> i64 { self.id } }
-/// fn bucket_input(key: Key) -> i64 { key.hash() }
+///
+/// impl Hash for Key {
+///     fn hash(self) -> i64 {
+///         self.id
+///     }
+/// }
+///
+/// fn bucket_input(key: Key) -> i64 {
+///     key.hash()
+/// }
 /// ```
+///
+/// `bucket_input(Key { id: 7 })` returns `7` because this implementation uses
+/// the ID directly; callers cannot in general recover a key from its hash.
 #[lang = "hash"]
 pub trait Hash {
     /// Returns this value's hash code; it is not a cryptographic digest.

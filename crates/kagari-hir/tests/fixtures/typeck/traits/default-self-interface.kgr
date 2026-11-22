@@ -1,0 +1,17 @@
+trait Other {}
+
+struct Views<T> {
+    val own: Reader<Item = T>,
+    val peer: Iterator<Item = T>,
+    val wrong_item: Reader<Item = i32>,
+    val unrelated: Other
+}
+
+trait Reader {
+    type Item;
+
+    fn views<R: Iterable<Item = Self::Item>>(self, other: R) -> Views<Self::Item> {
+        val peer = other.iter();
+        Views<Self::Item> { own: self, peer, wrong_item: self, unrelated: self }
+    }
+}

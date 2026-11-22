@@ -80,6 +80,8 @@ enum PieceKind {
     Token(SyntaxKind),
     Node(Context),
     Attribute,
+    SeparatedSiblingStart,
+    ModuleDocEnd,
 }
 
 struct Piece<'a> {
@@ -113,13 +115,24 @@ fn node<'a>(
             kind: PieceKind::Node(context),
         }));
     }
-    let mut pieces = Vec::new();
+    let mut pieces: Vec<Piece<'_>> = Vec::new();
+    let mut previous_declaration = None;
     for element in root.elements() {
         cancel.check()?;
         match element {
             ElementRef::Node(child) => {
                 if let Some(piece) = node(child, comments, cancel)? {
                     pieces.push(piece);
+                    if declaration_child(root, child) {
+                        mark_declaration_boundary(
+                            root,
+                            &mut pieces,
+                            previous_declaration,
+                            child,
+                            comments,
+                        );
+                        previous_declaration = Some(child);
+                    }
                 }
             }
             ElementRef::Token(token) => {
@@ -159,6 +172,55 @@ fn node<'a>(
         kind,
         doc,
     }))
+}
+
+fn mark_declaration_boundary(
+    owner: NodeRef<'_>,
+    pieces: &mut [Piece<'_>],
+    previous: Option<NodeRef<'_>>,
+    child: NodeRef<'_>,
+    comments: &Comments,
+) {
+    let (item, prefix) = pieces.split_last_mut().expect("just pushed a declaration");
+    if let Some(previous) = previous {
+        let beside_method =
+            matches!(previous, NodeRef::MethodDef(_)) || matches!(child, NodeRef::MethodDef(_));
+        // Attributes belong to the item; leading comments precede it in the list.
+        let first_comment = prefix
+            .iter_mut()
+            .rev()
+            .take_while(|p| {
+                if beside_method {
+                    comments.attachment(&p.first) == Some(Attachment::Leading)
+                } else {
+                    comments.is_leading_doc(&p.first)
+                }
+            })
+            .last();
+        if let Some(first) = first_comment {
+            first.kind = PieceKind::SeparatedSiblingStart;
+        } else if beside_method {
+            item.kind = PieceKind::SeparatedSiblingStart;
+        }
+    } else if matches!(owner, NodeRef::ModuleBody(_)) {
+        // Module docs belong to the initial trivia, after the opening brace if inline.
+        if let Some(last_doc) = prefix.iter_mut().rev().find(|p| {
+            p.kind == PieceKind::Token(SyntaxKind::LineComment) && p.first.text().starts_with("//!")
+        }) {
+            last_doc.kind = PieceKind::ModuleDocEnd;
+        }
+    }
+}
+
+fn declaration_child(owner: NodeRef<'_>, child: NodeRef<'_>) -> bool {
+    match owner {
+        NodeRef::ModuleBody(_) | NodeRef::FieldList(_) | NodeRef::VariantList(_) => true,
+        NodeRef::TraitDef(_) | NodeRef::ImplBlock(_) => matches!(
+            child,
+            NodeRef::MethodDef(_) | NodeRef::AssociatedType(_) | NodeRef::ConstDef(_)
+        ),
+        _ => false,
+    }
 }
 
 fn sequence(pieces: &[Piece<'_>], owner: Context, comments: &Comments) -> Doc {
@@ -236,6 +298,9 @@ fn closing(kind: PieceKind, owner: Context) -> Option<SyntaxKind> {
 fn separator(left: &Piece<'_>, right: &Piece<'_>, owner: Context, comments: &Comments) -> Doc {
     let a = left.last.kind();
     let b = right.first.kind();
+    if left.kind == PieceKind::ModuleDocEnd || right.kind == PieceKind::SeparatedSiblingStart {
+        return Doc::Concat(vec![Doc::hard(), Doc::hard()]);
+    }
     if a == SyntaxKind::LineComment {
         return Doc::RequiredLine;
     }

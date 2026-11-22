@@ -1,0 +1,60 @@
+//! Example declarations.
+
+use core::option::Option; // import
+
+/// A protocol.
+/// Its members have separate docs.
+#[tag]
+pub trait Protocol {
+    /// First.
+    type Value;
+
+    /// Second.
+    fn next(self) -> i32;
+}
+
+/// States.
+mod states {
+    //! State declarations.
+    //! Shared by protocol implementations.
+
+    /// Known states.
+    #[tag]
+    enum State {
+        A, // default
+
+        /// Another state.
+        B,
+        C,
+    }
+}
+
+/// Fields.
+struct Pair {
+    val x: i32,
+
+    /// Second field.
+    val y: i32,
+}
+
+impl Protocol for Pair {
+    type Value = i32;
+
+    /// A concrete implementation.
+    fn next(self) -> i32 {
+        val x = self.x;
+        /// Not a declaration boundary.
+        match x {
+            0 => self.y,
+            /// Not a variant declaration.
+            _ => x
+        }
+    } // end of next
+
+    // Inspect the other field without advancing.
+    fn peek(self) -> i32 {
+        self.y
+    }
+
+    fn reset(self) {}
+}
