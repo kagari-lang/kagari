@@ -1,0 +1,24 @@
+//! Cold asynchronous operations and their completed outputs.
+
+/// A runtime-local operation with one invariant output type `T`.
+///
+/// Creating a Future captures its inputs without starting work. The first
+/// `.await` drives the operation and returns its output. Aliases share that
+/// single-drive state, so awaiting the same Future again traps. Cancellation
+/// terminates execution rather than wrapping the output in a `Result`.
+///
+/// There is no public constructor. Calling an `async fn` or evaluating an
+/// `async` block creates a Future.
+///
+/// ```kagari
+/// use core::future::Future;
+///
+/// async fn answer() -> i32 {
+///     42
+/// }
+///
+/// fn pending_answer() -> Future<i32> {
+///     answer()
+/// }
+/// ```
+pub native type Future<T>;

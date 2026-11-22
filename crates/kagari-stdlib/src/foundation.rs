@@ -3,8 +3,6 @@ mod arrays;
 mod character;
 mod comparison;
 pub(crate) mod enumerations;
-mod future;
-
 mod numeric;
 mod protocols;
 pub(crate) mod string;
@@ -45,9 +43,6 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         comparison::interface_debug(module)?;
     }
 
-    if owner == namespaces::module("core", "future") {
-        future::declare(module)?;
-    }
     if owner == namespaces::module("core", "task") {
         tasks::declare(module)?;
     }
@@ -83,7 +78,7 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             )
         }));
     }
-    types.extend(["Future", "Task", "TaskScope"].into_iter().map(|name| {
+    types.extend(["Task", "TaskScope"].into_iter().map(|name| {
         (
             namespaces::type_owner(name),
             DefinitionKind::AssociatedType,
@@ -211,7 +206,6 @@ fn conflict(error: impl ToString) -> RuntimeError {
 pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
     ("core", "array", arrays::MODULE_DOCS),
     ("core", "char", character::MODULE_DOCS),
-    ("core", "future", future::MODULE_DOCS),
     ("core", "task", tasks::MODULE_DOCS),
     ("core", "num", numeric::MODULE_DOCS),
     (

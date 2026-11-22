@@ -1,7 +1,10 @@
 //! Public value declarations consumed by core language operations.
 use super::binding;
 use crate::{
-    declaration::{TypeDef, TypeDefKind, native::NativeTypeConstructor},
+    declaration::{
+        TypeDef, TypeDefKind,
+        native::{NativeStorageLayout, NativeTypeConstructor},
+    },
     ty::GenericParam,
 };
 use kagari_common::identity::{
@@ -29,6 +32,17 @@ pub fn constructor_shape_valid(
             .iter()
             .enumerate()
             .all(|(i, p)| p.owner == owner && p.position == i)
+}
+
+/// Validate the public declaration that may use the Runtime's core Future storage.
+pub fn future_shape_valid(owner: DefinitionId, actual: &TypeDef, table: &DefinitionTable) -> bool {
+    binding::matches(&owner, &binding::future_declaration(), table)
+        && actual.name == "Future"
+        && actual.kind == TypeDefKind::NativeStorage(NativeStorageLayout::Future)
+        && actual.generic_params == [GenericParam { owner, position: 0 }]
+        && actual.bounds.is_empty()
+        && actual.fields.is_empty()
+        && actual.variants.is_empty()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

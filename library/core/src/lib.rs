@@ -54,6 +54,13 @@ pub const MODULES: &[ModuleSource] = &[
         dependencies: &["convert", "ops"],
     },
     ModuleSource {
+        name: "future",
+        package_alias: "core",
+        uri: "kagari-core:///future.kgr",
+        text: include_str!("../future.kgr"),
+        dependencies: &[],
+    },
+    ModuleSource {
         name: "fmt",
         package_alias: "core",
         uri: "kagari-core:///fmt.kgr",

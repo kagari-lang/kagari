@@ -10,7 +10,6 @@ use kagari_runtime::native::{interfaces::Interface, objects::Object};
 use kagari_runtime::reload::ReloadValidationError;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::StandardLibrary;
-use kagari_stdlib::namespaces;
 use std::{
     future::{Future, poll_fn},
     pin::Pin,
@@ -58,10 +57,9 @@ pub async fn evidence() -> i32 {
 }
 "#;
 
-fn prepare(library: &StandardLibrary, hp: i32) -> Program {
-    // Supply only this script and the complete Future storage provider it needs.
-    // No provider is trimmed and no protected evidence is removed or overridden;
-    // initial preparation and reload both use the normal artifact validator.
+fn prepare(hp: i32) -> Program {
+    // The script uses packaged core without any Native inputs. Initial preparation
+    // and reload both use the normal artifact validator.
     let mut sources = SourceDatabase::default();
     let root = sources
         .set(
@@ -77,14 +75,7 @@ fn prepare(library: &StandardLibrary, hp: i32) -> Program {
             SourceLayer::Base,
         )
         .unwrap();
-    let future = library
-        .declarations()
-        .declarations()
-        .iter()
-        .find(|module| module.records().identity == namespaces::module("core", "future"))
-        .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![future.clone()]);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -105,7 +96,7 @@ pub fn main() {
     let library = StandardLibrary::new(builder.declarations()).unwrap();
     builder.install_all(library.modules().unwrap()).unwrap();
     let engine = builder.build().unwrap();
-    let prepared = prepare(&library, 100);
+    let prepared = prepare(100);
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
     // `api` is a namespace-only facade. Keep its canonical child across reload.
@@ -189,7 +180,7 @@ pub fn main() {
     runtime.set(&argument, &hp, 123).unwrap();
     drop(argument);
     runtime.collect_garbage().unwrap();
-    let replacement = prepare(&library, 200);
+    let replacement = prepare(200);
     runtime
         .program(&loaded)
         .map_err(ReloadValidationError::Runtime)

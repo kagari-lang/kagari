@@ -8,6 +8,7 @@ use kagari_types::{
         native::{NativeStorageLayout, NativeTypeConstructor, language_type},
     },
     integer::IntegerOp,
+    language::binding,
     scalar::BuiltinType,
 };
 
@@ -19,7 +20,7 @@ pub(crate) fn native_representation(
     if let Some(constructor) = NativeTypeConstructor::from_definition(id, definitions) {
         return TypeDefKind::Native(constructor);
     }
-    let layout = if language_type(id, definitions, "kagari-core", "future", "Future") {
+    let layout = if binding::matches(&id, &binding::future_declaration(), definitions) {
         NativeStorageLayout::Future
     } else if language_type(id, definitions, "kagari-core", "task", "Task") {
         NativeStorageLayout::Task

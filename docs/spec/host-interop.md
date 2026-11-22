@@ -1006,9 +1006,10 @@ recursive cleanup failure.
 `ModuleBuilder::bind::<Async<A>, R>` binds an explicit `fn(A) -> Future<R>` declaration using the
 catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::future`
 provides sealed runtime payload storage with exactly one invariant output parameter.
-The foundation installs `core::future::Future<T>` and exposes it through the
-prelude and `std::future`. Application producers use the engine's installed
-declaration catalog. Typed SDK calls and scheduling work without source/native features.
+The [authored core Future](standard-declarations.md#ownership-and-installation)
+uses this Runtime-owned storage without an optional provider. Application
+producers use the engine's checked declaration catalog. Typed SDK calls and
+scheduling work without source/native features.
 
 Calling a producer captures traced script values without invoking its Rust callback.
 The first await removes the cold state, roots the captured values, reserves bounded

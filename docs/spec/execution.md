@@ -693,9 +693,11 @@ await; owned iteration resources can. The bytecode verifier derives bounded,
 non-serializable await liveness. Runtime preparation maps it through physical slot
 reuse, preserving a location if any logical alias is live. Dead managed slots are
 discarded before the runtime resource check so unused values cannot falsely prevent
-suspension or retain heap objects. The foundation publishes `core::future::Future<T>`
-and `core::task::Task<T>`/`TaskScope`,
-and the typed SDK facade uses this driver with or without source/native features. Each owned
+suspension or retain heap objects. Authored core provides `core::future::Future<T>`;
+Runtime binds its storage from the verified declaration without optional libraries
+or source at load time. `core::task::Task<T>` and `TaskScope` still come from the
+registered task provider. The typed SDK facade uses this driver with or without
+source/native features. Each owned
 execution has its own cancellation token. Cancelling the owner terminates only that
 execution; the host-supplied context token forwards cancellation to all executions
 started with it, without receiving local cancellation requests back.

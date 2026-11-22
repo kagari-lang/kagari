@@ -188,7 +188,7 @@ impl BodyChecker<'_> {
             result = async_types::future_type(self.declarations, result).unwrap_or_else(|| {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                        feature: "async requires one installed Future storage declaration",
+                        feature: "async requires core::future::Future",
                     })
                     .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                 );

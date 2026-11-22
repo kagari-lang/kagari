@@ -9,6 +9,7 @@ use crate::{
         catalog::DeclarationCatalog,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
+        storage::NativeStorage,
         types::Type,
     },
     test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
@@ -24,9 +25,61 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    language::Protocol,
-    ty::{GenericBound, Ty},
+    declaration::{TypeDef, TypeDefKind, native::NativeStorageLayout},
+    language::{Protocol, binding::future_declaration},
+    ty::{GenericBound, GenericParam, Ty},
 };
+
+#[test]
+fn authored_future_rejects_a_competing_owner_and_wrong_storage_contract() {
+    let path = future_declaration();
+    let mut runtime = Runtime::default();
+    let mut duplicate = ModuleBuilder::new("kagari-core::future", &Default::default()).unwrap();
+    let mut ty = duplicate.define_type("Future").unwrap();
+    ty.type_parameter("Output").unwrap();
+    ty.native_storage(NativeStorage::future()).unwrap();
+    ty.finish().unwrap();
+    let error = duplicate
+        .finish()
+        .unwrap()
+        .install(&mut runtime)
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("core Future belongs to authored core source"),
+        "{error}"
+    );
+
+    let context = DefinitionContext::new().unwrap();
+    let owner = context.intern(&path).unwrap();
+    let artifact = ProgramFixture {
+        root: ModuleRef::new(0),
+        modules: vec![BytecodeModule {
+            identity: path.module,
+            public_items: vec![PublicItem::Type(TypeDef {
+                name: "Future".into(),
+                kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+                generic_params: vec![GenericParam { owner, position: 0 }],
+                bounds: vec![],
+                fields: vec![],
+                variants: vec![],
+            })],
+            ..Default::default()
+        }],
+        exports: Default::default(),
+    }
+    .metadata(context.snapshot(), &Default::default())
+    .unwrap();
+    let error = load_bytecode(&mut runtime, "wrong-future-storage", artifact).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("invalid public core Future declaration"),
+        "{error}"
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+}
 
 #[test]
 fn installed_blanket_rejects_missing_implementation_evidence() {

@@ -1,0 +1,10 @@
+use core::future::Future;
+
+async fn operation(value: i32) -> i32 {
+    value * 2
+}
+
+pub async fn run() -> i32 {
+    val pending: Future<i32> = operation(21);
+    pending.await
+}

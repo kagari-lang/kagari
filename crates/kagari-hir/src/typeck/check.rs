@@ -338,7 +338,7 @@ pub(crate) fn check_signatures(
             asynchronous::future_type(declarations, return_type).unwrap_or_else(|| {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                        feature: "async requires one installed Future storage declaration",
+                        feature: "async requires core::future::Future",
                     })
                     .with_span(
                         lowered.module.functions[function.id.index()]

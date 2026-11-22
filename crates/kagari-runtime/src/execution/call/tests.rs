@@ -70,14 +70,12 @@ impl Drop for HostileDriverDrop {
 
 #[test]
 fn driver_release_fault_overrides_completion_and_preserves_trace() {
-    let provider = crate::test_support::future::provider();
     let program = compile_native_test_bytecode(
         include_str!("../../../tests/fixtures/execution/call-driver-release.kgr"),
-        &[&provider],
+        &[],
     );
     for fail in [false, true] {
         let mut runtime = test_runtime(Default::default());
-        provider.install(&mut runtime).unwrap();
         let module = load_bytecode(&mut runtime, "handoff", program.clone()).unwrap();
         let function = runtime
             .bind_async_function::<(bool,), HostileOutput>(&module.root(), "run")

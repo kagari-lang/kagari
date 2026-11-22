@@ -1,6 +1,7 @@
 //! The production recipe publishes complete task contracts without preparing adapters.
-use crate::{StandardLibrary, namespaces, test_library};
+use crate::{StandardLibrary, identity, namespaces};
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
+use kagari_compiler::source::core_library;
 use kagari_runtime::{
     Runtime,
     native::{catalog::DeclarationCatalog, module::NativeModule, types::Type},
@@ -26,21 +27,21 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
             .to_string()
             .contains("missing verified standard owner")
     );
-    let seed = test_library::seed();
-    let library = StandardLibrary::new(&seed).unwrap();
+    let core = core_library::verified().unwrap();
+    let library = StandardLibrary::from_verified_program(core).unwrap();
     let standard = library.declarations();
     let bundle = &library.bundle;
     for owner in [
-        "cmp", "convert", "default", "ops", "option", "result", "fmt", "hash", "str", "iter",
+        "cmp", "convert", "default", "ops", "option", "result", "fmt", "future", "hash", "str",
+        "iter",
     ]
     .map(|path| namespaces::module("core", path))
     .into_iter()
     .chain([namespaces::type_owner("String")])
     {
-        assert!(seed.authored_origin(&owner).is_some());
         assert_eq!(
             standard.catalog().authored_origin(&owner),
-            seed.authored_origin(&owner)
+            Some(core.product_identity())
         );
         assert!(
             !standard
@@ -50,30 +51,42 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
         );
     }
     let option = standard.enumeration("Option").unwrap();
-    for (owner, name, target) in [
+    let future = standard.catalog().future_type().unwrap();
+    let future_path = identity::type_id("Future", DefinitionKind::AssociatedType);
+    assert_eq!(future.definitions().lookup(&future_path), Some(future.id()));
+    for (facade, name, target, owner) in [
         (
             namespaces::module("std", "option"),
             ExportName::new(NameNamespace::Type, "Option"),
             option.id(),
+            namespaces::module("core", "option"),
         ),
         (
             namespaces::prelude(),
             ExportName::new(NameNamespace::Value, "Some"),
             option.variant("Some").unwrap().id(),
+            namespaces::module("core", "option"),
+        ),
+        (
+            namespaces::module("std", "future"),
+            ExportName::new(NameNamespace::Type, "Future"),
+            future.id(),
+            future_path.module.clone(),
+        ),
+        (
+            namespaces::prelude(),
+            ExportName::new(NameNamespace::Type, "Future"),
+            future.id(),
+            future_path.module.clone(),
         ),
     ] {
         let facade = standard
             .declarations()
             .iter()
-            .find(|m| m.records().identity == owner)
+            .find(|m| m.records().identity == facade)
             .unwrap();
         assert_eq!(facade.records().exports[&name], target);
-        assert!(
-            facade
-                .records()
-                .dependencies
-                .contains(&namespaces::module("core", "option"))
-        );
+        assert!(facade.records().dependencies.contains(&owner));
     }
     standard.ordering().unwrap();
     standard.ord().method("cmp").unwrap();
@@ -93,17 +106,13 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
         .iter()
         .find(|module| module.records().identity == namespaces::module("core", "task"))
         .unwrap();
-    let future = providers
-        .iter()
-        .find(|module| module.records().identity == namespaces::module("core", "future"))
-        .unwrap();
     let definitions = task.definitions();
-    for (module, name, layout, arity) in [
-        (task, "Task", NativeStorageLayout::Task, 1),
-        (task, "TaskScope", NativeStorageLayout::TaskScope, 0),
-        (future, "Future", NativeStorageLayout::Future, 1),
+    let future_id = definitions.lookup(&future_path).unwrap();
+    for (name, layout, arity) in [
+        ("Task", NativeStorageLayout::Task, 1),
+        ("TaskScope", NativeStorageLayout::TaskScope, 0),
     ] {
-        let ty = module
+        let ty = task
             .records()
             .types
             .iter()
@@ -183,13 +192,7 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
                 let Ty::NativeObject(result) = result.as_ref() else {
                     panic!("Future output")
                 };
-                assert_eq!(
-                    result.declaration,
-                    future
-                        .records()
-                        .definition(DefinitionKind::AssociatedType, "Future", definitions)
-                        .unwrap()
-                );
+                assert_eq!(result.declaration, future_id);
                 assert_eq!(result.arguments, [output.as_type()]);
                 let Ty::Enum(result) = &method.return_type else {
                     panic!("admission Result")
@@ -244,7 +247,7 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
     let context = DefinitionContext::new().unwrap();
     for owner in [
         namespaces::module("core", "task"),
-        namespaces::module("core", "future"),
+        namespaces::module("std", "future"),
         namespaces::prelude(),
     ] {
         let local = providers
@@ -279,18 +282,21 @@ fn production_semantic_projection_retains_unprepared_task_owners() {
     let modules = library.modules().unwrap();
     NativeModule::install_all(&modules, &mut Runtime::default()).unwrap();
     assert!(bundle.collect().unwrap().pending.lock().unwrap().is_none());
-    for declaration in [task, future] {
-        let prepared = modules
+    assert!(
+        modules
             .iter()
-            .find(|module| module.declaration().identity == declaration.records().identity)
-            .unwrap();
-        assert_eq!(
-            prepared.declaration().implementations,
-            declaration.records().implementations
-        );
-        assert_eq!(
-            prepared.declaration().documentation,
-            declaration.records().documentation
-        );
-    }
+            .all(|module| module.declaration().identity != future_path.module)
+    );
+    let prepared = modules
+        .iter()
+        .find(|module| module.declaration().identity == task.records().identity)
+        .unwrap();
+    assert_eq!(
+        prepared.declaration().implementations,
+        task.records().implementations
+    );
+    assert_eq!(
+        prepared.declaration().documentation,
+        task.records().documentation
+    );
 }

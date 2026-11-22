@@ -1,4 +1,4 @@
-//! Symbolic enum references required by the existing language protocol contracts.
+//! Symbolic type references required by language contracts.
 //! These are declaration identities, not type shapes or runtime discriminants.
 //! Consumers must resolve and validate the actual installed declarations/layouts.
 use crate::ty::{NominalTy, Ty};
@@ -12,18 +12,27 @@ pub fn matches(id: &DefinitionId, expected: &DefinitionPath, table: &DefinitionT
     table.lookup(expected) == Some(*id)
 }
 
-fn declaration(module: &str, name: &str) -> DefinitionPath {
+fn core_type(module: &str, name: &str, kind: DefinitionKind) -> DefinitionPath {
     DefinitionPath {
         module: ModuleIdentity {
             package: PackageId("kagari-core".into()),
             path: vec![module.into()],
         },
         path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Enum,
+            kind,
             name: name.into(),
             occurrence: 0,
         }],
     }
+}
+
+fn declaration(module: &str, name: &str) -> DefinitionPath {
+    core_type(module, name, DefinitionKind::Enum)
+}
+
+/// The type constructed by async functions and blocks, regardless of imports.
+pub fn future_declaration() -> DefinitionPath {
+    core_type("future", "Future", DefinitionKind::AssociatedType)
 }
 
 fn applied(table: &DefinitionTable, module: &str, name: &str, arguments: Vec<Ty>) -> Option<Ty> {

@@ -457,16 +457,11 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
         assert!(documentation.declaration.source_location().is_none());
         assert!(documentation.written_signature.is_none());
     }
-    for (name, path) in [
-        ("Future", "future"),
-        ("Task", "task"),
-        ("TaskScope", "task"),
-        ("SpawnError", "task"),
-    ] {
-        let owner = declarations
-            .iter()
-            .find(|module| module.records().identity == namespaces::module("core", path))
-            .unwrap();
+    let owner = declarations
+        .iter()
+        .find(|module| module.records().identity == namespaces::module("core", "task"))
+        .unwrap();
+    for name in ["Task", "TaskScope", "SpawnError"] {
         let ty = owner
             .records()
             .types
@@ -496,6 +491,21 @@ fn task_navigation_uses_canonical_authored_members_and_docs() {
             owner.records().documentation[&expected]
         );
     }
+    let future = snapshot
+        .queries()
+        .documentation_at(file, text.find("Future").unwrap())
+        .unwrap();
+    let DeclarationId::Definition(id) = future.declaration.id else {
+        panic!("canonical Future declaration")
+    };
+    let identity = snapshot.definitions().resolve(id).unwrap();
+    assert_eq!(identity.module(), &namespaces::module("core", "future"));
+    let location = future.declaration.source_location().unwrap();
+    let source = snapshot.source(location.file).unwrap();
+    assert_eq!(source.name(), "kagari-core:///future.kgr");
+    let range = source.local_range(location).unwrap();
+    assert_eq!(&source.text()[range.start..range.end], "Future");
+    assert!(!future.documentation.is_empty());
 }
 
 #[test]

@@ -47,7 +47,7 @@ use kagari_contract::{
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{NativeDeclaration, TraitDef, verify::validate_native_declarations},
-    language::Protocol,
+    language::{Protocol, binding::future_declaration},
     ty::Ty,
 };
 use std::{
@@ -104,6 +104,14 @@ impl Default for NativeRegistry {
     fn default() -> Self {
         let catalog = DeclarationCatalog::default();
         let context = catalog.types.context().clone();
+        // Own the implementation only. The published program supplies the type contract.
+        let mut storage = DefinitionMap::new(context.clone());
+        let future = context
+            .intern(&future_declaration())
+            .expect("core Future identity");
+        storage
+            .insert_id(future, NativeStorage::future())
+            .expect("local Future storage");
         Self {
             metadata: MetadataSnapshot::default(),
             scripts: DefinitionMap::new(context.clone()),
@@ -111,7 +119,7 @@ impl Default for NativeRegistry {
             owned_traits: HashSet::new(),
             entries: DefinitionMap::new(context.clone()),
             declaration_bindings: DefinitionMap::new(context.clone()),
-            storage: DefinitionMap::new(context.clone()),
+            storage,
             trait_references: DefinitionMap::new(context.clone()),
             path_bindings: DefinitionMap::new(context),
             catalog,

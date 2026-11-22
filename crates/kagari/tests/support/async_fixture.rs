@@ -36,6 +36,8 @@ use kagari_runtime::{
         types::Type,
     },
 };
+#[cfg(feature = "source")]
+use kagari_source::source::SourceFile;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{FnDecl, Param, module::ModuleDecl},
@@ -43,6 +45,8 @@ use kagari_types::{
     ty::Ty,
     visibility::Visibility,
 };
+#[cfg(not(feature = "source"))]
+use std::{fs, path::Path};
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -109,7 +113,7 @@ fn function(
 }
 
 fn synthetic_program(
-    _: &KagariEngine,
+    _engine: &KagariEngine,
     catalog: &DeclarationCatalog,
     declaration: DefinitionMetadata<ModuleDecl>,
 ) -> Compilation {
@@ -301,24 +305,43 @@ fn synthetic_program(
         functions,
         ..Default::default()
     };
-    let foundation = standard_library()
-        .declarations()
-        .declarations()
-        .iter()
-        .find(|declaration| declaration.records().identity == owner)
+    // Carry the authored Future contract, not a Native owner or a second schema.
+    #[cfg(feature = "source")]
+    let core = _engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "memory://authored-future.kgr",
+                include_str!("../fixtures/authored_future.kgr"),
+            ),
+            Default::default(),
+        )
         .unwrap();
-    let foundation = foundation
-        .import_into(&definitions, &Default::default())
-        .unwrap()
-        .into_records();
+    #[cfg(not(feature = "source"))]
+    let core = {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/fixtures/async_tasks.kbc");
+        KbcArtifact::from_bytes(&fs::read(path).expect("emit the async_tasks artifact first"))
+            .unwrap()
+    };
+    let core_future = core
+        .records()
+        .program
+        .modules
+        .iter()
+        .find(|module| module.identity == owner)
+        .expect("emitted artifact carries the authored Future owner");
+    let public_items = DefinitionMetadata::checked(
+        core.definitions().clone(),
+        core_future.public_items.clone(),
+        &Default::default(),
+    )
+    .unwrap()
+    .import_into(&definitions, &Default::default())
+    .unwrap()
+    .into_records();
     let foundation = BytecodeModule {
         identity: owner,
-        public_items: foundation
-            .types
-            .iter()
-            .cloned()
-            .map(PublicItem::Type)
-            .collect(),
+        public_items,
         types: vec![ValueType::Unit],
         ..Default::default()
     };

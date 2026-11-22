@@ -19,7 +19,6 @@ use crate::{
         FunctionSource, FunctionSourceTarget, ProgramSourceSnapshot, SourceDeclaration,
         SourceQuery, SourceUnavailableReason,
     },
-    test_support::future,
 };
 use kagari_bytecode::{
     artifact::{ArtifactCompatibility, KbcArtifact},
@@ -470,17 +469,9 @@ fn native_origins_never_fabricate_text() {
 #[test]
 fn cold_future_observation_is_exact_and_does_not_claim_the_body() {
     let text = include_str!("../../tests/fixtures/source/cold-observation.kgr");
-    let provider = future::provider();
-    let (bytecode, package) = compiled_in(text, None, analysis_with_provider_source(&provider));
     let mut runtime = Runtime::default();
-    provider.install(&mut runtime).unwrap();
     let program = runtime
-        .load_verified_program(
-            "future",
-            VerifiedProgram::from_bytecode(bytecode)
-                .with_source_package(package, &Default::default())
-                .unwrap(),
-        )
+        .load_verified_program("future", prepared(text, None))
         .unwrap();
     let owner = runtime.select_program(&program).unwrap();
     let factory = owner

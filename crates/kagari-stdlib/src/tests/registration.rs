@@ -9,7 +9,10 @@ use kagari_compiler::source::core_library;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::{
     Runtime,
-    native::{builder::ModuleBuilder, module::NativeModule, storage::NativeStorage},
+    native::{
+        builder::ModuleBuilder, catalog::DeclarationCatalog, module::NativeModule,
+        storage::NativeStorage,
+    },
 };
 use kagari_types::{
     callable::CallableImplementation,
@@ -26,21 +29,15 @@ kagari_runtime::native_data! { struct EmptyPayload {} }
 
 #[test]
 fn declaration_storage_binding_preserves_local_contract() {
-    let language = test_library::standard();
-    let catalog = language.catalog();
-    let future = catalog.future_type().unwrap();
-    let declaration = language
-        .declarations()
-        .iter()
-        .find(|declaration| {
-            declaration.records().identity
-                == *future.definitions().resolve(future.id()).unwrap().module()
-        })
-        .unwrap()
-        .as_ref()
-        .clone();
+    let catalog = DeclarationCatalog::default();
+    let storage = NativeStorage::data::<EmptyPayload>();
+    let mut module = ModuleBuilder::new("example::storage", &catalog).unwrap();
+    let mut ty = module.define_type("Payload").unwrap();
+    ty.native_storage(storage.clone()).unwrap();
+    let payload = ty.finish().unwrap();
+    let declaration = module.finish().unwrap().to_declaration();
     let builder = || {
-        ModuleBuilder::from_declaration(declaration.clone(), catalog, Default::default()).unwrap()
+        ModuleBuilder::from_declaration(declaration.clone(), &catalog, Default::default()).unwrap()
     };
     assert!(
         builder().finish().is_err(),
@@ -49,24 +46,14 @@ fn declaration_storage_binding_preserves_local_contract() {
     let mut module = builder();
     assert!(
         module
-            .bind_storage(&future, NativeStorage::data::<EmptyPayload>())
+            .bind_storage(&payload, NativeStorage::task_scope())
             .is_err()
     );
-    module
-        .bind_storage(&future, NativeStorage::future())
-        .unwrap();
-    assert!(
-        module
-            .bind_storage(&future, NativeStorage::future())
-            .is_err()
-    );
+    module.bind_storage(&payload, storage.clone()).unwrap();
+    assert!(module.bind_storage(&payload, storage.clone()).is_err());
     module.finish().unwrap();
-    let mut foreign = ModuleBuilder::new("example::foreign_storage", catalog).unwrap();
-    assert!(
-        foreign
-            .bind_storage(&future, NativeStorage::future())
-            .is_err()
-    );
+    let mut foreign = ModuleBuilder::new("example::foreign_storage", &catalog).unwrap();
+    assert!(foreign.bind_storage(&payload, storage).is_err());
     foreign.finish().unwrap();
 }
 
@@ -183,7 +170,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = test_library::standard().declarations().to_vec();
     let second = test_library::standard().declarations().to_vec();
-    assert_eq!(first.len(), 23); // Authored owners are not native providers.
+    assert_eq!(first.len(), 22); // Authored owners are not native providers.
     for retired in [
         namespaces::module("core", "host"),
         namespaces::module("std", "host"),
@@ -216,8 +203,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().types.len())
             .sum::<usize>(),
-        // Only native storage, host-facing errors and task types remain.
-        7
+        // Only host-facing errors and task types remain.
+        6
     );
     assert_eq!(
         first
@@ -239,8 +226,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().exports.len())
             .sum::<usize>(),
-        // Native facades and prelude retain their re-exports.
-        87
+        // The Future owner moved to core source; its facade and prelude exports remain.
+        86
     );
     assert_eq!(
         first

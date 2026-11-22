@@ -81,9 +81,13 @@ visibility, ambiguity and selected-exposure checks; a dependency is not private-
 access. The [common import environment](../../crates/kagari-hir/src/imports/environment.rs)
 retains explicit module dependencies and selected preludes independently of HIR nodes.
 
-`core::future::Future<T>` is the canonical single-drive native storage type, with
-one invariant output parameter. `std::future` and the prelude re-export that exact
-declaration. It has no public constructor or trait-based await protocol. Typed
+[`core::future::Future<T>`](../../library/core/future.kgr) is the canonical
+single-drive native storage type, with one invariant output parameter. Core
+source owns the declaration and Runtime owns its storage binding. Basic `async`
+and `.await` require no optional standard library. The optional `std::future`
+facade and its prelude re-export the same declaration; without them, import
+`core::future::Future` if spelling the type explicitly. There is no public
+constructor or trait-based await protocol. Typed
 `bind` with `Async<A>` selects this checked storage role;
 ordinary invocation captures values and first await submits the operation. Source
 async callables construct the same Future role with private script resume state;

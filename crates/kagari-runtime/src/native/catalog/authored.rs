@@ -17,7 +17,7 @@ use kagari_common::{
     },
 };
 use kagari_contract::types::{PublicItem, type_contract};
-use kagari_types::language::schema::CoreEnum;
+use kagari_types::language::binding::{future_declaration, option_declaration, result_declaration};
 use std::{
     collections::{BTreeSet, HashSet},
     sync::Arc,
@@ -62,7 +62,7 @@ impl DeclarationCatalog {
         Ok(combined)
     }
 
-    /// Add only the two public value schemas mapped by Rust conversion adapters.
+    /// Add core value and Future schemas used by conversions and async execution.
     /// Linking has checked the reached owners. These partial records belong to
     /// this publication, never to the registry of installed Native providers.
     pub(crate) fn for_conversions(
@@ -72,8 +72,11 @@ impl DeclarationCatalog {
         cancel: &CancellationToken,
     ) -> Result<Self, RuntimeError> {
         let mut catalog = self.clone();
-        for schema in [CoreEnum::Option, CoreEnum::Result] {
-            let path = schema.declaration();
+        for path in [
+            option_declaration(),
+            result_declaration(),
+            future_declaration(),
+        ] {
             if self.contains_module(&path.module) {
                 continue;
             }
@@ -83,9 +86,9 @@ impl DeclarationCatalog {
             let defs = program.definitions();
             let id = defs
                 .lookup(&path)
-                .ok_or_else(|| conflict("missing admitted core enum"))?;
+                .ok_or_else(|| conflict("missing admitted core type"))?;
             let ty = type_contract(&module.identity, &module.public_items, &id, defs)
-                .ok_or_else(|| conflict("missing admitted public core enum"))?;
+                .ok_or_else(|| conflict("missing admitted public core type"))?;
             catalog.insert_type(admission.runtime_id(id)?, admission.runtime(ty, cancel)?)?;
             Arc::make_mut(&mut catalog.authored).insert(path.module, program.product_identity());
         }

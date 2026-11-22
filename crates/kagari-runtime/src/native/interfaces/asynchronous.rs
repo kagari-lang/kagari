@@ -211,8 +211,8 @@ mod tests {
         task::{Context, Poll, Waker},
     };
 
-    fn ready_provider(future: &NativeModule) -> NativeModule {
-        let catalog = future.catalog();
+    fn ready_provider() -> NativeModule {
+        let catalog = future::catalog();
         let mut builder = ModuleBuilder::new("fixture::queue", &catalog).unwrap();
         let future = catalog.future_type().unwrap();
         let ready = builder
@@ -235,18 +235,13 @@ mod tests {
         builder.finish().unwrap()
     }
 
-    fn compile(source: &str, providers: [&NativeModule; 2]) -> VerifiedProgram {
+    fn compile(source: &str, provider: &NativeModule) -> VerifiedProgram {
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("queued-interface.kgr", source.into(), SourceLayer::Base)
             .unwrap();
         let mut analysis = AnalysisDatabase::default();
-        analysis.set_native_modules(
-            providers
-                .into_iter()
-                .map(|provider| Arc::new(provider.to_declaration()))
-                .collect(),
-        );
+        analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
         let snapshot = analysis
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -333,11 +328,9 @@ mod tests {
     #[test]
     fn queued_interface_admission_is_exact_while_retained_method_handles_stay_live() {
         let source = include_str!("../../../tests/fixtures/metadata/interface-queue.kgr");
-        let future = future::provider();
-        let ready = ready_provider(&future);
-        let prepared = compile(source, [&future, &ready]);
+        let ready = ready_provider();
+        let prepared = compile(source, &ready);
         let mut runtime = Runtime::default();
-        future.install(&mut runtime).unwrap();
         ready.install(&mut runtime).unwrap();
         let program = runtime
             .load_verified_program("queue", prepared.clone())
@@ -377,7 +370,7 @@ mod tests {
             .stage_reload_verified_program(
                 &program,
                 None,
-                compile(&source.replace("ready(1)", "ready(2)"), [&future, &ready]),
+                compile(&source.replace("ready(1)", "ready(2)"), &ready),
             )
             .unwrap();
         runtime.publish_staged_reload(candidate).unwrap();

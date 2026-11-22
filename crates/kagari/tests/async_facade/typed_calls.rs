@@ -12,18 +12,12 @@ use kagari_compiler::{
     source::{program::lower_program_to_mir, source_package::build_source_package},
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::{
-    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation,
-    native::render::declaration_source,
-};
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    native::{
-        builder::ModuleBuilder, function_handle::Function, interfaces::Interface,
-        module::NativeModule, objects::Object, storage::NativeStorage,
-    },
+    native::{function_handle::Function, interfaces::Interface, objects::Object},
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     source::{SourceQuery, SourceUnavailableReason},
@@ -43,24 +37,13 @@ use std::{
     task::{Context, Poll, Waker},
 };
 
-fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> Program {
-    // Exercise SDK admission and source observations under explicitly authored providers.
+fn prepare_typed_program(source: &str) -> Program {
+    // Retain source observations using only the script and packaged core.
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("typed-calls.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    // Source observations require complete supplied declaration documents, not
-    // the default source-less structured registration route.
-    let modules = providers
-        .iter()
-        .map(|provider| Arc::new(provider.to_declaration()))
-        .collect::<Vec<_>>();
-    let declarations = modules
-        .iter()
-        .map(|module| declaration_source(module, &modules).unwrap())
-        .collect();
-    analysis.set_native_sources(modules, declarations).unwrap();
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -84,23 +67,13 @@ fn prepare_typed_program(source: &str, providers: &[NativeModule]) -> Program {
     Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
 }
 
-fn future_provider() -> NativeModule {
-    let mut builder = ModuleBuilder::new("kagari-core::future", &Default::default()).unwrap();
-    let mut future = builder.define_type("Future").unwrap();
-    future.type_parameter("T").unwrap();
-    future.native_storage(NativeStorage::future()).unwrap();
-    future.finish().unwrap();
-    builder.finish().unwrap()
-}
-
 #[test]
 fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies() {
     let source = include_str!("../fixtures/embedding/typed/current-handles-v1.kgr");
-    let first = prepare_typed_program(source, &[]);
-    let second = prepare_typed_program(
-        include_str!("../fixtures/embedding/typed/current-handles-v2.kgr"),
-        &[],
-    );
+    let first = prepare_typed_program(source);
+    let second = prepare_typed_program(include_str!(
+        "../fixtures/embedding/typed/current-handles-v2.kgr"
+    ));
     let mut runtime = {
         let mut runtime = Runtime::default();
         runtime.set_default_context(Default::default());
@@ -177,19 +150,12 @@ fn existing_typed_handles_select_current_implementations_and_keep_closure_bodies
 #[test]
 fn async_typed_admission_retains_selected_factory_before_any_poll() {
     let source = include_str!("../fixtures/embedding/typed/async-admission-v1.kgr");
-    let providers = [future_provider()];
-    let first = prepare_typed_program(source, &providers);
-    let second = prepare_typed_program(
-        include_str!("../fixtures/embedding/typed/async-admission-v2.kgr"),
-        &providers,
-    );
-    let mut core = Runtime::default();
-    NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = {
-        let mut runtime = core;
-        runtime.set_default_context(Default::default());
-        runtime
-    };
+    let first = prepare_typed_program(source);
+    let second = prepare_typed_program(include_str!(
+        "../fixtures/embedding/typed/async-admission-v2.kgr"
+    ));
+    let mut runtime = Runtime::default();
+    runtime.set_default_context(Default::default());
     let program = runtime.load_program(&first, Default::default()).unwrap();
     let function = runtime
         .bind_async_function::<(), i32>(&program.root(), "run")
@@ -227,19 +193,12 @@ fn async_typed_admission_retains_selected_factory_before_any_poll() {
 #[test]
 fn interface_source_targets_distinguish_unbound_members_from_observed_implementations() {
     let source = include_str!("../fixtures/embedding/typed/interface-source-v1.kgr");
-    let providers = [future_provider()];
-    let first = prepare_typed_program(source, &providers);
-    let second = prepare_typed_program(
-        include_str!("../fixtures/embedding/typed/interface-source-v2.kgr"),
-        &providers,
-    );
-    let mut core = Runtime::default();
-    NativeModule::install_all(&providers, &mut core).unwrap();
-    let mut runtime = {
-        let mut runtime = core;
-        runtime.set_default_context(Default::default());
-        runtime
-    };
+    let first = prepare_typed_program(source);
+    let second = prepare_typed_program(include_str!(
+        "../fixtures/embedding/typed/interface-source-v2.kgr"
+    ));
+    let mut runtime = Runtime::default();
+    runtime.set_default_context(Default::default());
     let program = runtime.load_program(&first, Default::default()).unwrap();
     let old_module = runtime.select_program(&program).unwrap();
     let integer = runtime
@@ -338,11 +297,10 @@ fn interface_source_targets_distinguish_unbound_members_from_observed_implementa
 #[test]
 fn interface_source_targets_intrinsic_bridges_survive_executable_reclamation() {
     let source = include_str!("../fixtures/embedding/typed/intrinsic-source-v1.kgr");
-    let first = prepare_typed_program(source, &[]);
-    let second = prepare_typed_program(
-        include_str!("../fixtures/embedding/typed/intrinsic-source-v2.kgr"),
-        &[],
-    );
+    let first = prepare_typed_program(source);
+    let second = prepare_typed_program(include_str!(
+        "../fixtures/embedding/typed/intrinsic-source-v2.kgr"
+    ));
     let mut runtime = Runtime::default();
     runtime.set_default_context(Default::default());
     let program = runtime.load_program(&first, Default::default()).unwrap();

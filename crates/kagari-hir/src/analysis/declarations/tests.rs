@@ -125,21 +125,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
             assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
         }
     }
-    let future = third
-        .files()
-        .find(|file| {
-            file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "future")
-        })
-        .unwrap()
-        .declared
-        .lowered
-        .module
-        .native_types
-        .iter()
-        .find(|item| item.name == "Future")
-        .unwrap();
-    assert_eq!(future.generic_params.len(), 1);
-    assert!(future.host.is_none());
+
     let core = &third
         .files()
         .find(|file| {

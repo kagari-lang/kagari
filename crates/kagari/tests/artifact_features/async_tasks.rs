@@ -9,8 +9,14 @@ mod provider;
 use kagari::{BytecodeArtifact, engine::KagariEngine, program::Program};
 
 #[cfg(feature = "source")]
+use kagari::runtime::Runtime;
+#[cfg(feature = "source")]
+use kagari_runtime::{execution::owned::DriveResult, session::owned::OwnedExecution};
+#[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
 use provider::FakeIo;
+#[cfg(feature = "source")]
+use std::num::NonZeroUsize;
 use std::{
     fs,
     future::Future,
@@ -33,6 +39,57 @@ impl Wake for Notify {
             Err(TrySendError::Disconnected(())) => panic!("artifact driver disconnected"),
         }
     }
+}
+
+#[cfg(feature = "source")]
+#[test]
+fn source_free_authored_future_runs_without_providers() {
+    let bytes = {
+        let artifact = KagariEngine::default()
+            .compile_to_artifact(
+                SourceFile::new(
+                    "memory://authored-future.kgr",
+                    include_str!("../fixtures/authored_future.kgr"),
+                ),
+                Default::default(),
+            )
+            .unwrap();
+        artifact.records().to_bytes(artifact.definitions()).unwrap()
+    };
+    let artifact = BytecodeArtifact::from_bytes(&bytes).unwrap();
+    let program =
+        Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    assert!(program.bytecode().source_package().is_none());
+    let mut runtime = KagariEngine::default().runtime(Default::default());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let selected = runtime.select_program(&loaded).unwrap();
+    runtime.collect_garbage().unwrap();
+    let baseline = runtime.gc_stats().root_registrations;
+
+    let complete = |runtime: &mut Runtime, owner: OwnedExecution| {
+        let slice = NonZeroUsize::new(1).unwrap();
+        for _ in 0..1000 {
+            match runtime.drive(&owner, slice).unwrap() {
+                DriveResult::Runnable => {
+                    runtime.collect_garbage().unwrap();
+                }
+                DriveResult::Complete(value) => return value.unwrap(),
+                DriveResult::Waiting => panic!("script-only Future unexpectedly waited"),
+            }
+        }
+        panic!("expected bounded completion");
+    };
+    let factory = runtime
+        .start(&selected, "run", &[], Default::default())
+        .unwrap();
+    let future = complete(&mut runtime, factory);
+    let execution = runtime.start_future(&future, Default::default()).unwrap();
+    drop(future);
+    let result = complete(&mut runtime, execution);
+    assert_eq!(result.as_i32(), Some(42));
+    drop(result);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(runtime.gc_stats().root_registrations, baseline);
 }
 
 #[test]

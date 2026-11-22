@@ -13,7 +13,10 @@ use kagari_contract::types::{InterfaceTable, PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TypeDefKind},
-    language::{Protocol, requirements, schema::constructor_shape_valid},
+    language::{
+        Protocol, requirements,
+        schema::{constructor_shape_valid, future_shape_valid},
+    },
 };
 use std::collections::HashSet;
 
@@ -35,7 +38,8 @@ pub(super) fn nominal(
                     ty.fields.iter().all(|f| f.host_policy.is_none())
                 }
                 TypeDefKind::Native(_) => constructor_shape_valid(id, ty, defs),
-                _ => false,
+                TypeDefKind::NativeStorage(_) => future_shape_valid(id, ty, defs),
+                TypeDefKind::Host(_) => false,
             };
             allowed.then_some(id)
         }

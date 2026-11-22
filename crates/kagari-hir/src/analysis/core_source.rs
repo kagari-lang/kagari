@@ -70,6 +70,7 @@ mod tests {
         program::ProgramCheckError,
         resolver::resolved::ResolvedName,
         tests::{common::definition, native_fixture::function_module},
+        typeck::table::ResolvedTypeTarget,
         types::TypeId,
     };
     use kagari_common::identity::DefinitionKind;
@@ -77,7 +78,11 @@ mod tests {
         diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceSnapshot,
     };
     use kagari_syntax::ast::{borrow::AstNode, views::ItemView};
-    use kagari_types::{language::role::LangRole, scalar::BuiltinType, ty::Ty};
+    use kagari_types::{
+        language::{binding, role::LangRole},
+        scalar::BuiltinType,
+        ty::Ty,
+    };
     use std::{collections::BTreeMap, sync::Arc};
 
     #[test]
@@ -135,6 +140,77 @@ mod tests {
             let selected = root.aggregates.language_trait(protocol).unwrap();
             assert_eq!(selected.declaration, imported[protocol.name()], "{role:?}");
         }
+    }
+
+    #[test]
+    fn core_only_async_and_explicit_future_share_the_authored_declaration() {
+        let client = Arc::new(SourceFile::new(
+            "/client/async_client.kgr",
+            include_str!("../../tests/fixtures/analysis/external/core_future.kgr"),
+        ));
+        let root = client.id();
+        let cancel = Default::default();
+        let snapshot = AnalysisDatabase::default()
+            .snapshot(SourceSnapshot::single_file(client), &cancel)
+            .unwrap();
+        snapshot.check_program(root, &cancel).unwrap();
+        let file = snapshot.file(root).unwrap();
+        let facts = file.result().facts();
+        let future = file
+            .definitions()
+            .lookup(&binding::future_declaration())
+            .unwrap();
+        let signatures = file.signatures().facts();
+        let signature = |name| {
+            signatures
+                .functions()
+                .iter()
+                .find(|function| function.name == name)
+                .unwrap()
+        };
+        let TypeId::NativeObject(output) = &signature("drive").return_type else {
+            panic!("async must produce the canonical Native Future");
+        };
+        assert_eq!(output.declaration, future);
+        assert_eq!(output.arguments, [TypeId::Builtin(BuiltinType::I32)]);
+        assert!(output.associated_types.is_empty());
+        let pending = signature("pending");
+        assert_eq!(pending.return_type, signature("drive").return_type);
+        let TypeId::NativeObject(local) = &signature("keep_local").return_type else {
+            panic!("the unqualified reference must select the local Native type");
+        };
+        assert_eq!(
+            local.declaration,
+            definition(
+                file.definitions(),
+                &facts.lowered,
+                DefinitionKind::AssociatedType,
+                "Future",
+            )
+        );
+
+        let reference = facts.lowered.module.functions[pending.id.index()]
+            .return_type
+            .unwrap();
+        let resolved = signatures.type_table().type_ref(reference).unwrap();
+        let Some(ResolvedTypeTarget::Source(target)) = resolved.target else {
+            panic!("the qualified reference must retain a source navigation target");
+        };
+        assert_eq!(target, future);
+        let native = facts.aggregates.native_type(&target).unwrap();
+        assert_eq!(native.generic_params.len(), 1);
+        assert!(native.host.is_none());
+        let declaration = snapshot
+            .declaration(&DeclarationId::Definition(target))
+            .unwrap();
+        let location = declaration.source_location().unwrap();
+        let authored = snapshot.source(location.file).unwrap();
+        assert_eq!(authored.name(), "kagari-core:///future.kgr");
+        assert_eq!(
+            &authored.text()[location.range.start..location.range.end],
+            "Future"
+        );
+        assert!(authored.text()[..location.range.start].ends_with("pub native type "));
     }
 
     #[test]
@@ -230,8 +306,8 @@ mod tests {
         assert_eq!(snapshot.inputs().library_modules().len(), MODULES.len() + 1);
         assert_eq!(snapshot.physical_sources().files().count(), 1);
         for name in [
-            "cmp", "option", "convert", "default", "ops", "result", "fmt", "hash", "iter", "str",
-            "string",
+            "cmp", "option", "convert", "default", "ops", "result", "future", "fmt", "hash",
+            "iter", "str", "string",
         ] {
             let owner = identity(name);
             let member = checked

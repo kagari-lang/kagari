@@ -25,6 +25,7 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::path::HostPathDeclaration,
     declaration::{TypeDefKind, module::ModuleDecl},
+    language::binding::future_declaration,
 };
 use std::{collections::BTreeMap, iter, slice, sync::Arc};
 
@@ -280,6 +281,11 @@ impl NativeModule {
         registry: &mut NativeRegistry,
         imports: &mut CatalogImports,
     ) -> NativeResult<()> {
+        if self.declaration().identity == future_declaration().module {
+            return Err(RuntimeError::metadata_conflict(
+                "core Future belongs to authored core source",
+            ));
+        }
         let owned = imports.import(&self.owned)?;
         for id in owned.traits.ids() {
             if registry.catalog.traits.get_id(id).is_some() {

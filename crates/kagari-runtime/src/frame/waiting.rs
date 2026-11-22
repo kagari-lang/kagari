@@ -182,9 +182,8 @@ impl FrameStack {
         let Ty::NativeObject(nominal) = applied.ty() else {
             return Err(RuntimeError::module_validation("awaitable storage type"));
         };
-        let role = runtime
-            .native_entries
-            .catalog
+        let role = owner
+            .conversion_catalog()
             .types
             .get_id(nominal.declaration)
             .map(|ty| ty.kind);

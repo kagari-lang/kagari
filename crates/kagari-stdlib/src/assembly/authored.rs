@@ -74,6 +74,14 @@ pub(super) const FACADES: &[Facade] = &[
         exports: &[(DefinitionKind::Trait, &["Debug", "Display"])],
     },
     Facade {
+        path: "future",
+        docs: (
+            "Cold asynchronous operations. Creation captures inputs without starting work; first await drives the operation once. Aliases share that single-drive state.",
+            "fn retain(value: std::future::Future<i32>) -> core::future::Future<i32> { value }",
+        ),
+        exports: &[(DefinitionKind::AssociatedType, &["Future"])],
+    },
+    Facade {
         path: "hash",
         docs: (
             "Hash codes for key-based lookup.",

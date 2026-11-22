@@ -204,7 +204,7 @@ struct Fixture {
 impl Fixture {
     fn new(panic_hook_capture: bool) -> Self {
         let probe = Arc::new(Probe::default());
-        let role_provider = crate::test_support::future::provider();
+        let role_provider = crate::test_support::future::isolated_provider();
         let role_declaration = role_provider.to_declaration();
         let catalog = role_provider.catalog();
         let future = catalog.future_type().unwrap().apply([Type::i32()]).unwrap();

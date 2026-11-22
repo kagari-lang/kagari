@@ -1,0 +1,15 @@
+native type Future<T>;
+
+async fn drive() -> i32 {
+    async {
+        42i32
+    }.await
+}
+
+fn pending() -> core::future::Future<i32> {
+    drive()
+}
+
+fn keep_local(value: Future<i32>) -> Future<i32> {
+    value
+}

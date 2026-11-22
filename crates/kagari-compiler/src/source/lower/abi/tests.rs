@@ -15,7 +15,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{TypeDefKind, native::NativeStorageLayout, verify::validate_native_declarations},
-    language::{Protocol, schema::CoreEnum},
+    language::{Protocol, binding, schema::CoreEnum},
     scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
@@ -103,6 +103,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         .unwrap();
 
     let mut seen_result = false;
+    let mut seen_future = false;
     let mut seen_spawn_error = false;
     let mut seen_char_error = false;
     for declared in snapshot.declaration_snapshot().files() {
@@ -127,9 +128,20 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         assert!(!abi.public_items.iter().any(|item| {
             matches!(item, PublicItem::Type(ty) if matches!(ty.name.as_str(), "Ref" | "RefMut"))
         }));
-        let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
-            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)))
-        }).collect();
+        let native: Vec<_> = abi
+            .public_items
+            .into_iter()
+            .filter(|item| {
+                matches!(item, PublicItem::Type(ty) if matches!(
+                    ty.kind,
+                    TypeDefKind::Native(_)
+                        | TypeDefKind::Enum
+                        | TypeDefKind::NativeStorage(
+                            NativeStorageLayout::Opaque | NativeStorageLayout::Future
+                        )
+                ))
+            })
+            .collect();
         verify::validate(
             &native,
             declared.source().module_identity(),
@@ -156,6 +168,14 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                     assert_eq!(ty.variants[0].payload, [ty.generic_params[0].as_type()]);
                     assert_eq!(ty.variants[1].payload, [ty.generic_params[1].as_type()]);
                     seen_result = true;
+                }
+                TypeDefKind::NativeStorage(NativeStorageLayout::Future) => {
+                    let canonical = binding::future_declaration();
+                    assert_eq!(declared.source().module_identity(), &canonical.module);
+                    assert_eq!(ty.name, "Future");
+                    assert_eq!(ty.generic_params.len(), 1);
+                    assert!(ty.variants.is_empty());
+                    seen_future = true;
                 }
                 TypeDefKind::Enum if ty.name == "SpawnError" => {
                     assert!(ty.generic_params.is_empty());
@@ -184,7 +204,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         }
     }
 
-    assert!(seen_result && seen_spawn_error && seen_char_error);
+    assert!(seen_result && seen_future && seen_spawn_error && seen_char_error);
 }
 
 #[test]

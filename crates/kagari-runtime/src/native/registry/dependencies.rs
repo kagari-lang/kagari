@@ -18,8 +18,10 @@ use kagari_types::{
         native::NativeTypeConstructor,
     },
     language::{
-        Protocol, comparison, requirements,
-        schema::{CoreEnum, constructor_shape_valid},
+        Protocol,
+        binding::future_declaration,
+        comparison, requirements,
+        schema::{CoreEnum, constructor_shape_valid, future_shape_valid},
     },
     range::RangeKind,
     ty::Ty,
@@ -70,6 +72,17 @@ pub(super) fn validate_installed_values(
 ) -> Result<(), RuntimeError> {
     let definitions = installed.definitions();
     let source = admission.source();
+    let future = future_declaration();
+    if module.identity == future.module
+        && !source.lookup(&future).is_some_and(|id| {
+            type_contract(&module.identity, &module.public_items, &id, source)
+                .is_some_and(|ty| future_shape_valid(id, ty, source))
+        })
+    {
+        return Err(RuntimeError::module_validation(
+            "missing or invalid public core Future declaration",
+        ));
+    }
     if module.identity == Protocol::PartialOrd.module()
         && reachable_owner(module, &CoreEnum::Option.declaration().module, program).is_none()
     {

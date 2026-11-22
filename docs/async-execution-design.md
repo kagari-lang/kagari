@@ -622,10 +622,12 @@ semantics or infer missing suspension evidence.
 
 ### Semantic roles, factories and portable execution
 
-Register `Future<T>` and `Task<T>` as nominal managed native types with exactly one
-invariant output parameter and distinct checked language roles. The foundation
-exports Future from `core::future` and Task from `core::task`, with `std` facades and prelude
-names. Role checks use declaration identities and validated generic arity, not
+`Future<T>` and `Task<T>` are nominal managed native types with exactly one
+invariant output parameter and distinct checked language roles. Authored core
+owns `core::future::Future<T>` and Runtime binds its storage without a second
+provider. The task provider still owns `core::task::Task<T>`. Standard facades
+and the prelude re-export their declarations. Role checks use declaration
+identities and validated generic arity, not
 spelling, member lookup or a user-defined `await` method. Physical representation
 is the existing managed heap-object slot, with runtime-checked payload kind,
 owner and concrete output type. No new scalar ABI category is required.

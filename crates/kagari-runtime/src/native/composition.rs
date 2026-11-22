@@ -103,9 +103,8 @@ pub(crate) fn future_output(
     };
     if nominal.arguments.len() != 1
         || !nominal.associated_types.is_empty()
-        || runtime
-            .native_entries
-            .catalog
+        || owner
+            .conversion_catalog()
             .types
             .get_id(nominal.declaration)
             .is_none_or(|record| {

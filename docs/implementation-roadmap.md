@@ -1487,6 +1487,14 @@ No public Driver, mandatory executor, compatibility Runtime alias or parallel he
 execution was added. Explicit backend-owned staging remains for tooling, low-level
 contracts and the browser's sliced ordinary-main protocol, not normal SDK calls.
 
+The [core Future declaration](../library/core/future.kgr) now ships as authored
+source; Runtime supplies storage and checks the compiled declaration before
+publication. The standard facade only re-exports it. A bare SDK source-free
+round trip runs nested script awaits and releases its roots. Selected frontend-free
+SDK tests also pass for Native waits, wake delivery and structured composition.
+`Task` and `TaskScope` still belong to the existing provider; their ownership is a
+separate design question.
+
 Focused local validation covers async syntax/capture/control flow, real wake routing,
 structured IO/failure/cleanup, original Err provenance, Task dependency cycles,
 public typed calls/objects/methods, pinned reload and frontend-free artifact execution.
