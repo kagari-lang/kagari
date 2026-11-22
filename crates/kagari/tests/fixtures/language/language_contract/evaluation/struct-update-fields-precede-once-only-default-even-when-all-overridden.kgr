@@ -1,3 +1,5 @@
+use std::io::print;
+
 struct P {
     val left: i32,
     val right: i32

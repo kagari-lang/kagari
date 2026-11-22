@@ -150,8 +150,9 @@ $env:KAGARI_AOT_LINKER = 'C:\Program Files\LLVM\bin\lld-link.exe'
 `run-aot` is explicitly a trusted-native-code command and reports the execution
 route and returned value. The [compiler-free host example](../../crates/kagari/examples/aot_host.rs)
 loads the same bundle with SDK defaults disabled and `aot-load` enabled.
-It explicitly installs the CLI producer's `host::log` contract: even an unused
-native declaration must match an installed binding before Program publication.
+It explicitly installs the same `std::io` output contract as the CLI producer.
+Native declarations carried by the artifact must match installed bindings before
+Program publication, even if the selected entry does not call them.
 
 `uv run python scripts/check_aot.py` builds a standalone loader consumer, verifies
 its normal/build dependency graph excludes frontend/compiler/Cranelift crates,

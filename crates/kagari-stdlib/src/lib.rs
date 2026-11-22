@@ -5,6 +5,7 @@ mod foundation;
 
 pub mod declarations;
 pub mod identity;
+pub mod io;
 pub mod namespaces;
 
 use crate::{assembly::StandardBundle, declarations::StandardDeclarations};

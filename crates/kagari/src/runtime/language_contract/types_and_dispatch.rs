@@ -149,7 +149,7 @@ fn enum_alias_members() {
 
 #[test]
 fn enum_evaluation_order() {
-    run_routes(&Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } impl PartialEq for Event { fn eq(self, other: Self) -> bool { match (self, other) { (Event::Data(a, b), Event::Data(c, d)) => a == c && b == d } } } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| RootedValue::from(true))).effects(&["first", "second"], &["first", "second"]));
+    run_routes(&Case::new("enum-evaluation-order", "use std::io::print;\nenum Event { Data(i32, i32) } impl PartialEq for Event { fn eq(self, other: Self) -> bool { match (self, other) { (Event::Data(a, b), Event::Data(c, d)) => a == c && b == d } } } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| RootedValue::from(true))).effects(&["first", "second"], &["first", "second"]));
 }
 
 #[test]
@@ -546,7 +546,7 @@ fn generic_same_storage_distinct_types() {
 
 #[test]
 fn generic_numeric_overflow() {
-    run_routes(&Case::new("generic-numeric-overflow", "use std::ops::Add; fn add<T: Add<T, Output = T>>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]));
+    run_routes(&Case::new("generic-numeric-overflow", "use std::io::print;\nuse std::ops::Add; fn add<T: Add<T, Output = T>>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]));
 }
 
 #[test]
@@ -570,7 +570,7 @@ fn user_type_of_is_direct_call() {
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn method_receiver_before_argument() {
-    run_routes(&Case::new("method-receiver-before-argument", "fn receiver() -> Vec<i32> { print(\"receiver\"); Vec::from([1]) } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(|_| RootedValue::unit())).effects(&["receiver", "argument"], &["receiver", "argument"]));
+    run_routes(&Case::new("method-receiver-before-argument", "use std::io::print;\nfn receiver() -> Vec<i32> { print(\"receiver\"); Vec::from([1]) } fn value() -> i32 { print(\"argument\"); 2 } fn main() { receiver().push(value()); }", Expected::Value(|_| RootedValue::unit())).effects(&["receiver", "argument"], &["receiver", "argument"]));
 }
 */
 

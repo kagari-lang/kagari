@@ -27,21 +27,22 @@ use kagari_runtime::{
     Runtime as CoreRuntime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
-    host::{HostCallContext, HostError},
+    host::HostError,
     module::{ExecutableModule, InstalledProgram, entry::ProgramEntry},
-    native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, host, module::NativeModule,
-    },
+    native::{builder::ModuleBuilder, conversion::context::ConversionContext, host},
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
-    value::{carriers::RootedValue, view::ValueView},
+    value::carriers::RootedValue,
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::io;
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
+    declaration::{FnDecl, host::HostCallPolicy, module::ModuleDecl},
+    scalar::BuiltinType,
+    ty::Ty,
 };
 use std::{
     cell::Cell,
@@ -97,16 +98,18 @@ enum Expected {
 }
 
 #[derive(Debug, PartialEq)]
-struct HostCall {
-    symbol: &'static str,
-    args: Vec<String>,
+enum HostCall {
+    ObserveVector,
+    Write {
+        message: String,
+        suffix: &'static str,
+    },
 }
 
 /// The test host's append-only log has explicit commit records. Calls and
 /// commits are distinct: rejected calls must not produce mutation records.
 #[derive(Debug, PartialEq)]
 struct Mutation {
-    target: &'static str,
     previous_len: usize,
     appended: String,
 }
@@ -185,31 +188,9 @@ impl<'a> Case<'a> {
     }
 }
 
-fn logging_module(
-    entry: impl for<'call> Fn(
-        &mut HostCallContext<'call>,
-        &[ValueView<'call>],
-    ) -> Result<ValueView<'call>, HostError>
-    + Send
-    + Sync
-    + 'static,
-) -> NativeModule {
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        standard_library().declarations().catalog(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder.bind(log, host::callback(entry)).unwrap();
-    builder.finish().unwrap()
-}
-
 fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     let context = DefinitionContext::new().unwrap();
-    let vector = kagari_types::ty::Ty::Array(Box::new(kagari_types::ty::Ty::Builtin(
-        kagari_types::scalar::BuiltinType::I32,
-    )));
+    let vector = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     let identity = ModuleIdentity {
         package: PackageId("observe".into()),
         path: vec![],
@@ -442,54 +423,47 @@ fn run(
     let cancel_call = case.cancel_call;
     let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
-    logging_module(move |cx, args| {
-        let [message] = args else {
-            return Err(HostError::new("log requires one string"));
-        };
+    let catalog = standard_library().declarations().catalog();
+    io::module(catalog, move |cx, message, suffix| {
         let message = cx
             .read_string(message, str::to_owned)
             .map_err(|error| HostError::new(error.to_string()))?;
         let mut state = capture.lock().unwrap();
-        state.calls.push(HostCall {
-            symbol: "host.log",
-            args: vec![message.clone()],
-        });
+        let appended = format!("{message}{suffix}");
+        state.calls.push(HostCall::Write { message, suffix });
         if reject_call == Some(state.calls.len()) {
             return Err(HostError::new("test host rejected append"));
         }
         let previous_len = state.log.len();
-        state.log.push(message.clone());
+        state.log.push(appended.clone());
         state.mutations.push(Mutation {
-            target: "host.log",
             previous_len,
-            appended: message.clone(),
+            appended,
         });
         if cancel_call == Some(state.calls.len()) {
             cancel.cancel();
         }
-        Ok(ValueView::unit())
+        Ok(())
     })
+    .unwrap()
     .install(&mut runtime)
     .unwrap();
     let observed_vector = Arc::new(Mutex::new(None::<RootedValue>));
     if case.vector.is_some() {
         let capture_vector = observed_vector.clone();
         let capture_host = host.clone();
-        let mut builder = ModuleBuilder::from_declaration(
-            observe,
-            standard_library().declarations().catalog(),
-            Default::default(),
-        )
-        .unwrap();
+        let mut builder =
+            ModuleBuilder::from_declaration(observe, catalog, Default::default()).unwrap();
         let vector = builder.declared_function("vector").unwrap();
         builder
             .bind(
                 vector,
                 host::callback(move |cx, _| {
-                    capture_host.lock().unwrap().calls.push(HostCall {
-                        symbol: "observe.vector",
-                        args: vec![],
-                    });
+                    capture_host
+                        .lock()
+                        .unwrap()
+                        .calls
+                        .push(HostCall::ObserveVector);
                     let root = capture_vector
                         .lock()
                         .unwrap()
@@ -511,7 +485,7 @@ fn run(
         let rooted = runtime
             .alloc_array(
                 &selected,
-                kagari_types::ty::Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
+                Ty::Builtin(BuiltinType::I32),
                 &initial
                     .iter()
                     .copied()
@@ -748,26 +722,19 @@ fn run(
     let mut expected_calls = case
         .calls
         .iter()
-        .map(|message| HostCall {
-            symbol: "host.log",
-            args: vec![(*message).into()],
+        .map(|message| HostCall::Write {
+            message: (*message).into(),
+            suffix: "",
         })
         .collect::<Vec<_>>();
     if case.vector.is_some() {
-        expected_calls.insert(
-            0,
-            HostCall {
-                symbol: "observe.vector",
-                args: vec![],
-            },
-        );
+        expected_calls.insert(0, HostCall::ObserveVector);
     }
     let expected_mutations = case
         .committed
         .iter()
         .enumerate()
         .map(|(previous_len, message)| Mutation {
-            target: "host.log",
             previous_len,
             appended: (*message).into(),
         })

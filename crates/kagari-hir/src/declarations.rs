@@ -1,6 +1,6 @@
 //! Declaration and binding identities owned by one semantic analysis.
 use kagari_types::{
-    declaration::{TypeDef, logging, names::NameNamespace},
+    declaration::{TypeDef, names::NameNamespace},
     language::role::LangRole,
 };
 
@@ -221,9 +221,6 @@ impl Declarations {
         cancel
             .check()
             .map_err(|_| DefinitionMappingError::Cancelled)?;
-        // The print helper borrows this immutable scoped contract during checking.
-        // Initialize it at the fallible declaration boundary, before publishing facts.
-        logging::declaration()?;
         let root = context.intern_root(source.module_identity())?;
         let mut builder = Builder {
             source: lowered.source_surface().map(|_| source),

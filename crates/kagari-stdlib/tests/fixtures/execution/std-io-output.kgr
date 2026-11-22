@@ -1,0 +1,8 @@
+use std::io::print;
+
+use std::io::println;
+
+fn main() {
+    print("hello");
+    println("world");
+}

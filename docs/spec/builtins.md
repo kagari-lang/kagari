@@ -30,7 +30,8 @@ remain withdrawn; no compatibility aliases are installed.
 The [eleven packaged modules](../../library/core/src/lib.rs) are `core::{cmp,
 convert, default, fmt, hash, iter, ops, option, result, str}` and `alloc::string`.
 Their explicit paths work without stdlib or a prelude. The other modules below
-require the optional bundle. Its `std` re-exports preserve definition identities,
+require the optional bundle or a separately installed provider (`std::io`). The
+`std` re-exports preserve definition identities,
 including associated members, constructors, documentation and navigation.
 
 | Canonical module | Declarations |
@@ -50,6 +51,7 @@ including associated members, constructors, documentation and navigation.
 | `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
 | `alloc::string` | String scalar declaration; optional methods belong to `std::string` |
 | `std::collections` | List/MutableList, Map/MutableMap and Set/MutableSet interfaces |
+| `std::io` | Host-backed `print(String)` and `println(String)`, installed separately |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
 `std::iter`, `std::str`, `std::default`, `std::num`, `std::char`, `std::option`, `std::result`, `std::future`
@@ -68,6 +70,8 @@ an explicit operator trait bound or implementation requires that name in scope.
 Hash, Debug, Display, operator traits other than Fn, collection interfaces,
 Ordering, ranges and error types require explicit imports.
 New public library declarations do not automatically enter the prelude.
+In particular, text output requires an explicit [I/O provider](host-interop.md#function-registration)
+and an import such as `use std::io::println;` or a qualified call.
 Generic operation requirements use [ordinary trait bounds](traits.md#operation-specific-bounds),
 not compiler-recognized numeric constraint names.
 

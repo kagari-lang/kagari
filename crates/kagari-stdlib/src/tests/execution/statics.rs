@@ -19,7 +19,7 @@ use kagari_runtime::{
     reload::ReloadValidationError,
     session::{ExecutionEvent, ExecutionObserver},
     task::{CancellationCause, drive::TaskDriveResult},
-    value::{carriers::RootedValue, view::ValueView},
+    value::carriers::RootedValue,
 };
 
 #[cfg(test)]
@@ -27,8 +27,8 @@ use crate::tests::support::bytecode::load_bytecode;
 
 use crate::tests::execution::{
     common::{
-        compile_logging_test_bytecode, compile_native_test_bytecode, compile_test_bytecode,
-        logging_module, round_trip_bytecode, standard_runtime,
+        compile_native_test_bytecode, compile_print_test_bytecode, compile_test_bytecode,
+        print_module, round_trip_bytecode, standard_runtime,
     },
     native_fixtures,
 };
@@ -326,7 +326,7 @@ fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
 
 #[test]
 fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable() {
-    let program = compile_logging_test_bytecode(include_str!(
+    let program = compile_print_test_bytecode(include_str!(
         "../../../tests/fixtures/execution/static-task-cancel.kgr"
     ));
     for before_start in [true, false] {
@@ -334,10 +334,10 @@ fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable
         let options = runtime.execution_options();
         let cancellation = options.cancellation.clone();
         let cancel_during_initializer = cancellation.clone();
-        logging_module(move |cx, _| {
+        print_module(move |cx, _, _| {
             cx.runtime_mut().collect_garbage().unwrap();
             cancel_during_initializer.cancel();
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -768,11 +768,11 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
 #[test]
 fn native_reentry_cannot_swallow_a_cycle_and_commit_success() {
     let source = include_str!("../../../tests/fixtures/execution/static-native-reentry.kgr");
-    let code = compile_logging_test_bytecode(source);
+    let code = compile_print_test_bytecode(source);
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut runtime = standard_runtime(Default::default());
-    logging_module(move |cx, _| {
+    print_module(move |cx, _, _| {
         called.fetch_add(1, Ordering::Relaxed);
         cx.runtime_mut().collect_garbage().unwrap();
         let root = cx.runtime().execution_root().unwrap();
@@ -782,7 +782,7 @@ fn native_reentry_cannot_swallow_a_cycle_and_commit_success() {
                 .execute_module(&root, "read", options)
                 .is_err()
         );
-        Ok(ValueView::unit())
+        Ok(())
     })
     .install(&mut runtime)
     .unwrap();

@@ -1,59 +1,43 @@
 /* Temporarily paused: stdlib restoration (NC01-NC06).
-use crate::test_support::standard::standard_library;
+use crate::{
+    BytecodeArtifact, context::ExecutionContext, engine::KagariEngine, program::Program,
+    test_support::{cancellation::cancel_after, standard::standard_library},
+};
+use kagari_runtime::{error::RuntimeErrorKind, host::HostError, module::entry::ProgramEntry};
+use kagari_source::source::SourceFile;
+use kagari_stdlib::io;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn never_preserves_effects_and_releases_resources_on_traps_and_cancellation() {
-    let engine =
-        KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
-    let artifact = engine
+    let standard = standard_library();
+    let catalog = standard.declarations().catalog();
+    let modules = standard.modules().unwrap();
+    let engine = KagariEngine::with_native_modules(Default::default(), modules.clone()).unwrap();
+    let reference = io::module(catalog, |_, _, _| Ok(())).unwrap();
+    let compiler = KagariEngine::with_native_modules(
+        Default::default(),
+        modules.into_iter().chain([reference]).collect(),
+    )
+    .unwrap();
+    let artifact = compiler
         .compile_to_artifact(
             SourceFile::new(
                 "never-effects.kgr",
-                r#"
-fn fail(values: Vec<i32>) -> ! { values.push(20); print("before"); val zero = 0; 1 / zero; loop {} }
-fn later(values: Vec<i32>) -> i32 { print("after"); values.push(99); 99 }
-fn consume(a: i32, b: i32) -> i32 { a + b }
-fn main() -> i32 { val values = Vec::from([1]); consume(fail(values), later(values)) }
-pub fn forever() -> ! { loop {} }
-fn impossible(value: !) -> i32 { value }
-pub fn healthy() -> i32 { 42 }
-"#,
+                include_str!("../../../../../tests/fixtures/language/never/never-effects.kgr"),
             ),
             Default::default(),
         )
         .unwrap();
     let effects = Arc::new(Mutex::new(Vec::new()));
     let captured = effects.clone();
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        standard_library().declarations().catalog(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder
-        .bind(
-            log,
-            host::callback(move |cx, args| {
-                let [message] = args else {
-                    panic!("log string")
-                };
-                captured.lock().unwrap().push(
-                    cx.read_string(message, str::to_owned)
-                        .map_err(|error| HostError::new(error.to_string()))?,
-                );
-                Ok(ValueView::unit())
-            }),
-        )
-        .unwrap();
-    let installed = KagariEngine::with_native_modules(
-        Default::default(),
-        standard_library().modules()
-            .unwrap()
-            .into_iter()
-            .chain(vec![builder.finish().unwrap()])
-            .collect(),
-    )
+    let sink = io::module(catalog, move |cx, message, suffix| {
+        let message = cx
+            .read_string(message, str::to_owned)
+            .map_err(|error| HostError::new(error.to_string()))?;
+        captured.lock().unwrap().push((message, suffix));
+        Ok(())
+    })
     .unwrap();
     for encoded in [false, true] {
         let artifact = if encoded {
@@ -69,9 +53,11 @@ pub fn healthy() -> i32 { 42 }
         let mut runtime = engine.runtime(context.clone());
         let prepared =
             Program::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-        assert!(runtime.load_program(&prepared, Default::default()).is_err());
+        let error = runtime.load_program(&prepared, Default::default()).unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+        assert!(error.to_string().contains("native binding is not installed"));
         effects.lock().unwrap().clear();
-        let mut runtime = installed.runtime(context.clone());
+        sink.install(&mut runtime).unwrap();
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         runtime.collect_garbage().unwrap();
         let roots = runtime.gc_stats().root_registrations;
@@ -79,17 +65,17 @@ pub fn healthy() -> i32 { 42 }
             .execute(&loaded, ProgramEntry::Main, &[], &context)
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_SCRIPT_TRAP");
-        assert_eq!(*effects.lock().unwrap(), vec!["before"]);
+        assert_eq!(*effects.lock().unwrap(), [("before".to_owned(), "")]);
         assert!(runtime.execution_root().is_none());
         runtime.collect_garbage().unwrap();
         assert_eq!(runtime.gc_stats().root_registrations, roots);
         let limited = context.clone();
 
         let selected = runtime.select_program(&loaded).unwrap();
-        let mut cancellation = support::cancel_after(&mut runtime, &selected, 20);
+        let mut cancellation = cancel_after(&mut runtime, &selected, 20);
         let error = cancellation
             .runtime_mut()
-            .execute(&loaded, "forever", &[], &limited)
+            .execute(&loaded, ProgramEntry::Export("forever"), &[], &limited)
             .unwrap_err();
         assert_eq!(error.code(), "KG_RUNTIME_CANCELLED");
         drop(cancellation);
@@ -99,7 +85,12 @@ pub fn healthy() -> i32 { 42 }
 
         assert_eq!(
             runtime
-                .execute(&loaded, "healthy", &[], &context)
+                .execute(
+                    &loaded,
+                    ProgramEntry::Export("healthy"),
+                    &[],
+                    &ExecutionContext::default(),
+                )
                 .unwrap()
                 .return_value
                 .as_i32()

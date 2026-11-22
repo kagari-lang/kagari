@@ -140,15 +140,9 @@ fn lowers_debugger_metadata_into_bytecode() {
     let context = DefinitionContext::new().unwrap();
     let bytecode = common::adopt_bytecode(
         &context,
-        common::bytecode_ok(
-            r#"
-fn main(value: i32) -> i32 {
-    val next = value + 1;
-    print("debug");
-    next
-}
-"#,
-        ),
+        common::bytecode_ok_with_io(include_str!(
+            "../../../tests/fixtures/debug-native-call.kgr"
+        )),
     );
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
     let debug = &function.metadata.debug;
@@ -225,19 +219,8 @@ fn main(value: i32) -> i32 {
 #[test]
 fn debug_local_ranges_close_when_their_lexical_block_ends() {
     let context = DefinitionContext::new().unwrap();
-    let source = r#"
-fn main() -> i32 {
-    val outer = 5;
-    if true {
-        val inner = 1;
-        print("inside");
-    } else {
-        print("outside");
-    };
-    outer
-}
-"#;
-    let bytecode = common::adopt_bytecode(&context, common::bytecode_ok(source));
+    let source = include_str!("../../../tests/fixtures/debug-lexical-range.kgr");
+    let bytecode = common::adopt_bytecode(&context, common::bytecode_ok_with_io(source));
     let function = bytecode.modules[bytecode.root.index()]
         .functions
         .iter()
@@ -272,17 +255,9 @@ fn populates_bytecode_tables_and_effect_metadata() {
     let context = DefinitionContext::new().unwrap();
     let bytecode = common::adopt_bytecode(
         &context,
-        common::bytecode_ok(
-            r#"
-fn add(a: i32, b: i32) -> i32 { a + b }
-
-fn main() -> i32 {
-    print("ok");
-    print("ok");
-    add(1, 2)
-}
-"#,
-        ),
+        common::bytecode_ok_with_io(include_str!(
+            "../../../tests/fixtures/native-call-tables.kgr"
+        )),
     );
     let main = bytecode.modules[bytecode.root.index()]
         .functions

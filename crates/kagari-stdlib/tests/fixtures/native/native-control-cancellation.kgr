@@ -1,13 +1,13 @@
 use test::boundary;
 
-use host;
+use std::io::print;
 
 fn main() -> i32 {
     val kept = [42];
     boundary::choose(
         true,
         || {
-            host::log("cancel");
+            print("cancel");
             kept[0]
         }
     )

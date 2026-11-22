@@ -1,13 +1,13 @@
 use test::boundary;
 
-use host;
+use std::io::print;
 
 fn main() -> i32 {
     val kept = [40];
     boundary::choose(
         true,
         || {
-            host::log("outer");
+            print("outer");
             kept[0] + 2
         }
     )
@@ -17,7 +17,7 @@ fn inner() -> i32 {
     boundary::choose(
         true,
         || {
-            host::log("inner");
+            print("inner");
             7
         }
     )

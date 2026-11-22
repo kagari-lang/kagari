@@ -3,8 +3,8 @@ use crate::tests::support::bytecode::load_bytecode;
 use crate::tests::{
     execution::{
         common::{
-            compile_logging_test_bytecode, compile_test_bytecode, logging_module,
-            round_trip_bytecode, standard_runtime,
+            compile_print_test_bytecode, compile_test_bytecode, print_module, round_trip_bytecode,
+            standard_runtime,
         },
         native_boundary::publish_unused_version,
         native_fixtures,
@@ -73,7 +73,7 @@ fn array_values(runtime: &mut Runtime, owner: &ExecutableModule, value: &RootedV
 fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
     for encoded in [false, true] {
         for jit in [false, true] {
-            let module = compile_logging_test_bytecode(include_str!(
+            let module = compile_print_test_bytecode(include_str!(
                 "../../../tests/fixtures/execution/session-reentry-storage.kgr"
             ));
             let make = module.records().modules[module.records().root.index()]
@@ -85,9 +85,9 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let retained = Arc::new(Mutex::new(None));
             let result = retained.clone();
             let mut runtime = runtime();
-            logging_module(move |context, args| {
+            print_module(move |context, message, _| {
                 if context
-                    .read_string(&args[0], |text| text == "outer")
+                    .read_string(message, |text| text == "outer")
                     .unwrap()
                 {
                     let root = context.runtime().execution_root().unwrap();
@@ -128,7 +128,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                     );
                     context.runtime_mut().collect_garbage().unwrap();
                 }
-                Ok(ValueView::unit())
+                Ok(())
             })
             .install(&mut runtime)
             .unwrap();
@@ -194,7 +194,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
     for cancel in [false, true] {
         for encoded in [false, true] {
             for jit in [false, true] {
-                let module = compile_logging_test_bytecode(include_str!(
+                let module = compile_print_test_bytecode(include_str!(
                     "../../../tests/fixtures/execution/session-reentry-termination.kgr"
                 ));
                 let nested = module.records().modules[module.records().root.index()]
@@ -212,7 +212,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     },
                     ..Default::default()
                 });
-                logging_module(move |context, args| {
+                print_module(move |context, message, _| {
                     let root = context.runtime().execution_root().unwrap();
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
                     let temporary = context.convert_value(&root, |cx| {
@@ -224,7 +224,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     let observed = context.retain(&temporary).unwrap();
                     assert_eq!(array_values(context.runtime_mut(), &root, &observed), [11]);
                     drop(observed);
-                    if context.read_string(&args[0], |text| text == "inner").unwrap() {
+                    if context.read_string(message, |text| text == "inner").unwrap() {
                         cancellation.cancel();
                     } else {
                         let arguments = context.retain_temporaries(&[]).unwrap();
@@ -232,7 +232,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                         assert!(matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::StackOverflow }));
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
-                    Ok(ValueView::unit())
+                    Ok(())
                 }).install(&mut runtime).unwrap();
                 let loaded =
                     load_bytecode(&mut runtime, "termination.kgr", route(module, encoded)).unwrap();
@@ -271,7 +271,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     .iter()
                     .map(|frame| frame.function_name.as_str())
                     .collect::<Vec<_>>();
-                assert_eq!(names, ["log", "nested", "log", "main"]);
+                assert_eq!(names, ["print", "nested", "print", "main"]);
                 assert!(
                     matches!(&error, error if error.kind() == if cancel { RuntimeErrorKind::Cancelled } else { RuntimeErrorKind::StackOverflow })
                 );
@@ -301,7 +301,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 
 #[test]
 fn reentry_rejects_foreign_sources_and_retired_code() {
-    let module = compile_logging_test_bytecode(include_str!(
+    let module = compile_print_test_bytecode(include_str!(
         "../../../tests/fixtures/execution/reentry-inputs.kgr"
     ));
     let echo = module.records().modules[module.records().root.index()]
@@ -328,7 +328,7 @@ fn reentry_rejects_foreign_sources_and_retired_code() {
     let retired = Arc::new(Mutex::new(None::<ExecutableModule>));
     let retired_callback = retired.clone();
     let mut runtime = runtime();
-    logging_module(move |context, _| {
+    print_module(move |context, _, _| {
         called.fetch_add(1, Ordering::SeqCst);
         let empty = context.retain_temporaries(&[]).unwrap();
         let main = foreign_module
@@ -374,7 +374,7 @@ fn reentry_rejects_foreign_sources_and_retired_code() {
         let arguments = context.retain_temporaries(&[view]).unwrap();
         let result = reenter(context, &root, echo, arguments).unwrap();
         assert_eq!(array_values(context.runtime_mut(), &root, &result), [11]);
-        Ok(ValueView::unit())
+        Ok(())
     })
     .install(&mut runtime)
     .unwrap();
@@ -430,8 +430,8 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
     for encoded in [false, true] {
         let program = |number| {
             route(
-                compile_logging_test_bytecode(&format!(
-                    "fn main() -> i32 {{ print(\"enter\"); 0 }} fn value() -> i32 {{ {number} }}"
+                compile_print_test_bytecode(&format!(
+                    "use std::io::print; fn main() -> i32 {{ print(\"enter\"); 0 }} fn value() -> i32 {{ {number} }}"
                 )),
                 encoded,
             )
@@ -448,7 +448,7 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
         let targets = versions.clone();
         let values = observed.clone();
         let mut runtime = runtime();
-        logging_module(move |context, _| {
+        print_module(move |context, _, _| {
             let versions = targets.lock().unwrap().clone();
             for version in &versions {
                 let arguments = context.retain_temporaries(&[]).unwrap();
@@ -458,7 +458,7 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
                     .unwrap()
                     .push(result.unwrap().as_i32().unwrap());
             }
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -508,7 +508,7 @@ fn reentry_selects_current_code_and_publication_requires_an_idle_boundary() {
 
 #[test]
 fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
-    let module = compile_logging_test_bytecode(include_str!(
+    let module = compile_print_test_bytecode(include_str!(
         "../../../tests/fixtures/execution/session-reentry-trap.kgr"
     ));
     let fail = module.records().modules[module.records().root.index()]
@@ -518,7 +518,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .unwrap()
         .id;
     let mut runtime = runtime();
-    logging_module(move |context, args| {
+    print_module(move |context, message, _| {
         let root = context.runtime().execution_root().unwrap();
         let arguments = context
             .retain_temporaries(&[ValueView::from(i32::MAX)])
@@ -534,10 +534,10 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         context.runtime_mut().collect_garbage().unwrap();
         assert_eq!(context.runtime().gc_stats().objects, objects);
         assert_eq!(
-            context.read_string(&args[0], str::to_owned).unwrap(),
+            context.read_string(message, str::to_owned).unwrap(),
             "enter"
         );
-        Ok(ValueView::unit())
+        Ok(())
     })
     .install(&mut runtime)
     .unwrap();
@@ -597,14 +597,14 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let cancel = token.clone();
             let calls = Arc::new(AtomicUsize::new(0));
             let recorded = calls.clone();
-            logging_module(move |_, _| {
+            print_module(move |_, _, _| {
                 recorded.fetch_add(1, Ordering::SeqCst);
                 cancel.cancel();
-                Ok(ValueView::unit())
+                Ok(())
             })
             .install(&mut runtime)
             .unwrap();
-            let module = compile_logging_test_bytecode(include_str!(
+            let module = compile_print_test_bytecode(include_str!(
                 "../../../tests/fixtures/execution/session-effect-cancellation.kgr"
             ));
             let loaded = load_bytecode(&mut runtime, "cancel.kgr", route(module, encoded)).unwrap();
@@ -671,7 +671,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
     for encoded in [false, true] {
         let program = || {
             route(
-                compile_logging_test_bytecode(include_str!(
+                compile_print_test_bytecode(include_str!(
                     "../../../tests/fixtures/execution/session-staged-effect.kgr"
                 )),
                 encoded,
@@ -680,9 +680,9 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
         let mut runtime = runtime();
-        logging_module(move |_, _| {
+        print_module(move |_, _, _| {
             observed.fetch_add(1, Ordering::SeqCst);
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -737,7 +737,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
 #[test]
 fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
     for encoded in [false, true] {
-        let module = compile_logging_test_bytecode(include_str!(
+        let module = compile_print_test_bytecode(include_str!(
             "../../../tests/fixtures/execution/session-error-origin.kgr"
         ));
         let fail = module.records().modules[module.records().root.index()]
@@ -749,7 +749,7 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let captured = Arc::new(Mutex::new(None));
         let saved = captured.clone();
         let mut runtime = runtime();
-        logging_module(move |context, _| {
+        print_module(move |context, _, _| {
             let owner = context.runtime().execution_root().unwrap();
             let ty = binding::result(
                 &context.runtime().host().definitions(),
@@ -796,13 +796,13 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
                 .iter()
                 .map(|frame| frame.function_name.as_str())
                 .collect::<Vec<_>>(),
-            ["fail", "log", "main"]
+            ["fail", "print", "main"]
         );
         let saved = captured.lock().unwrap();
         let report = saved.as_ref().unwrap();
         assert_eq!(report.message, "host failure");
         assert_eq!(report.trace.frames.len(), 2);
-        assert_eq!(report.trace.frames[0].function_name, "log");
+        assert_eq!(report.trace.frames[0].function_name, "print");
         assert_eq!(report.trace.frames[1].function_name, "main");
         vm.collect_garbage().unwrap();
         assert_eq!(

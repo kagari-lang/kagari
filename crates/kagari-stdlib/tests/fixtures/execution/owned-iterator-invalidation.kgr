@@ -1,3 +1,5 @@
+use std::io::print;
+
 pub fn make() -> Vec<i32> {
     Vec::from([1, 2, 3])
 }

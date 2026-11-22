@@ -1,0 +1,7 @@
+use std::io::{ print, println };
+
+fn main() -> u64 {
+    print("artifact hello 😀");
+    println("one line");
+    18446744073709551615u64
+}

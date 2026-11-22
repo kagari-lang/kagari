@@ -25,7 +25,7 @@ const example = await readExample(examplePath);
   <p class="playground-lifecycle">Compilation and long native calls are not cooperatively preemptible. Cancel requests cleanup at the next execution yield. Hard stop destroys the Worker and WASM instance, without destructors or rollback of completed effects. Reset cooperatively clears runtime state and results, keeping your source; use Hard stop if it cannot finish.</p>
   <section aria-labelledby="playground-output-heading">
     <h3 id="playground-output-heading">Output</h3>
-    <p>Each <code>web::print</code> message appears on its own line. At most 256 messages / 64 KiB per run, with a 4 KiB limit per message.</p>
+    <p>Each <code>std::io::print</code> or <code>std::io::println</code> message appears on its own line. At most 256 messages / 64 KiB per run, with a 4 KiB limit per message.</p>
     <pre tabindex="0" aria-labelledby="playground-output-heading"><code data-output></code></pre>
     <p data-output-truncated hidden>Output truncated: a message or the run's output limit was reached. Execution can continue; use Cancel or Hard stop to stop it.</p>
   </section>

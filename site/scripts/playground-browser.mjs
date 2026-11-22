@@ -17,7 +17,7 @@ const usage = 'Usage: node site/scripts/playground-browser.mjs [--executable-pat
 const playground = '[data-playground]';
 const sourceSelector = `${playground} [data-source]`;
 const simpleSource = 'fn main() -> i32 { 42 }';
-const loopSource = 'use web::print; fn main() { print("before stop 😀"); loop {} }';
+const loopSource = 'use std::io::print; fn main() { print("before stop 😀"); loop {} }';
 const measurementSource = 'fn main() -> i32 { var sum = 0; for i in 0..1000 { sum += i; } sum }';
 const compressGzip = promisify(gzip);
 const compressBrotli = promisify(brotliCompress);
@@ -269,7 +269,7 @@ async function main({ executablePath, samples }) {
       await idle(page);
       await success(page);
       const printed = '<img src="https://example.invalid/probe" onerror="globalThis.playgroundInjected=true"> & 😀';
-      await run(page, `use web::print; fn main() -> u64 { print(${JSON.stringify(printed)}); 18446744073709551615u64 }`, 'shortcut');
+      await run(page, `use std::io::print; fn main() -> u64 { print(${JSON.stringify(printed)}); 18446744073709551615u64 }`, 'shortcut');
       await success(page, { tag: 'u64', value: '18446744073709551615' });
       assert.equal(await text(page, 'output'), `${printed}\n`);
       assert.equal(await page.locator(`${playground} [data-output] *`).count(), 0, 'Print must create text, not HTML');
@@ -340,11 +340,11 @@ async function main({ executablePath, samples }) {
 
     await browserCheck('bounded-output-visible-truncation', async (page) => {
       await openPlayground(page);
-      await run(page, 'use web::print; fn main() -> i32 { for i in 0..300 { print("x"); } 42 }');
+      await run(page, 'use std::io::print; fn main() -> i32 { for i in 0..300 { print("x"); } 42 }');
       await success(page);
       assert.equal(await text(page, 'output'), 'x\n'.repeat(256));
       await page.locator(`${playground} [data-output-truncated]`).waitFor({ state: 'visible' });
-      await run(page, `use web::print; fn main() -> i32 { for i in 0..20 { print("${'😀'.repeat(1025)}"); } 42 }`);
+      await run(page, `use std::io::print; fn main() -> i32 { for i in 0..20 { print("${'😀'.repeat(1025)}"); } 42 }`);
       await success(page);
       assert.equal(await text(page, 'output'), `${'😀'.repeat(1024)}\n`.repeat(16));
       await page.locator(`${playground} [data-output-truncated]`).waitFor({ state: 'visible' });

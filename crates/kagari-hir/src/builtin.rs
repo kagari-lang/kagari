@@ -17,8 +17,6 @@ pub enum BuiltinFunction {
     SetField,
     /// The `set_index` helper surface, subject to checked index mutation.
     SetIndex,
-    /// The `print` helper surface.
-    Print,
     /// Project a canonical bound from a builtin range; only resolved inside core::ops.
     RangeBound { upper: bool },
     /// Reconstruct a reporting Result residual without changing its detached origin.
@@ -32,7 +30,6 @@ impl BuiltinFunction {
             "get_field" => Some(Self::GetField),
             "set_field" => Some(Self::SetField),
             "set_index" => Some(Self::SetIndex),
-            "print" => Some(Self::Print),
             "__forward_err_origin" if module == Some(&binding::result_declaration().module) => {
                 Some(Self::ForwardErrOrigin)
             }

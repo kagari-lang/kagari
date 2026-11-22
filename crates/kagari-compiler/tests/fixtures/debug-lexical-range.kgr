@@ -1,0 +1,12 @@
+use std::io::print;
+
+fn main() -> i32 {
+    val outer = 5;
+    if true {
+        val inner = 1;
+        print("inside");
+    } else {
+        print("outside");
+    };
+    outer
+}

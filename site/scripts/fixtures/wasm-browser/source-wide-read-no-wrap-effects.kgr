@@ -1,4 +1,4 @@
-use web::print;
+use std::io::print;
 
 fn index() -> u64 {
     print("index");

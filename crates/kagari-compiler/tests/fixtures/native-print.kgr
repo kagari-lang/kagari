@@ -1,0 +1,6 @@
+use std::io::print;
+
+fn main() {
+    print("one");
+    print("two");
+}

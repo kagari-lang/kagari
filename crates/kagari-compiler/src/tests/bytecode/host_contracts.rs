@@ -1,4 +1,4 @@
-use crate::tests::bytecode::*;
+use crate::tests::{bytecode::*, standard::io_module};
 use kagari_bytecode::program::{ModuleRef, verify_program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::types::{named::NamedContract, verify};
@@ -19,18 +19,36 @@ fn host_imports_are_interned_and_checked_before_execution() {
     let context = DefinitionContext::new().unwrap();
     let module = common::adopt_bytecode(
         &context,
-        common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#),
+        common::bytecode_ok_with_io(include_str!("../../../tests/fixtures/native-print.kgr")),
     );
-    let declaration = common::adopt(
-        &context,
-        kagari_types::declaration::logging::declaration().unwrap(),
-    );
+    let declaration = common::adopt(&context, io_module().to_declaration());
     let provider = module
         .modules
         .iter()
         .position(|module| module.identity == declaration.identity)
         .unwrap();
-    assert_eq!(module.modules[module.root.index()].native_imports.len(), 1);
+    let root = &module.modules[module.root.index()];
+    assert!(root.dependencies.contains(&ModuleRef::new(provider)));
+    let [import] = root.native_imports.as_slice() else {
+        panic!("both calls must share one native import");
+    };
+    let definitions = context.snapshot();
+    let target = definitions.resolve(import.instance.declaration).unwrap();
+    assert_eq!(target.module(), &declaration.identity);
+    assert_eq!(target.last().unwrap().name, "print");
+    let calls: Vec<_> = root
+        .functions
+        .iter()
+        .flat_map(|function| &function.instructions)
+        .filter_map(|instruction| match instruction {
+            BytecodeInstruction::Call {
+                callee: CallTarget::Native(id),
+                ..
+            } => Some(id.index()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(calls, [0, 0]);
     assert!(module.modules[provider].dependencies.iter().any(|edge| {
         module.modules[edge.index()].identity == NativeTypeConstructor::String.declaration().module
     }));
@@ -44,24 +62,25 @@ fn host_imports_are_interned_and_checked_before_execution() {
     for mode in 0..4 {
         let mut invalid = module.clone();
         let declarations = &mut invalid.modules[provider].native_declarations;
+        let print = declarations
+            .iter()
+            .position(|declaration| declaration.declaration == import.instance.declaration)
+            .unwrap();
         match mode {
-            0 => declarations.clear(),
+            0 => {
+                declarations.remove(print);
+            }
             1 => {
-                let function = &mut declarations[0].function;
+                let function = &mut declarations[print].function;
                 function.params[0].ty = Ty::Builtin(BuiltinType::Bool);
                 function.host_policy.as_mut().unwrap().passing[0] = HostPassingStyle::Owned;
             }
             2 => {
-                declarations[0].function.params.clear();
-                declarations[0]
-                    .function
-                    .host_policy
-                    .as_mut()
-                    .unwrap()
-                    .passing
-                    .clear();
+                let function = &mut declarations[print].function;
+                function.params.clear();
+                function.host_policy.as_mut().unwrap().passing.clear();
             }
-            _ => declarations.push(declarations[0].clone()),
+            _ => declarations.push(declarations[print].clone()),
         }
         assert!(
             verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),

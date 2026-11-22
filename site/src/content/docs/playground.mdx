@@ -16,10 +16,10 @@ while the Worker compiles or runs.
 ## Printing and results
 
 The prefilled program returns `42` in the Result panel without printing. The
-browser host also installs stdlib and `web::print` for programs that need output:
+browser host also installs the standard library and a bounded `std::io` sink:
 
 ```kagari
-use web::print;
+use std::io::print;
 
 fn main() -> u64 {
     print("Hello from Kagari 😀");
@@ -27,8 +27,11 @@ fn main() -> u64 {
 }
 ```
 
-Replace the editor's contents with this complete example to try output. Results
-use tagged values: this program returns a `u64` with the decimal string
+Replace the editor's contents with this complete example to try output. `print`
+leaves the message unchanged; `std::io::println` includes a newline in the same
+message. The Output panel displays messages on separate lines.
+
+Results use tagged values: this program returns a `u64` with the decimal string
 `"18446744073709551615"`, without losing precision through a JavaScript number.
 Strings may be visibly truncated; complex values are reported by kind, not by
 walking their object graphs. Output and diagnostics are displayed as text, never

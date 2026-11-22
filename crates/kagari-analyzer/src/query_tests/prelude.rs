@@ -8,8 +8,7 @@ use kagari_source::identity::*;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::BuiltinType;
 
-const HELPERS: [(&str, BuiltinFunction); 5] = [
-    ("print", BuiltinFunction::Print),
+const HELPERS: [(&str, BuiltinFunction); 4] = [
     ("type_of", BuiltinFunction::TypeOf),
     ("get_field", BuiltinFunction::GetField),
     ("set_field", BuiltinFunction::SetField),
@@ -136,7 +135,6 @@ fn declarations_and_lexical_bindings_shadow_every_helper() {
 #[test]
 fn invalid_values_and_type_only_names_are_rejected_without_losing_neighbor_targets() {
     for name in [
-        "print",
         "type_of",
         "get_field",
         "set_field",

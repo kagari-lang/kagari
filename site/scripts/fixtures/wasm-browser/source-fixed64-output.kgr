@@ -1,4 +1,4 @@
-use web::print;
+use std::io::print;
 
 fn main() -> u64 {
     val minimum = -9223372036854775808i64;

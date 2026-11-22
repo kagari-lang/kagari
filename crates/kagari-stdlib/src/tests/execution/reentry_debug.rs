@@ -1,7 +1,5 @@
 use crate::tests::execution::{
-    common::{
-        compile_logging_test_bytecode, logging_module, round_trip_bytecode, standard_runtime,
-    },
+    common::{compile_native_test_bytecode, print_module, round_trip_bytecode, standard_runtime},
     native_fixtures,
 };
 
@@ -16,14 +14,15 @@ use kagari_runtime::{
 };
 
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_types::declaration::logging;
 
 #[test]
 fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let source = include_str!("../../../tests/fixtures/execution/debug-reentry.kgr");
-            let module = compile_logging_test_bytecode(source);
+            let output = print_module(|_, _, _| Ok(()));
+            let declaration = output.to_declaration();
+            let module = compile_native_test_bytecode(source, &[&output]);
             let nested = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()
@@ -45,7 +44,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                             ..
                         } if module.definitions().resolve(
                             module.records().modules[module.records().root.index()].native_imports[id.index()].binding
-                        ).unwrap().module() == &logging::declaration().unwrap().records().identity
+                        ).unwrap().module() == &declaration.records().identity
                     )
                 })
                 .unwrap();
@@ -56,14 +55,14 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()
             });
-            logging_module(move |context, _| {
+            print_module(move |context, _, _| {
                 let root = context.runtime().execution_root().unwrap();
                 let args = context
                     .retain_temporaries(&[ValueView::from(2i32)])
                     .unwrap();
                 assert!(reenter(context, &root, nested, args).is_err());
                 context.runtime_mut().collect_garbage().unwrap();
-                Ok(ValueView::unit())
+                Ok(())
             })
             .install(&mut runtime)
             .unwrap();
@@ -103,7 +102,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                     .find(|p| p.reason == reason)
                     .expect("nested pause");
                 assert_eq!(pause.frames.len(), 3);
-                assert_eq!(pause.frames[1].function_name, "log");
+                assert_eq!(pause.frames[1].function_name, "print");
                 assert_eq!(pause.frames[0].function_name, "main");
                 assert_eq!(pause.frames[0].instruction_offset, caller_offset);
                 assert_eq!(pause.frames[2].function_name, "nested");

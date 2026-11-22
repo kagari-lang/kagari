@@ -233,8 +233,8 @@ the callback even when it returns a business error or handles a nested error.
 
 `read_string` lends protected UTF-8 to a closed callback. That callback can print
 or copy a bounded prefix, but cannot retain the text or reenter Runtime while the
-payload is borrowed. CLI logging, compiler-free AOT logging and Web output use
-this access; Web output keeps its existing byte/message caps. Host call traces
+payload is borrowed. CLI, compiler-free AOT and browser output sinks use this
+access; browser output also enforces byte and message caps. Host call traces
 store bounded detached snapshots, not managed values or roots. Reentrant calls
 append to the logical root's trace in invocation order; recording an error stores
 its kind without reopening managed data after termination or quarantine.
@@ -308,22 +308,19 @@ containers and opaque handles are rejected, including nested occurrences. The ho
 must supply an immutable snapshot, not live mutable service state. Declaring this
 bit does not override any other forbidden effect.
 
-The source `print` entry and explicit CLI log binding use the common cold
-`kagari_types::declaration::logging::declaration()` ModuleDecl. Adopt it with
-`ModuleBuilder::from_declaration`, obtain `declared_function("log")`, bind a
-HostCallContext callback through `native::host::callback` and install the resulting
-NativeModule. The declaration
-owns its String parameter, shared passing capability and service/trap/mutation
-effects. No callback runs during authoring or compilation.
+Text output is opt-in. Construct [`kagari_stdlib::io::module`](../../crates/kagari-stdlib/src/io.rs)
+with the engine's declaration catalog and the host's sink, then install the
+returned `NativeModule`. It can be installed without the rest of stdlib. Its
+`std::io::{print, println}` functions each take a `String` and call the sink
+once with a protected view of the message and a suffix (`""` or `"\n"`). The
+sink writes both in order. It may stream or copy within host limits; a sink
+error is an ordinary host failure. No sink runs during authoring or compilation.
 
-Print can compile without an installed logger: its checked declaration-only
-provider enters the ordinary MIR/bytecode native module graph and retains a direct
-edge to the authored `alloc::string` module for its `String` parameter. Native
-imports, link proofs and exact installed contract checks apply normally. This
-requirement does not export a source namespace or supply a default callback;
-a missing binding rejects the program at load. An explicitly installed log module permits ordinary source
-imports of `host::log`. Its canonical owner is the root `host` module, as for any
-other common registration. The old `standard_log` factory is removed.
+Source uses ordinary imports or qualified calls. Neither function is an implicit
+name, and the compiler does not inject a provider. Standalone analysis may use
+cold declarations without executing a host. An executable artifact that requires
+`std::io` still needs a matching installed binding before publication; its own
+metadata cannot supply the sink.
 
 The compiler consumes immutable common ModuleDecl metadata. Standalone compiler
 users supply cold declarations through AnalysisDatabase::set_native_modules.

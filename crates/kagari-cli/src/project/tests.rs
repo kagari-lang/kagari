@@ -100,7 +100,7 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
         3,
         "each selected root has a separate Program"
     );
-    // CLI artifacts carry host::log even when the package does not call it.
+    // CLI artifacts carry std::io declarations even when the package does not call them.
     let engine = runtime_engine().unwrap();
     let mut roots = BTreeSet::new();
     for path in &previous {

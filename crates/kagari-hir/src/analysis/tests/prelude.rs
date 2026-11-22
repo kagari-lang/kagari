@@ -12,8 +12,7 @@ use kagari_source::{
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
-const HELPERS: [(&str, BuiltinFunction); 5] = [
-    ("print", BuiltinFunction::Print),
+const HELPERS: [(&str, BuiltinFunction); 4] = [
     ("type_of", BuiltinFunction::TypeOf),
     ("get_field", BuiltinFunction::GetField),
     ("set_field", BuiltinFunction::SetField),

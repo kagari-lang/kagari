@@ -2,13 +2,13 @@ use super::{Case, Expected, RootedValue, run_routes};
 
 #[test]
 fn resolved_runtime_helpers() {
-    run_routes(&Case::new("resolved-runtime-helpers", "struct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| RootedValue::from(5_i32))).effects(&["i32"], &["i32"]));
+    run_routes(&Case::new("resolved-runtime-helpers", "use std::io::print;\nstruct Cell { var n: i32 } fn main() -> i32 { val c = Cell { n: 1 }; val xs = [1]; set_field(c, \"n\", 2); set_index(xs, 0, 3); print(type_of(7)); get_field(c, \"n\") + xs[0] }", Expected::Value(|_| RootedValue::from(5_i32))).effects(&["i32"], &["i32"]));
 }
 
 #[test]
-fn shadowed_print_has_no_host_effect() {
+fn script_print_has_no_host_effect() {
     run_routes(&Case::new(
-        "shadowed-print-has-no-host-effect",
+        "script-print-has-no-host-effect",
         "fn print(n: i32) -> i32 { n + 1 } fn main() -> i32 { print(6) }",
         Expected::Value(|_| RootedValue::from(7_i32)),
     ));
@@ -27,7 +27,7 @@ fn bare_function_is_not_return_value() {
 fn bare_helper_is_not_a_value() {
     run_routes(&Case::new(
         "bare-helper-is-not-a-value",
-        "fn main() { val f = print; }",
+        "fn main() { val f = type_of; }",
         Expected::Diagnostic("KG_TYPE_INVALID_VALUE_TARGET"),
     ));
 }
@@ -56,7 +56,7 @@ fn heap_overflow_preserves_earlier_write() {
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn heap_removed_target_not_recreated() {
-    run_routes(&Case::new("heap-removed-target-not-recreated", "use observe as test; fn main() { val a = test::vector(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).vector(&[1], &[]).effects(&["removed"], &["removed"]));
+    run_routes(&Case::new("heap-removed-target-not-recreated", "use std::io::print;\nuse observe as test; fn main() { val a = test::vector(); a[0] += if true { a.clear(); print(\"removed\"); 2 } else { 0 }; }", Expected::IndexTrap).vector(&[1], &[]).effects(&["removed"], &["removed"]));
 }
 */
 
@@ -69,7 +69,7 @@ fn heap_compound_reads_rhs_write() {
 fn host_reject() {
     let mut reject = Case::new(
         "host_reject",
-        "fn main() { print(\"first\"); print(\"rejected\"); print(\"unreachable\"); }",
+        "use std::io::print;\nfn main() { print(\"first\"); print(\"rejected\"); print(\"unreachable\"); }",
         Expected::HostFailure,
     )
     .effects(&["first", "rejected"], &["first"]);
@@ -81,10 +81,10 @@ fn host_reject() {
 fn heap_host_rejection_preserves_earlier_write() {
     let mut heap_reject = Case::new(
         "heap-host-rejection-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += if true { print(\"rejected\"); 2 } else { 0 }; }",
+        "use std::io::print;\nuse observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += if true { print(\"rejected\"); 2 } else { 0 }; }",
         Expected::HostFailure,
     ).vector(&[1], &[42]).effects(&["committed", "rejected"], &["committed"]);
-    heap_reject.reject_call = Some(3); // Vec provider, committed log, rejected log.
+    heap_reject.reject_call = Some(3); // Array provider, committed write, rejected write.
     run_routes(&heap_reject);
 }
 
@@ -92,7 +92,7 @@ fn heap_host_rejection_preserves_earlier_write() {
 fn heap_cancellation_preserves_earlier_write() {
     let mut heap_cancel = Case::new(
         "heap-cancellation-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; a[0] += if true { print(\"cancel\"); 2 } else { 0 }; print(\"unreachable\"); }",
+        "use std::io::print;\nuse observe as test; fn main() { val a = test::vector(); a[0] = 42; a[0] += if true { print(\"cancel\"); 2 } else { 0 }; print(\"unreachable\"); }",
         Expected::Cancelled,
     ).vector(&[1], &[42]).effects(&["cancel"], &["cancel"]);
     heap_cancel.cancel_call = Some(2);
@@ -112,7 +112,7 @@ fn struct_update_default_cancellation_preserves_base_write() {
         &["explicit", "base", "default-cancel"],
         &["explicit", "base", "default-cancel"],
     );
-    // The observer Vec call precedes the three logs; cancel inside Default, not before the base.
+    // The observer call precedes the three writes; cancel inside Default, not before the base.
     update_cancel.cancel_call = Some(4);
     run_routes(&update_cancel);
 }
@@ -122,7 +122,7 @@ fn struct_update_default_cancellation_preserves_base_write() {
 fn heap_loop_cancellation_preserves_earlier_write() {
     let mut heap_loop_cancel = Case::new(
         "heap-loop-cancellation-preserves-earlier-write",
-        "use observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
+        "use std::io::print;\nuse observe as test; fn main() { val a = test::vector(); a[0] = 42; print(\"committed\"); a[0] += spin(); } fn spin() -> i32 { loop {} }",
         Expected::Cancelled,
     ).vector(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_loop_cancel.cancel_at = Some(100);
@@ -156,7 +156,7 @@ fn iteration_invalidated_by_structural_mutation(
     #[case] expected: &'static [i32],
 ) {
     let source = format!(
-        "use observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
+        "use std::io::print;\nuse observe as test; fn main() {{ val a = test::vector(); val cursor = a.iter(); a[0] = 42; print(\"before\"); {operation}; print(\"committed\"); cursor.next(); print(\"unreachable\"); }}"
     );
     let case = Case::new(
         "iteration-detects-committed-write",
@@ -173,7 +173,7 @@ fn iteration_invalidated_by_structural_mutation(
 fn return_discards_following_effects() {
     run_routes(&Case::new(
         "return-discards-following-effects",
-        "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }",
+        "use std::io::print;\nfn main() -> i32 { return 7; print(\"unreachable\"); 42 }",
         Expected::Value(|_| RootedValue::from(7_i32)),
     ));
 }
@@ -204,6 +204,7 @@ fn struct_update_return_discards_following_effects(
 ) {
     let source = format!(
         r#"
+use std::io::print;
 use observe as test;
 struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
 impl Default for Pending {{
@@ -239,7 +240,7 @@ fn duplicate_field_declarations() {
 
 #[test]
 fn field_initializers_follow_source_order() {
-    run_routes(&Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| RootedValue::from(32_i32))).effects(&["right", "left"], &["right", "left"]));
+    run_routes(&Case::new("field-initializers-follow-source-order", "use std::io::print;\nstruct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| RootedValue::from(32_i32))).effects(&["right", "left"], &["right", "left"]));
 }
 
 #[test]
@@ -323,10 +324,10 @@ fn pop_empty_option() {
 */
 
 #[test]
-fn local_print_is_not_a_helper() {
+fn local_print_shadows_import() {
     run_routes(&Case::new(
-        "local-print-is-not-a-helper",
-        "fn main() { val print = 1; print(2); }",
+        "local-print-shadows-import",
+        "use std::io::print;\nfn main() { val print = 1; print(2); }",
         Expected::Diagnostic("KG_TYPE_INVALID_CALL_TARGET"),
     ));
 }
@@ -645,7 +646,7 @@ fn const_divide_zero() {
 fn const_short_circuit_still_requires_const_safe_code() {
     run_routes(&Case::new(
         "const-short-circuit-still-requires-const-safe-code",
-        "const BAD: bool = true || effect(); fn effect() -> bool { print(\"no\"); true } fn main() -> bool { BAD }",
+        "use std::io::print;\nconst BAD: bool = true || effect(); fn effect() -> bool { print(\"no\"); true } fn main() -> bool { BAD }",
         Expected::Diagnostic("KG_TYPE_INVALID_CONST_INITIALIZER"),
     ));
 }
@@ -730,7 +731,7 @@ fn division_by_zero() {
 
 #[test]
 fn overflow_effects() {
-    run_routes(&Case::new("overflow_effects", "fn left() -> i32 { print(\"left\"); 2147483647 } fn right() -> i32 { print(\"right\"); 1 } fn main() -> i32 { left() + right() }", Expected::ScriptTrap("integer overflow")).effects(&["left", "right"], &["left", "right"]));
+    run_routes(&Case::new("overflow_effects", "use std::io::print;\nfn left() -> i32 { print(\"left\"); 2147483647 } fn right() -> i32 { print(\"right\"); 1 } fn main() -> i32 { left() + right() }", Expected::ScriptTrap("integer overflow")).effects(&["left", "right"], &["left", "right"]));
 }
 
 #[test]
@@ -787,14 +788,14 @@ fn tuple_value() {
 fn short_circuit() {
     run_routes(&Case::new(
         "short_circuit",
-        "fn fail() -> bool { print(\"unreachable\"); val a = [1]; a[2] == 0 } fn main() -> bool { false && fail() }",
+        "use std::io::print;\nfn fail() -> bool { print(\"unreachable\"); val a = [1]; a[2] == 0 } fn main() -> bool { false && fail() }",
         Expected::Value(|_| RootedValue::from(false)),
     ));
 }
 
 #[test]
 fn left_to_right() {
-    run_routes(&Case::new("left_to_right", "fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { left() + right() }", Expected::Value(|_| RootedValue::from(3_i32))).effects(&["left", "right"], &["left", "right"]));
+    run_routes(&Case::new("left_to_right", "use std::io::print;\nfn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { left() + right() }", Expected::Value(|_| RootedValue::from(3_i32))).effects(&["left", "right"], &["left", "right"]));
 }
 
 #[test]
@@ -802,7 +803,7 @@ fn completed_effect_survives_trap() {
     run_routes(
         &Case::new(
             "completed_effect_survives_trap",
-            "fn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }",
+            "use std::io::print;\nfn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }",
             Expected::IndexTrap,
         )
         .effects(&["committed"], &["committed"]),
@@ -856,6 +857,7 @@ fn struct_update_trap_preserves_completed_effects(
 ) {
     let source = format!(
         r#"
+use std::io::print;
 use observe as test;
 struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
 impl Default for Pending {{

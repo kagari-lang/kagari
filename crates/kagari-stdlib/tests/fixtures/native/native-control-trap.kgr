@@ -1,12 +1,12 @@
 use test::boundary;
 
-use host;
+use std::io::print;
 
 fn main() -> i32 {
     boundary::choose(
         true,
         || {
-            host::log("effect");
+            print("effect");
             val n = 2147483647;
             n + 1
         }

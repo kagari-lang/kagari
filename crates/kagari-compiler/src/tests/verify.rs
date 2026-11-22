@@ -384,10 +384,9 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
 #[test]
 fn conflicting_native_contracts_cannot_be_hidden_by_import_interning() {
     let context = DefinitionContext::new().unwrap();
-    let checked = common::mir_ok(
-        r#"trait Marker {} impl Marker for i32 {}
-        fn main() { print("one"); print("two"); }"#,
-    );
+    let checked = common::mir_ok_with_io(include_str!(
+        "../../tests/fixtures/native-print-contract-conflict.kgr"
+    ));
     let mut program = checked
         .into_unverified()
         .import_into(&context, &Default::default())

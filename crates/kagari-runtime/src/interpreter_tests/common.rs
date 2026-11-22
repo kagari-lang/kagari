@@ -3,10 +3,8 @@ use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::{
     Runtime, RuntimeConfig,
-    host::{HostCallContext, HostError},
     module::{InstalledProgram, VerifiedProgram},
-    native::{builder::ModuleBuilder, host, module::NativeModule},
-    value::view::ValueView,
+    native::module::NativeModule,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -23,10 +21,7 @@ use kagari_compiler::{
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{
-    declaration::logging,
-    ty::{NominalTy, Ty},
-};
+use kagari_types::ty::{NominalTy, Ty};
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
@@ -111,27 +106,6 @@ pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
         )
         .expect("test program should load");
     (runtime, loaded)
-}
-
-/// Bind the fixed print service through ordinary common native registration.
-pub fn logging_module(
-    entry: impl for<'call> Fn(
-        &mut HostCallContext<'call>,
-        &[ValueView<'call>],
-    ) -> Result<ValueView<'call>, HostError>
-    + Send
-    + Sync
-    + 'static,
-) -> NativeModule {
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        &Default::default(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder.bind(log, host::callback(entry)).unwrap();
-    builder.finish().unwrap()
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {

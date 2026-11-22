@@ -1,10 +1,10 @@
 use crate::tests::execution::common::{
-    compile_logging_test_bytecode, compile_test_bytecode, load_bytecode_program, load_test_module,
-    logging_module, round_trip_bytecode, standard_runtime,
+    compile_print_test_bytecode, compile_test_bytecode, load_bytecode_program, load_test_module,
+    print_module, round_trip_bytecode, standard_runtime,
 };
 use kagari_runtime::{
     RuntimeConfig, host::HostError, module::entry::ProgramEntry,
-    native::conversion::context::ConversionContext, value::view::ValueView,
+    native::conversion::context::ConversionContext,
 };
 use std::sync::{Arc, Mutex};
 
@@ -12,27 +12,23 @@ use std::sync::{Arc, Mutex};
 use crate::tests::support::bytecode::load_bytecode;
 
 #[test]
-fn executes_source_lowered_declared_host_log() {
+fn executes_explicitly_registered_print_and_println() {
     let messages = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = Arc::clone(&messages);
 
     let mut runtime = standard_runtime(RuntimeConfig::default());
-    logging_module(move |cx, args| {
-        let Some(message) = args.first() else {
-            return Err(HostError::new("host.log expects one string argument"));
-        };
+    print_module(move |cx, message, suffix| {
         cx.read_string(message, |text| {
             sink.lock()
                 .expect("message sink should lock")
-                .push(text.to_owned());
+                .push(format!("{text}{suffix}"));
         })
-        .map_err(|error| HostError::new(error.to_string()))?;
-        Ok(ValueView::unit())
+        .map_err(|error| HostError::new(error.to_string()))
     })
     .install(&mut runtime)
     .expect("host function should register");
-    let bytecode = compile_logging_test_bytecode(include_str!(
-        "../../../tests/fixtures/execution/host-log.kgr"
+    let bytecode = compile_print_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/std-io-output.kgr"
     ));
     let loaded =
         load_bytecode(&mut runtime, "print.kgr", bytecode).expect("print module should load");
@@ -50,7 +46,7 @@ fn executes_source_lowered_declared_host_log() {
         .unwrap();
     assert_eq!(
         *messages.lock().expect("message sink should lock"),
-        vec!["hello".to_string()]
+        ["hello", "world\n"]
     );
 }
 

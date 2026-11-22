@@ -1,4 +1,4 @@
-use crate::tests::standard::standard_modules;
+use crate::tests::standard::{io_module, standard_modules};
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{
@@ -20,6 +20,8 @@ use kagari_mir::{
     verify::{MirVerificationError, VerifiedMirModule, verify_mir},
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::declaration::module::ModuleDecl;
+use std::sync::Arc;
 
 /* stdlib test support paused (NC01-NC06).
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable};
@@ -113,11 +115,26 @@ pub fn standard_vec_binding(name: &str) -> DefinitionPath {
 } */
 
 pub fn program_ok(text: &str) -> CheckedProgram {
+    program_with_modules(text, standard_modules())
+}
+
+pub fn program_ok_with_io(text: &str) -> CheckedProgram {
+    let mut modules = standard_modules();
+    modules.push(Arc::new(io_module().to_declaration()));
+    program_with_modules(text, modules)
+}
+
+fn program_with_modules(
+    text: &str,
+    modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
+) -> CheckedProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kg", text.into(), SourceLayer::Base)
         .unwrap();
-    let snapshot = analysis_database()
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(modules);
+    let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");
     snapshot
@@ -153,13 +170,28 @@ pub fn lower_root(
 }
 
 pub fn mir_ok(text: &str) -> VerifiedMirProgram {
-    let checked = program_ok(text);
-    lower_program_to_mir(&compilation(&checked), &Default::default())
+    mir_from_checked(&program_ok(text))
+}
+
+pub fn mir_ok_with_io(text: &str) -> VerifiedMirProgram {
+    mir_from_checked(&program_ok_with_io(text))
+}
+
+fn mir_from_checked(checked: &CheckedProgram) -> VerifiedMirProgram {
+    lower_program_to_mir(&compilation(checked), &Default::default())
         .expect("program IR lowering should succeed")
 }
 
 pub fn bytecode_ok(text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    lower_program_to_bytecode(&mir_ok(text), &Default::default())
+    bytecode_from_mir(&mir_ok(text))
+}
+
+pub fn bytecode_ok_with_io(text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    bytecode_from_mir(&mir_ok_with_io(text))
+}
+
+fn bytecode_from_mir(mir: &VerifiedMirProgram) -> DefinitionMetadata<BytecodeProgram> {
+    lower_program_to_bytecode(mir, &Default::default())
         .map(|program| program.into_unverified())
         .expect("program bytecode lowering should succeed")
 }
@@ -200,15 +232,7 @@ pub fn bytecode_with_edited_root(
     .expect("edited executable evidence should project");
     let verified = verify_program(members, &context, &Default::default())
         .expect("edited program should verify");
-    lower_program_to_bytecode(&verified, &Default::default())
-        .map(|program| program.into_unverified())
-        .expect("edited program bytecode lowering should succeed")
-}
-
-fn analysis_database() -> AnalysisDatabase {
-    let mut database = AnalysisDatabase::default();
-    database.set_native_modules(standard_modules());
-    database
+    bytecode_from_mir(&verified)
 }
 
 /// Adopt editable fixture records into the context retained by the calling test.

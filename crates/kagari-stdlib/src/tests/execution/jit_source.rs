@@ -8,7 +8,6 @@ use kagari_runtime::{
         binding::NativeResult, builder::ModuleBuilder, context::NativeCall,
         conversion::context::ConversionContext, declarations::FunctionDecl,
     },
-    value::view::ValueView,
 };
 
 use crate::tests::execution::{
@@ -20,8 +19,8 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    let bytecode = common::compile_logging_test_bytecode(include_str!(
-        "../../../tests/fixtures/execution/linked-log.kgr"
+    let bytecode = common::compile_print_test_bytecode(include_str!(
+        "../../../tests/fixtures/execution/linked-print.kgr"
     ));
     for artifact in [false, true] {
         for jit in [false, true] {
@@ -39,19 +38,16 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
                 .unwrap();
             unrelated
                 .bind(entry, |_: &mut NativeCall<'_>| -> NativeResult<()> {
-                    panic!("a log import must not invoke an unrelated native entry")
+                    panic!("a print import must not invoke an unrelated native entry")
                 })
                 .unwrap();
             unrelated.finish().unwrap().install(&mut runtime).unwrap();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
-            common::logging_module(move |cx, args| {
-                let [message] = args else {
-                    panic!("log string")
-                };
+            common::print_module(move |cx, message, _| {
                 cx.read_string(message, |text| called.lock().unwrap().push(text.to_owned()))
                     .unwrap();
-                Ok(ValueView::unit())
+                Ok(())
             })
             .install(&mut runtime)
             .unwrap();

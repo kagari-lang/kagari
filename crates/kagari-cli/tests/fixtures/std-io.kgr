@@ -1,0 +1,7 @@
+use std::io::{ print, println };
+
+fn main() {
+    print("hello 😀");
+    println(" from std::io");
+    print("done");
+}

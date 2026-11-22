@@ -26,7 +26,8 @@ failures retain their structured category across the native ABI; they never
 trigger a second execution through fallback. Path arithmetic has focused tests
 for unchanged target state, zero write callbacks and zero dirty records on failure.
 
-The recording host exposes `host.log`, as used by the source `print` builtin.
+The recording host installs `std::io` explicitly and records the message and
+newline suffix supplied to its output sink.
 A call is recorded before its configured outcome. A successful append records
 the target, previous length, and appended value. A rejected append produces no
 mutation record. Calls after a trap must not occur, while earlier committed

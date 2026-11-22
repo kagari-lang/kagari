@@ -7,17 +7,8 @@ use kagari::{engine::KagariEngine, error::EmbeddingError};
 use kagari_common::identity::map::DefinitionContext;
 #[cfg(not(feature = "source"))]
 use kagari_runtime::error::RuntimeError;
-use kagari_runtime::{
-    host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
-    value::view::ValueView,
-};
-use kagari_stdlib::StandardLibrary;
-
-use kagari_types::{
-    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
-    scalar::BuiltinType,
-};
+use kagari_runtime::host::HostError;
+use kagari_stdlib::{StandardLibrary, io};
 #[cfg(not(feature = "source"))]
 use std::error::Error;
 use std::{
@@ -37,15 +28,25 @@ pub(crate) struct Output {
 }
 
 impl Output {
-    pub(crate) fn push(&mut self, text: &str) {
+    fn push(&mut self, text: &str, suffix: &str) {
         if self.messages.len() == OUTPUT_MESSAGES || self.bytes == OUTPUT_BYTES {
             self.truncated = true;
             return;
         }
-        let kept = prefix(text, MESSAGE_BYTES.min(OUTPUT_BYTES - self.bytes));
-        self.truncated |= kept.len() < text.len();
-        self.bytes += kept.len();
-        self.messages.push(kept.to_owned());
+        let budget = MESSAGE_BYTES.min(OUTPUT_BYTES - self.bytes);
+        let kept_text = prefix(text, budget);
+        let kept_suffix = if kept_text.len() == text.len() {
+            prefix(suffix, budget - kept_text.len())
+        } else {
+            ""
+        };
+        self.truncated |= kept_text.len() < text.len() || kept_suffix.len() < suffix.len();
+        let kept_bytes = kept_text.len() + kept_suffix.len();
+        let mut message = String::with_capacity(kept_bytes);
+        message.push_str(kept_text);
+        message.push_str(kept_suffix);
+        self.bytes += kept_bytes;
+        self.messages.push(message);
     }
 
     pub(crate) fn drain(&mut self) -> (Vec<String>, bool) {
@@ -86,45 +87,20 @@ pub(crate) fn engine(
     // The adapter owns this lexical root; memory:// inputs never access a filesystem.
     #[cfg(feature = "source")]
     builder.source_root("/kagari-browser")?;
-    let mut module = ModuleBuilder::new("web", builder.declarations()).map_err(registration)?;
-    let print = module
-        .define_function(
-            FunctionDecl::new("print")
-                .parameter("text", Type::scalar(BuiltinType::String))
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        may_mutate_host_state: true,
-                        ..Default::default()
-                    },
-                }),
-        )
-        .map_err(registration)?;
-    module
-        .bind(
-            print,
-            host::callback(
-                move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
-                    let [text] = args else {
-                        return Err(HostError::new("web::print requires String"));
-                    };
-                    // Lock outside the payload loan. Copy only the admitted output
-                    // prefix; the whole script String stays in its original source.
-                    let mut output = output
-                        .lock()
-                        .map_err(|_| HostError::new("output queue poisoned"))?;
-                    context
-                        .read_string(text, |text| output.push(text))
-                        .map_err(|error| HostError::new(error.to_string()))?;
-                    Ok(ValueView::unit())
-                },
-            ),
-        )
-        .map_err(registration)?;
-    builder
-        .install(module.finish().map_err(registration)?)
-        .map_err(registration)?;
+    let module = io::module(
+        standard.declarations().catalog(),
+        move |context, text, suffix| {
+            // Lock outside the payload loan and copy only the admitted prefix.
+            let mut output = output
+                .lock()
+                .map_err(|_| HostError::new("output queue poisoned"))?;
+            context
+                .read_string(text, |text| output.push(text, suffix))
+                .map_err(|error| HostError::new(error.to_string()))
+        },
+    )
+    .map_err(registration)?;
+    builder.install(module).map_err(registration)?;
     builder.build()
 }
 
@@ -135,11 +111,14 @@ mod tests {
     #[test]
     fn output_is_utf8_bounded_and_drain_resets_the_budget() {
         let mut queue = Output::default();
-        queue.push(&"\u{1f600}".repeat(MESSAGE_BYTES));
-        assert_eq!(queue.messages[0].len(), MESSAGE_BYTES);
-        for _ in 0..OUTPUT_MESSAGES * 2 {
-            queue.push(&"x".repeat(MESSAGE_BYTES));
+        let text = "x".repeat(MESSAGE_BYTES - 1);
+        queue.push(&format!("{text}😀"), "\n");
+        assert_eq!(queue.messages[0], text);
+        for _ in 1..OUTPUT_BYTES / MESSAGE_BYTES {
+            queue.push(&text, "\n");
         }
+        queue.push("", "\n");
+        queue.push("not kept", "");
         assert_eq!(queue.bytes, OUTPUT_BYTES);
         let (messages, truncated) = queue.drain();
         assert!(truncated);
@@ -147,13 +126,18 @@ mod tests {
             messages.iter().map(String::len).sum::<usize>(),
             OUTPUT_BYTES
         );
+        assert_eq!(messages[1], format!("{text}\n"));
+        assert_eq!(messages.last().unwrap(), "\n");
         for _ in 0..OUTPUT_MESSAGES + 1 {
-            queue.push("");
+            queue.push("", "");
         }
         let (messages, truncated) = queue.drain();
         assert_eq!(messages.len(), OUTPUT_MESSAGES);
         assert!(truncated);
-        queue.push("new");
+        let full = "x".repeat(MESSAGE_BYTES);
+        queue.push(&full, "\n");
+        assert_eq!(queue.drain(), (vec![full], true));
+        queue.push("new", "");
         assert_eq!(queue.drain(), (vec!["new".to_owned()], false));
     }
 }

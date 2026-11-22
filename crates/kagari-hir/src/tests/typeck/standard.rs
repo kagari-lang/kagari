@@ -1,7 +1,5 @@
 use super::*;
-use crate::analyze_source;
-use crate::tests::standard::standard_modules;
-use kagari_common::identity::map::DefinitionContext;
+use crate::{analyze_source, tests::standard::standard_modules, typeck::table::CallTarget};
 use kagari_source::source::SourceFile;
 
 /* stdlib test support paused (NC01-NC06).
@@ -632,35 +630,43 @@ fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 }
 
 #[test]
-fn checks_print_builtin_signature() {
-    let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok(r#"fn main() { print("hello"); }"#);
-    let names = resolve_names(&lowered)
+fn print_requires_a_declaration_and_resolves_to_a_script_function() {
+    let missing = SourceFile::new(
+        "implicit-print.kgr",
+        include_str!("../../../tests/fixtures/typeck/implicit-print.kgr"),
+    );
+    let diagnostics = analyze_source(&missing, vec![])
         .unwrap()
         .into_checked()
-        .expect("resolver should succeed");
-    check_module(&context, &lowered, &names, None)
-        .into_checked()
-        .expect("print should accept str");
-
-    let lowered = common::lower_ok("fn main() { print(1); }");
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&context, &lowered, &names, None)
-        .into_checked()
-        .expect_err("type checker should reject print argument");
-
+        .expect_err("print is not supplied by the prelude");
     assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind
-            == DiagnosticKind::ArgumentTypeMismatch {
-                function_name: "print".to_string(),
-                parameter_name: "message".to_string(),
-                expected: "String".to_string(),
-                found: "i32".to_string(),
-            }
+        matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name } if name == "print")
     }));
+
+    let defined = SourceFile::new(
+        "user-print.kgr",
+        include_str!("../../../tests/fixtures/typeck/user-print.kgr"),
+    );
+    let analyzed = analyze_source(&defined, vec![])
+        .unwrap()
+        .into_checked()
+        .expect("user-defined print should use its own signature");
+    let module = &analyzed.lowered.module;
+    let print = module.functions.iter().find(|f| f.name == "print").unwrap();
+    let (call, _) = module
+        .nodes
+        .expressions()
+        .find(|(_, expr)| matches!(expr.kind, ExprKind::Call { .. }))
+        .unwrap();
+    assert_eq!(
+        analyzed
+            .typed
+            .type_table()
+            .call_resolution(call)
+            .unwrap()
+            .target,
+        CallTarget::Function(print.id),
+    );
 }
 
 /* stdlib test support paused (NC01-NC06).

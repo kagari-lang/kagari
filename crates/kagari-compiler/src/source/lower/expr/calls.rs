@@ -2,7 +2,6 @@
 
 use crate::source::{
     elaborate::model::{CheckedCall, CheckedCallTarget, CheckedExprKind, MethodOperands},
-    logging,
     lower::{MirLoweringError, state::FunctionLowerer},
 };
 use kagari_abi::representation::ValueType;
@@ -154,13 +153,6 @@ impl FunctionLowerer<'_, '_> {
             (BuiltinFunction::SetIndex, [base, index, value]) => (
                 CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
                 smallvec::smallvec![*base, *index, *value],
-            ),
-            (BuiltinFunction::Print, [message]) => (
-                CallTarget::Native(Box::new(logging::import(
-                    self.planner.context,
-                    &self.planner.options.cancel,
-                )?)),
-                smallvec::smallvec![*message],
             ),
             _ => {
                 return Err(MirLoweringError::MissingBinding(

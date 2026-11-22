@@ -37,7 +37,7 @@ After `await init(...)` from the generated ES module:
 
 | Call | Return / behavior |
 | --- | --- |
-| `new BrowserSession()` (source) / `new BrowserSession(coreArtifact: Uint8Array)` (artifact-only) | In artifact-only mode the host supplies a trusted, separately selected KBC containing the authored core owners (16 MiB maximum). The constructor verifies that image; later application loads cannot change the host contracts. Installs the standard library and `web::print(String)`. Construction failure throws a JSON response string. |
+| `new BrowserSession()` (source) / `new BrowserSession(coreArtifact: Uint8Array)` (artifact-only) | In artifact-only mode the host supplies a trusted, separately selected KBC containing the authored core owners (16 MiB maximum). The constructor verifies that image; later application loads cannot change the host contracts. Installs the standard library and a bounded `std::io` sink. Construction failure throws a JSON response string. |
 | `compile(source: string): string` | Source feature only. Compile `memory://main.kgr`, validate, load; status `ready` or `error`. |
 | `load_artifact(bytes: Uint8Array): string` | Decode, validate, load; status `ready` or `error`. |
 | `start(): string` | Queue zero-argument `ProgramEntry::Main`; status `runnable` or `error`. No body executes yet. |
@@ -54,13 +54,15 @@ All returned strings parse as the same JSON envelope in both feature modes:
 ```
 
 Every JSON response drains pending output, including error/reset responses.
-`cancel()` does not drain. Each output element is exactly one `web::print` call
-(no newline is added). There is no arbitrary JS callback registration: the Rust
-callback copies bounded text into an `Arc<Mutex<...>>` queue; JS sees it only after
-runtime borrows end. For example:
+`cancel()` does not drain. Each `std::io::print` or `std::io::println` call queues
+one message, subject to the output limits. `print` does not add a newline;
+`println` adds `\n` to the same message and counts it against the byte limits.
+There is no arbitrary JS callback registration: the Rust callback copies bounded
+text into an `Arc<Mutex<...>>` queue; JS sees it only after runtime borrows end.
+For example:
 
 ```text
-use web::print;
+use std::io::print;
 fn main() -> u64 {
     print("hello 😀");
     18446744073709551615u64
@@ -197,9 +199,9 @@ cargo test -p kagari-web --lib tests::generate_browser_artifact -- --exact
 It writes **`target/fixtures/browser-basic.kbc`**, after validating and executing
 it natively through this adapter. Load its bytes in the artifact-only browser
 product, call `start()`, and `drive(1000)` until terminal. Expected output is
-`["artifact hello 😀"]`; expected result is
-`{"tag":"u64","value":"18446744073709551615"}`. Only the same installed bounded
-`web::print` callback is required, with no unsupported external provider.
+`["artifact hello 😀","one line\n"]`; expected result is
+`{"tag":"u64","value":"18446744073709551615"}`. The same bounded `std::io` sink
+handles both calls, with no additional external provider.
 
 For bounded product orchestration and freshness checks, run from `site/`:
 

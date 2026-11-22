@@ -50,7 +50,7 @@ export async function workerCase(name) {
   try {
     if (name === 'cooperative-loop-reset-effects') {
       const client = make({ slice: 100 });
-      const source = 'use web::print; fn main() { val retained = ["rooted 😀"]; val values = Vec::from([1, 2]); for value in values { print(retained[0]); loop {} } }';
+      const source = 'use std::io::print; fn main() { val retained = ["rooted 😀"]; val values = Vec::from([1, 2]); for value in values { print(retained[0]); loop {} } }';
       let ticks = 0;
       const timer = setInterval(() => { ticks += 1; }, 5);
       try {
@@ -92,7 +92,7 @@ export async function workerCase(name) {
       equal(location.start, { offset: 26, line: 1, character: 19 }, 'UTF-16 CRLF position');
       const wide = await client.run('fn main() -> u64 { 18446744073709551615u64 }');
       equal(wide.response.result, { tag: 'u64', value: '18446744073709551615' }, 'lossless integer');
-      const trapped = await client.run('use web::print; fn base(values: [i32]) -> [i32] { print("base"); values } fn index() -> u64 { print("index"); 18446744073709551615u64 } fn replacement() -> i32 { print("replacement"); 9 } fn main() { val values = [7]; base(values)[index()] = replacement(); print("after"); }');
+      const trapped = await client.run('use std::io::print; fn base(values: [i32]) -> [i32] { print("base"); values } fn index() -> u64 { print("index"); 18446744073709551615u64 } fn replacement() -> i32 { print("replacement"); 9 } fn main() { val values = [7]; base(values)[index()] = replacement(); print("after"); }');
       equal(trapped.response.status, 'error', 'checked trap');
       equal(output(), ['base', 'index', 'replacement'], 'left-to-right once-only effects before trap');
       assertResult(await client.run('fn main() -> i32 { 42 }'));
@@ -100,7 +100,7 @@ export async function workerCase(name) {
     }
     if (name === 'cumulative-output-message-and-byte-bounds') {
       const client = make({ slice: 100 });
-      const count = await client.run('use web::print; fn main() { for i in 0..300 { print("x"); } }');
+      const count = await client.run('use std::io::print; fn main() { for i in 0..300 { print("x"); } }');
       equal(count.response.status, 'complete', 'count workload completes');
       equal(output().length, LIMITS.outputMessages, 'cumulative messages across small slices');
       check(output().every((text) => text === 'x'), 'count output contents');
@@ -108,14 +108,14 @@ export async function workerCase(name) {
       const countEvents = events.length;
       events.length = 0;
       const text = '😀'.repeat(1025);
-      const bytes = await client.run(`use web::print; fn main() { for i in 0..20 { print("${text}"); } }`);
+      const bytes = await client.run(`use std::io::print; fn main() { for i in 0..20 { print("${text}"); } }`);
       equal(bytes.response.status, 'complete', 'byte workload completes');
       equal(output().reduce((sum, item) => sum + byteLength(item), 0), LIMITS.outputBytes, 'cumulative UTF-8 bytes');
       equal(output().length, 16, 'byte-limited message count');
       check(output().every((item) => item === '😀'.repeat(1024)), 'UTF-8 codepoints preserved');
       equal(bytes.response.output_truncated, true, 'visible byte truncation');
       events.length = 0;
-      await client.run('use web::print; fn main() { print("fresh"); }');
+      await client.run('use std::io::print; fn main() { print("fresh"); }');
       equal(output(), ['fresh'], 'quota resets for next run');
       let rejected = false;
       try { client.run('😀'.repeat(65537)); } catch (error) { rejected = error instanceof RangeError; }
@@ -129,7 +129,7 @@ export async function workerCase(name) {
         events.push(event); trace(event);
         if (event.type === 'progress') return gate;
       } });
-      const run = client.run('use web::print; fn main() { loop { print("effect"); } }');
+      const run = client.run('use std::io::print; fn main() { loop { print("effect"); } }');
       await until(() => events.length === 1, 'first response holds credit');
       await delay(350);
       equal(events.length, 1, 'no flood while response consumer is blocked');
@@ -146,7 +146,7 @@ export async function workerCase(name) {
       // With credit flowing, saturated output must also become quiet instead of
       // emitting empty per-slice/per-timer progress forever.
       events.length = 0;
-      const flood = client.run('use web::print; fn main() { loop { print("effect"); } }');
+      const flood = client.run('use std::io::print; fn main() { loop { print("effect"); } }');
       await until(() => events.some((event) => event.response?.output_truncated), 'run quota reached');
       const saturated = events.length;
       await delay(150);

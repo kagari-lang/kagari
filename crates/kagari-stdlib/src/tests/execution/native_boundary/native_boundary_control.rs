@@ -2,7 +2,7 @@
 use crate::test_library;
 use crate::tests::{
     execution::{
-        common::{compile_native_test_bytecode, logging_module, round_trip_bytecode},
+        common::{compile_native_test_bytecode, print_module, round_trip_bytecode},
         native_boundary::{publish_unused_version, support::CancelAt},
     },
     support::bytecode::reload_bytecode,
@@ -21,10 +21,10 @@ use kagari_runtime::{
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
         context::NativeCall, conversion::context::ConversionContext, declarations::FunctionDecl,
-        host, installation::NativeInstallation, module::NativeModule, types::Type,
+        installation::NativeInstallation, module::NativeModule, types::Type,
     },
     resource::RuntimeLimits,
-    value::{carriers::RootedValue, view::ValueView},
+    value::carriers::RootedValue,
 };
 
 use kagari_bytecode::{
@@ -33,7 +33,6 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 
-use kagari_types::declaration::logging;
 use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex},
@@ -63,8 +62,8 @@ fn module() -> NativeModule {
 
 fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let native = module();
-    let logging = logging_module(|_, _| Ok(ValueView::unit()));
-    compile_native_test_bytecode(text, &[&native, &logging])
+    let output = print_module(|_, _, _| Ok(()));
+    compile_native_test_bytecode(text, &[&native, &output])
 }
 
 fn runtime(limits: RuntimeLimits) -> Runtime {
@@ -102,7 +101,7 @@ fn assert_clean(vm: &Runtime) {
 fn callback_native_stack_exhaustion_precedes_effects_and_cleans_roots() {
     for (input, fails) in [("true", true), ("false", false)] {
         let program = compile_test_bytecode(&format!(
-            "use test::boundary; use host; fn main() -> i32 {{ boundary::choose({input}, || {{ host::log(\"effect\"); 42 }}) }}"
+            "use std::io::print; use test::boundary; fn main() -> i32 {{ boundary::choose({input}, || {{ print(\"effect\"); 42 }}) }}"
         ));
         for encoded in [false, true] {
             let mut runtime = runtime(RuntimeLimits {
@@ -111,9 +110,9 @@ fn callback_native_stack_exhaustion_precedes_effects_and_cleans_roots() {
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            logging_module(move |_, _| {
+            print_module(move |_, _, _| {
                 *sink.lock().unwrap() += 1;
-                Ok(ValueView::unit())
+                Ok(())
             })
             .install(&mut runtime)
             .unwrap();
@@ -159,10 +158,10 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |_, _| {
+        print_module(move |_, _, _| {
             *sink.lock().unwrap() += 1;
             cancel.cancel();
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -234,9 +233,9 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let mut runtime = runtime(Default::default());
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
-        logging_module(move |_, _| {
+        print_module(move |_, _, _| {
             *sink.lock().unwrap() += 1;
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -335,8 +334,8 @@ fn host_reentry_returns_to_the_synchronous_native_caller() {
         let effects = Arc::new(Mutex::new(Vec::new()));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |context, args| {
-            let text = context.read_string(&args[0], str::to_owned).unwrap();
+        print_module(move |context, message, _| {
+            let text = context.read_string(message, str::to_owned).unwrap();
             sink.lock().unwrap().push(text.clone());
             let root = context.runtime().execution_root().unwrap();
             if text == "outer" {
@@ -360,7 +359,7 @@ fn host_reentry_returns_to_the_synchronous_native_caller() {
                 );
             }
             context.runtime_mut().collect_garbage().unwrap();
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -398,11 +397,11 @@ fn native_callbacks_invoke_the_retained_closure_generation_after_replacement() {
     let program = |number| {
         compile_test_bytecode(&format!(
             r#"
+use std::io::print;
 use test::boundary;
-use host;
 pub fn make() -> fn() -> i32 {{ || {{ boundary::choose(true, || {number}) }} }}
 fn consume(callback: fn() -> i32) -> i32 {{ boundary::choose(true, callback) }}
-fn main() -> i32 {{ host::log("invoke"); 0 }}
+fn main() -> i32 {{ print("invoke"); 0 }}
 "#
         ))
     };
@@ -420,7 +419,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let observed = Arc::new(Mutex::new(Vec::new()));
         let sink = observed.clone();
         let mut runtime = runtime(Default::default());
-        logging_module(move |context, _| {
+        print_module(move |context, _, _| {
             let value = callback.lock().unwrap().as_ref().unwrap().clone();
             let value = context.import(&value).unwrap();
             let root = context.runtime().execution_root().unwrap();
@@ -428,7 +427,7 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
             let result = reenter(context, &root, consume, arguments).unwrap();
             sink.lock().unwrap().push(result.as_i32().unwrap());
             context.runtime_mut().collect_garbage().unwrap();
-            Ok(ValueView::unit())
+            Ok(())
         })
         .install(&mut runtime)
         .unwrap();
@@ -499,13 +498,7 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
     let mut modules = test_library::modules().unwrap();
     modules.push(module());
     let installation = NativeInstallation::prepare(&modules).unwrap();
-    let logging_template = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        test_library::standard().catalog(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = logging_template.declared_function("log").unwrap();
+
     for program in [&program, &decoded] {
         let mut cancellations = 0;
         for at in 0..80 {
@@ -518,17 +511,12 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            let mut logging = logging_template.clone();
-            logging
-                .bind(
-                    log.clone(),
-                    host::callback(move |_, _| {
-                        *sink.lock().unwrap() += 1;
-                        Ok(ValueView::unit())
-                    }),
-                )
-                .unwrap();
-            logging.finish().unwrap().install(&mut runtime).unwrap();
+            print_module(move |_, _, _| {
+                *sink.lock().unwrap() += 1;
+                Ok(())
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded = load_bytecode(&mut runtime, "native-control", program.clone()).unwrap();
             let _loaded_program = loaded;
             let loaded = runtime.select_program(&_loaded_program).unwrap();

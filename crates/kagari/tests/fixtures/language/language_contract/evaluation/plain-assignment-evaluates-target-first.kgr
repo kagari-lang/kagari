@@ -1,3 +1,5 @@
+use std::io::print;
+
 fn root(a: [i32]) -> [i32] {
     print("root");
     a

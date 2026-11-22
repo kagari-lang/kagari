@@ -1,3 +1,5 @@
+use test::drive::step;
+
 struct State {
     var sum: i32,
     var kept: [i32]
@@ -9,9 +11,11 @@ fn helper(n: i32) -> i32 {
 
 fn main() -> [i32] {
     val state = State { sum: 0, kept: [1, 2, 3] };
-    for value in state.kept {
-        state.sum += helper(value);
-        print("step");
+    var index = 0;
+    while index < 3 {
+        state.sum += helper(state.kept[index]);
+        step("step");
+        index += 1;
     }
     state.kept = [state.sum, state.kept[0]];
     state.kept
@@ -22,7 +26,7 @@ pub fn spin() {
 }
 
 pub fn recurse() -> i32 {
-    recurse()
+    recurse() + 1
 }
 
 pub fn ping() -> i32 {

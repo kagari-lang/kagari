@@ -73,7 +73,7 @@ const cases = [
   { name: 'source-removed-names-and-suffixes', mode: 'source', kind: 'removed' },
   { name: 'source-sliced-cancel-reset', mode: 'source', kind: 'cancel' },
   { name: 'source-input-output-bounds', mode: 'source', kind: 'bounds' },
-  { name: 'artifact-native-product', mode: 'artifact', kind: 'artifact', result: { tag: 'u64', value: '18446744073709551615' }, output: ['artifact hello 😀'] },
+  { name: 'artifact-native-product', mode: 'artifact', kind: 'artifact', result: { tag: 'u64', value: '18446744073709551615' }, output: ['artifact hello 😀', 'one line\n'] },
   { name: 'artifact-corruption-and-admission', mode: 'artifact', kind: 'corruption' },
 ];
 
@@ -195,7 +195,7 @@ async function browserCase(test) {
       check(value.diagnostics.some((item) => item.severity === 'error'), 'Missing removed-spelling diagnostic');
     }
   } else if (test.kind === 'cancel') {
-    compile('use web::print; fn main() { print("before cancellation"); loop {} }');
+    compile('use std::io::print; fn main() { print("before cancellation"); loop {} }');
     const output = [];
     equal(response(session.start(), 'start').status, 'runnable', 'loop start');
     const slice = response(session.drive(100), 'loop slice');
@@ -217,13 +217,13 @@ async function browserCase(test) {
     step('source admission');
     // UTF-8 bytes, not JS UTF-16 length; no compiler invocation should occur.
     equal(response(session.compile('😀'.repeat(65537)), 'source limit').error?.code, 'WEB_SOURCE_LIMIT', 'source byte bound');
-    compile('use web::print; fn main() { for i in 0..300 { print("x"); } }');
+    compile('use std::io::print; fn main() { for i in 0..300 { print("x"); } }');
     const count = expectStatus(await finish({ slice: 100000 }), 'complete', 'output count bound');
     equal(count.output.length, 256, 'bounded message count');
     check(count.output.every((text) => text === 'x'), 'Output contents changed');
     equal(count.output_truncated, true, 'visible count truncation');
     equal(response(session.drain_output(), 'empty drain').output, [], 'drain is destructive');
-    compile(`use web::print; fn main() { for i in 0..20 { print("${'😀'.repeat(1025)}"); } }`);
+    compile(`use std::io::print; fn main() { for i in 0..20 { print("${'😀'.repeat(1025)}"); } }`);
     const bytes = expectStatus(await finish({ slice: 100000 }), 'complete', 'output byte bound');
     equal(bytes.output.length, 16, '64 KiB aggregate output');
     check(bytes.output.every((text) => text === '😀'.repeat(1024)), '4 KiB per-message UTF-8 truncation');

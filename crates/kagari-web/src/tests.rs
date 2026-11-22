@@ -71,7 +71,7 @@ fn main_output_and_rooted_results_cross_the_owned_boundary() {
     let mut session = BrowserSession::new().unwrap();
     compile(
         &mut session,
-        "use web::print; fn main() -> u64 { print(\"hello 😀\"); 18446744073709551615u64 }",
+        "use std::io::print; fn main() -> u64 { print(\"hello 😀\"); 18446744073709551615u64 }",
     );
     let result = finish(&mut session);
     assert_eq!(result["status"], "complete", "{result}");
@@ -158,15 +158,20 @@ fn exclusive_run_cancellation_reset_and_failed_candidates_preserve_state() {
 #[test]
 fn generate_browser_artifact() {
     let engine = output::engine(Arc::new(Mutex::new(Output::default()))).unwrap();
-    let artifact = engine.compile_to_artifact(
-        SourceFile::new("memory://browser-artifact.kgr", "use web::print; fn main() -> u64 { print(\"artifact hello 😀\"); 18446744073709551615u64 }"),
-        Default::default(),
-    ).unwrap();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "memory://browser-artifact.kgr",
+                include_str!("../tests/fixtures/browser-artifact.kgr"),
+            ),
+            Default::default(),
+        )
+        .unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let mut session = BrowserSession::new().unwrap();
     assert_eq!(response(session.load_artifact(&bytes))["status"], "ready");
     let result = finish(&mut session);
-    assert_eq!(result["output"], json!(["artifact hello 😀"]));
+    assert_eq!(result["output"], json!(["artifact hello 😀", "one line\n"]));
     assert_eq!(
         result["result"],
         json!({"tag":"u64", "value":"18446744073709551615"})

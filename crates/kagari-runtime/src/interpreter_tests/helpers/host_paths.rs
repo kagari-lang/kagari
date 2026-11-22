@@ -15,9 +15,7 @@ use crate::{
 use crate::{
     execution::{fixtures::FixtureExecution, native::PreparedNativeEntry, reentry::reenter},
     interpreter_tests::{
-        common::{
-            compile_native_test_bytecode, logging_module, module_program, round_trip_bytecode,
-        },
+        common::{compile_native_test_bytecode, module_program, round_trip_bytecode},
         native_fixtures,
     },
 };
@@ -32,9 +30,7 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            logging_module(|_, _| Ok(ValueView::unit()))
-                .install(&mut runtime)
-                .unwrap();
+
             let write_hp = hp.clone();
             runtime
                 .register_host_path_adapter(

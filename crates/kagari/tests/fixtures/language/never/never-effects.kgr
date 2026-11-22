@@ -1,0 +1,36 @@
+use std::io::print;
+
+fn fail(values: Vec<i32>) -> ! {
+    values.push(20);
+    print("before");
+    val zero = 0;
+    1 / zero;
+    loop {}
+}
+
+fn later(values: Vec<i32>) -> i32 {
+    print("after");
+    values.push(99);
+    99
+}
+
+fn consume(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn main() -> i32 {
+    val values = Vec::from([1]);
+    consume(fail(values), later(values))
+}
+
+pub fn forever() -> ! {
+    loop {}
+}
+
+fn impossible(value: !) -> i32 {
+    value
+}
+
+pub fn healthy() -> i32 {
+    42
+}

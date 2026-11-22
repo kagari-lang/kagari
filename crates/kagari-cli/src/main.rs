@@ -1,6 +1,6 @@
 #[cfg(feature = "jit")]
 use kagari::program::native::NativeCompiler;
-use kagari_stdlib::StandardLibrary;
+use kagari_stdlib::{StandardLibrary, io as script_io};
 mod aot;
 mod args;
 mod checking;
@@ -33,17 +33,15 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::execution::ExecutionReport;
 use kagari_runtime::{
     error::RuntimeError,
-    host::{HostCallContext, HostError},
+    host::HostError,
     module::{InstalledProgram, entry::ProgramEntry},
-    native::{builder::ModuleBuilder, host},
-    value::view::ValueView,
 };
 use kagari_source::{
     diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile,
     source_database::SourceSnapshot,
 };
 use kagari_syntax::parser::{ParseOptions, parse};
-use kagari_types::declaration::logging;
+
 use std::{
     env, fs,
     io::{self, Write},
@@ -277,29 +275,18 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     engine
         .install_all(standard.modules().map_err(registration)?)
         .map_err(registration)?;
-    let mut module = ModuleBuilder::from_declaration(
-        logging::declaration().map_err(|error| CliError::message(1, error.to_string()))?,
-        engine.declarations(),
-        Default::default(),
-    )
+    let output = script_io::module(engine.declarations(), |cx, message, suffix| {
+        let mut stdout = io::stdout().lock();
+        cx.read_string(message, |text| {
+            stdout.write_all(text.as_bytes())?;
+            stdout.write_all(suffix.as_bytes())?;
+            stdout.flush()
+        })
+        .map_err(|error| HostError::new(error.to_string()))?
+        .map_err(|error| HostError::new(error.to_string()))
+    })
     .map_err(registration)?;
-    let log = module.declared_function("log").map_err(registration)?;
-    module
-        .bind(
-            log,
-            host::callback(|cx: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
-                let [message] = args else {
-                    return Err(HostError::new("host.log expects one string argument"));
-                };
-                cx.read_string(message, |message| println!("{message}"))
-                    .map_err(|error| HostError::new(error.to_string()))?;
-                Ok(ValueView::unit())
-            }),
-        )
-        .map_err(registration)?;
-    engine
-        .install(module.finish().map_err(registration)?)
-        .map_err(registration)?;
+    engine.install(output).map_err(registration)?;
     Ok(engine)
 }
 

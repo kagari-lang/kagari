@@ -1,3 +1,5 @@
+use std::io::print;
+
 static var attempts: i32 = 0;
 
 static val value: i32 = initialize();

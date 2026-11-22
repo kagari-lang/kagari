@@ -1,7 +1,6 @@
 //! Candidate-only metadata completion, optimization and independent proof coverage.
 
 use crate::source::{
-    logging,
     lower::{MirLoweringError, instances::MirLoweringOptions},
     program::{
         SourceProgramError,
@@ -62,12 +61,6 @@ pub(super) fn build(
     let options = inputs.options;
     let source_inputs = inputs.sources;
     attach_private_trait_requirements(&mut modules, &options.cancel).map_err(|error| {
-        SourceProgramError::Lowering {
-            module: Box::new(root.clone()),
-            error,
-        }
-    })?;
-    logging::attach(&mut modules, context, &options.cancel).map_err(|error| {
         SourceProgramError::Lowering {
             module: Box::new(root.clone()),
             error,

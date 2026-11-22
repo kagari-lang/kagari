@@ -709,8 +709,10 @@ fn integer_operations_expose_traps_to_downstream_backends() {
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn records_ir_function_effect_summary() {
-    let analyzed = common::program_ok(
+    let analyzed = common::program_ok_with_io(
         r#"
+use std::io::print;
+
 fn main() -> u64 {
     val values = Vec::from([1, 2]);
     values.push(3);

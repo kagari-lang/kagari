@@ -7,51 +7,16 @@ use crate::{
     program::Program,
     runtime::{LoadOptions, ReloadOptions},
 };
-use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::error::RuntimeErrorKind;
-use kagari_runtime::reload::ReloadValidationError;
 use kagari_runtime::{
-    host::{HostCallContext, HostError},
-    module::entry::ProgramEntry,
-    native::{
-        builder::ModuleBuilder, conversion::context::ConversionContext, host, module::NativeModule,
-    },
-    value::{carriers::RootedValue, view::ValueView},
+    error::RuntimeErrorKind, host::HostError, module::entry::ProgramEntry,
+    native::conversion::context::ConversionContext, reload::ReloadValidationError,
+    value::carriers::RootedValue,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::declaration::logging;
+use kagari_stdlib::io;
+use std::sync::{Arc, Mutex};
 
 mod host_paths;
-
-fn compile_artifact(
-    engine: &KagariEngine,
-    name: &str,
-    source: &str,
-) -> DefinitionMetadata<BytecodeArtifact> {
-    engine
-        .compile_to_artifact(SourceFile::new(name, source), ArtifactOptions::default())
-        .expect("source should compile")
-}
-
-fn logging_module(
-    entry: impl for<'call> Fn(
-        &mut HostCallContext<'call>,
-        &[ValueView<'call>],
-    ) -> Result<ValueView<'call>, HostError>
-    + Send
-    + Sync
-    + 'static,
-) -> NativeModule {
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        standard_library().declarations().catalog(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder.bind(log, host::callback(entry)).unwrap();
-    builder.finish().unwrap()
-}
 
 #[test]
 fn compiles_loads_executes_and_reloads_through_embedding_api() {
@@ -268,13 +233,91 @@ fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
 }
 
 #[test]
-fn installed_host_and_reflection_helpers_are_available() {
+fn output_requires_explicit_io_installation() {
+    let bare = KagariEngine::default();
+    for (source, missing) in [
+        (r#"fn main() { print("first"); }"#, "print"),
+        ("use std::io::print; fn main() {}", "std::io::print"),
+    ] {
+        let error = bare
+            .compile_source(SourceFile::new("missing-output.kgr", source))
+            .expect_err("the bare engine should not provide output");
+        let EmbeddingError::Diagnostics { diagnostics } = error else {
+            panic!("expected structured name resolution diagnostics, got {error:?}");
+        };
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == "KG_RESOLVE_UNKNOWN_NAME"
+                    && diagnostic.message == format!("unknown name `{missing}`")
+            }),
+            "{diagnostics:?}"
+        );
+    }
+
+    let mut builder = KagariEngine::builder().unwrap();
+    let reference = io::module(builder.declarations(), |_, _, _| Ok(())).unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let capture = events.clone();
+    let sink = io::module(builder.declarations(), move |cx, message, suffix| {
+        let message = cx
+            .read_string(message, str::to_owned)
+            .map_err(|error| HostError::new(error.to_string()))?;
+        capture.lock().unwrap().push((message, suffix));
+        Ok(())
+    })
+    .unwrap();
+    builder.install(reference).unwrap();
+    let engine = builder.build().unwrap();
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "explicit-output.kgr",
+                include_str!("../../../../tests/fixtures/embedding/host/explicit-output.kgr"),
+            ),
+            ArtifactOptions::default(),
+        )
+        .expect("std::io alone should provide both output functions");
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    let decoded = BytecodeArtifact::from_bytes(&bytes).unwrap();
+    let program = Program::from_artifact(decoded, &Default::default(), &Default::default())
+        .expect("portable decoding does not need a sink");
+
+    let context = ExecutionContext::default();
+    let mut runtime = bare.runtime(context.clone());
+    let error = runtime
+        .load_program(&program, LoadOptions::default())
+        .expect_err("loading the decoded program requires a sink");
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(
+        error
+            .to_string()
+            .contains("native binding is not installed"),
+        "{error}"
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+
+    sink.install(&mut runtime).unwrap();
+    let loaded = runtime
+        .load_program(&program, LoadOptions::default())
+        .unwrap();
+    assert!(events.lock().unwrap().is_empty(), "loading must not write");
+    runtime
+        .execute_typed::<_, ()>(&loaded, ProgramEntry::Main, (), &context)
+        .unwrap();
+    assert_eq!(
+        *events.lock().unwrap(),
+        [("first".to_owned(), ""), ("second".to_owned(), "\n")]
+    );
+}
+
+#[test]
+fn reflection_helper_is_available() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
         standard_library().modules().unwrap(),
     )
     .unwrap();
-    let print_artifact = compile_artifact(&engine, "print.kgr", r#"fn main() { print("x"); }"#);
+
     let type_of_artifact = engine
         .compile_to_artifact(
             SourceFile::new("type_of.kgr", r#"fn main() -> String { type_of(7) }"#),
@@ -282,18 +325,7 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
-    logging_module(|_, _| Ok(ValueView::unit()))
-        .install(&mut runtime)
-        .unwrap();
-    let print_module = runtime
-        .load_program(
-            &Program::from_artifact(print_artifact, &Default::default(), &Default::default())
-                .unwrap(),
-            LoadOptions {
-                program_name: Some("print".to_owned()),
-            },
-        )
-        .expect("print module should load");
+
     let type_of_module = runtime
         .load_program(
             &Program::from_artifact(type_of_artifact, &Default::default(), &Default::default())
@@ -304,14 +336,6 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("type_of module should load");
 
-    runtime
-        .execute_typed::<_, ()>(
-            &print_module,
-            ProgramEntry::Main,
-            (),
-            &ExecutionContext::default(),
-        )
-        .unwrap();
     let result = runtime
         .execute(
             &type_of_module,

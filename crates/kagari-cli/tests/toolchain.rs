@@ -34,6 +34,23 @@ fn records(output: &Output) -> Vec<JsonValue> {
 }
 
 #[test]
+fn std_io_writes_exact_stdout_from_source_and_artifact() {
+    let project = Project::new();
+    project.write("output.kgr", include_str!("fixtures/std-io.kgr"));
+
+    let output = project.run(&["run", "output.kgr"]);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, "hello 😀 from std::io\ndone".as_bytes());
+
+    let emitted = project.run(&["emit", "output.kgr", "-o", "output.kbc"]);
+    assert!(emitted.status.success(), "{emitted:?}");
+    fs::remove_file(project.0.join("output.kgr")).unwrap();
+    let artifact = project.run(&["run-artifact", "output.kbc"]);
+    assert!(artifact.status.success(), "{artifact:?}");
+    assert_eq!(artifact.stdout, output.stdout);
+}
+
+#[test]
 fn lint_cli_policy_required_errors_and_rule_help() {
     let project = Project::new();
     // Help needs neither a manifest nor provider/declaration-cache preparation.

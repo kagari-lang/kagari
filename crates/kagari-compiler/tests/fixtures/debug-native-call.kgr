@@ -1,0 +1,7 @@
+use std::io::print;
+
+fn main(value: i32) -> i32 {
+    val next = value + 1;
+    print("debug");
+    next
+}

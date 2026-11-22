@@ -1,12 +1,9 @@
 //! Standard provider preparation shared by independent contract cases.
-use crate::test_support::standard::standard_library;
-use crate::{
-    engine::{
-        KagariEngine,
-        source::{CheckedModule, analysis::SourceAnalysis},
-    },
-    test_support::execution,
+use crate::engine::{
+    KagariEngine,
+    source::{CheckedModule, analysis::SourceAnalysis},
 };
+use crate::test_support::standard::standard_library;
 use kagari_common::cancellation::CancellationToken;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -14,35 +11,44 @@ use kagari_runtime::{
     native::{builder::ModuleBuilder, host, installation::NativeInstallation},
 };
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
+use kagari_stdlib::io;
 use std::sync::{Mutex, OnceLock};
 
 pub(super) fn engine(vector: bool) -> KagariEngine {
-    if !vector {
-        return execution::engine(Default::default());
-    }
+    static BASELINE: OnceLock<Mutex<KagariEngine>> = OnceLock::new();
     static VECTOR: OnceLock<Mutex<KagariEngine>> = OnceLock::new();
-    VECTOR
+    let baseline = if vector { &VECTOR } else { &BASELINE };
+    baseline
         .get_or_init(|| {
             let mut builder = KagariEngine::builder().unwrap();
+            let output = io::module(builder.declarations(), |_, _, _| Ok(())).unwrap();
             builder
-                .install_all(standard_library().modules().unwrap())
-                .unwrap();
-            let mut module = ModuleBuilder::from_declaration(
-                super::observe_vector(),
-                builder.declarations(),
-                Default::default(),
-            )
-            .unwrap();
-            let vector = module.declared_function("vector").unwrap();
-            module
-                .bind(
-                    vector,
-                    host::callback(|_, _| {
-                        Err(HostError::new("compilation-only provider must not execute"))
-                    }),
+                .install_all(
+                    standard_library()
+                        .modules()
+                        .unwrap()
+                        .into_iter()
+                        .chain([output]),
                 )
                 .unwrap();
-            builder.install(module.finish().unwrap()).unwrap();
+            if vector {
+                let mut module = ModuleBuilder::from_declaration(
+                    super::observe_vector(),
+                    builder.declarations(),
+                    Default::default(),
+                )
+                .unwrap();
+                let vector = module.declared_function("vector").unwrap();
+                module
+                    .bind(
+                        vector,
+                        host::callback(|_, _| {
+                            Err(HostError::new("compilation-only provider must not execute"))
+                        }),
+                    )
+                    .unwrap();
+                builder.install(module.finish().unwrap()).unwrap();
+            }
             Mutex::new(builder.build().unwrap())
         })
         .lock()

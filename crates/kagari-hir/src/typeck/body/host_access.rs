@@ -1,4 +1,4 @@
-//! Check logging calls and typed declared host field/index paths.
+//! Check runtime helper calls and typed declared host field/index paths.
 //! Records declared access contracts and path selections for lowering; HIR analysis
 //! does not borrow host state or invoke the registered Rust implementation.
 
@@ -30,46 +30,12 @@ use kagari_common::{
 
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
-    declaration::{FnDecl, host::PathAccess, logging, path::HostPathSegmentDeclaration},
+    declaration::{host::PathAccess, path::HostPathSegmentDeclaration},
     language::binding::result_origin_carriers_valid,
     scalar::BuiltinType,
 };
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn infer_log_signature(
-        &mut self,
-        declaration: &FnDecl,
-        name: &str,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> TypeId {
-        let args = self.infer_typed_args(
-            args,
-            declaration
-                .params
-                .iter()
-                .map(|parameter| raise_type(&parameter.ty)),
-            env,
-        );
-        if args.len() != declaration.params.len() {
-            self.check_builtin_arity(name, declaration.params.len(), args.len(), callee);
-        }
-        for (index, parameter) in declaration.params.iter().enumerate() {
-            if self.cancelled() {
-                return TypeId::Unknown;
-            }
-            self.check_arg_type(
-                name,
-                &parameter.name,
-                raise_type(&parameter.ty),
-                index,
-                &args,
-            );
-        }
-        raise_type(&declaration.return_type)
-    }
-
     pub(super) fn infer_runtime_helper_call_type(
         &mut self,
         call_expr: ExprId,
@@ -85,12 +51,6 @@ impl<'a> BodyChecker<'a> {
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
             BuiltinFunction::TypeOf | BuiltinFunction::RangeBound { .. } => 1,
-            BuiltinFunction::Print => logging::declaration()
-                .expect("log contract initialized during declaration collection")
-                .records()
-                .functions[0]
-                .params
-                .len(),
             BuiltinFunction::GetField | BuiltinFunction::ForwardErrOrigin => 2,
             BuiltinFunction::SetField | BuiltinFunction::SetIndex => 3,
         };
@@ -202,18 +162,6 @@ impl<'a> BodyChecker<'a> {
                 self.check_reflection_assignment_value(*value, expected.as_ref(), env);
                 Some(base_ty.unwrap_or(TypeId::Unknown))
             }
-            BuiltinFunction::Print => Some(
-                self.infer_log_signature(
-                    &logging::declaration()
-                        .expect("log contract initialized during declaration collection")
-                        .records()
-                        .functions[0],
-                    "print",
-                    callee,
-                    args,
-                    env,
-                ),
-            ),
         }
     }
 

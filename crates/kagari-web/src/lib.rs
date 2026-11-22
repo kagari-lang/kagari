@@ -50,7 +50,7 @@ pub struct BrowserSession {
 #[cfg_attr(all(target_arch = "wasm32", target_os = "unknown"), wasm_bindgen)]
 impl BrowserSession {
     #[cfg(feature = "source")]
-    /// Install only the standard library and the bounded `web::print(String)` sink.
+    /// Install the standard library and a bounded `std::io` output sink.
     #[cfg_attr(
         all(target_arch = "wasm32", target_os = "unknown"),
         wasm_bindgen(constructor)
@@ -59,7 +59,7 @@ impl BrowserSession {
         Self::create(output::engine)
     }
 
-    /// Install the standard providers against a trusted host-selected core image.
+    /// Install the standard library and bounded `std::io` sink against a trusted core image.
     /// The independently loaded application never chooses the host's declarations.
     #[cfg(not(feature = "source"))]
     #[cfg_attr(

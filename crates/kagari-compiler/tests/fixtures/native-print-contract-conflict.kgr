@@ -1,0 +1,10 @@
+use std::io::print;
+
+trait Marker {}
+
+impl Marker for i32 {}
+
+fn main() {
+    print("one");
+    print("two");
+}

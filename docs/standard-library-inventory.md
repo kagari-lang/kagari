@@ -1251,7 +1251,7 @@ Existing compiler/host bridges, shown separately to avoid inventing generic meth
 
 ```text
 type_of(value) -> String
-print(message: String) -> ()                 requires installed host::log
+
 get_field(base, "literal_field_name")         compiler-checked field result
 set_field(base, "literal_field_name", value)  compiler-checked; returns base
 set_index(base, index, value)                 compiler-checked; returns base
@@ -1259,8 +1259,13 @@ set_index(base, index, value)                 compiler-checked; returns base
 
 These sketches are not arbitrary reflective access signatures. Field names must
 be literals and accesses remain checked; type_of currently returns String, not a
-new TypeInfo product. CLI/browser output adapters are provider examples, not
-universal ambient output availability.
+new TypeInfo product.
+
+**Separately installed text output:** `std::io::print(message: String)` writes
+without adding a newline; `std::io::println(message: String)` adds one. Both
+return Unit. An embedding supplies the sink; CLI and browser adapters install
+one explicitly. The standard bundle does not install `std::io`, and neither
+function is in the prelude.
 
 **Host-provided / deferred signature design:**
 

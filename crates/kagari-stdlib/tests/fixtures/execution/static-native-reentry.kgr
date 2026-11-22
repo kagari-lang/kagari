@@ -1,3 +1,5 @@
+use std::io::print;
+
 static val value: i32 = initialize();
 
 fn initialize() -> i32 {

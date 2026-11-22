@@ -1010,7 +1010,9 @@ against that proven public boundary. Vec/HashMap/HashSet, base cursors, Rust/Ser
 adapters, source-free consumers and the public external BTreeMap<i32, T> fixture
 remain NC work. Builtin Array stays separate. Restore original inherited GC
 workloads/gates after provider admission works; passing standalone/call controls
-are not replacements. Full standard-library reconstruction remains unstarted.
+are not replacements. The stdlib owned-drive iterator-invalidation case still
+requires `Vec`; its explicit `std::io` registration does not restore that provider.
+Full standard-library reconstruction remains unstarted.
 
 The separate [standard library inventory](standard-library-inventory.md) records
 current APIs, missing conveniences and requested IndexMap/IndexSet/BTreeMap/BTreeSet

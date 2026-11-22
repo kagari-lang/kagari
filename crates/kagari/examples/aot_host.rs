@@ -4,18 +4,16 @@ use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
 };
-use kagari_runtime::execution::JitExecutionStatus;
-use kagari_runtime::{
-    host::{HostCallContext, HostError},
-    native::{builder::ModuleBuilder, host},
-    value::view::ValueView,
-};
+use kagari_runtime::{execution::JitExecutionStatus, host::HostError};
 #[path = "../tests/support/portable_standard.rs"]
 mod portable_standard;
 use kagari_contract::native_bundle::BYTECODE_FILE;
-use kagari_stdlib::{StandardLibrary, namespaces};
-use kagari_types::declaration::logging;
-use std::{env, fs, path::PathBuf};
+use kagari_stdlib::{StandardLibrary, io as script_io, namespaces};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::PathBuf,
+};
 
 fn main() {
     let path = PathBuf::from(
@@ -32,7 +30,7 @@ fn main() {
     // SAFETY: this example only accepts host-approved immutable bundles produced
     // by the matching Kagari build; it is not a loader for arbitrary uploaded DLLs.
     let bundle = unsafe { AotBundle::load(&path, &context.cancellation) }.expect("trusted bundle");
-    // The CLI producer installs host::log. Loading validates all carried native
+    // The CLI producer installs std::io. Loading validates all carried native
     // declarations, including services unused by the selected scalar entry.
     let mut engine = KagariEngine::builder().expect("engine registrations");
     let library = if engine
@@ -45,29 +43,18 @@ fn main() {
         portable_standard::from_bytes(&fs::read(path.join(BYTECODE_FILE)).unwrap()).unwrap()
     };
     engine.install_all(library.modules().unwrap()).unwrap();
-    let mut logging = ModuleBuilder::from_declaration(
-        logging::declaration().expect("logging declaration"),
-        engine.declarations(),
-        Default::default(),
-    )
-    .expect("logging module");
-    let log = logging.declared_function("log").expect("log function");
-    logging
-        .bind(
-            log,
-            host::callback(|cx: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
-                let [message] = args else {
-                    return Err(HostError::new("host.log expects one string argument"));
-                };
-                cx.read_string(message, |message| println!("{message}"))
-                    .map_err(|error| HostError::new(error.to_string()))?;
-                Ok(ValueView::unit())
-            }),
-        )
-        .expect("log binding");
-    engine
-        .install(logging.finish().expect("complete logging module"))
-        .expect("install logging");
+    let output = script_io::module(library.declarations().catalog(), |cx, message, suffix| {
+        let mut stdout = io::stdout().lock();
+        cx.read_string(message, |text| {
+            stdout.write_all(text.as_bytes())?;
+            stdout.write_all(suffix.as_bytes())?;
+            stdout.flush()
+        })
+        .map_err(|error| HostError::new(error.to_string()))?
+        .map_err(|error| HostError::new(error.to_string()))
+    })
+    .expect("std::io module");
+    engine.install(output).expect("install std::io");
     let mut runtime = engine.build().expect("engine").runtime(context.clone());
     let loaded = runtime
         .load_program(bundle.program(), Default::default())

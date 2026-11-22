@@ -1,0 +1,6 @@
+use std::io::{ print, println };
+
+fn main() {
+    print("first");
+    println("second");
+}

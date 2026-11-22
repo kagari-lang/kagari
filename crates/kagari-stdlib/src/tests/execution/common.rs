@@ -1,12 +1,12 @@
-use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
+use crate::{io, test_library};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
     module::{InstalledProgram, VerifiedProgram},
-    native::{builder::ModuleBuilder, host, module::NativeModule},
+    native::module::NativeModule,
     value::view::ValueView,
 };
 
@@ -21,7 +21,7 @@ use kagari_compiler::{
 };
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::declaration::logging;
+
 use std::sync::Arc;
 
 /// Exercise the actual source-free codec and loader validation with a fresh receiving context.
@@ -74,33 +74,22 @@ pub fn load_test_module(source_text: &str) -> (Runtime, InstalledProgram) {
     (runtime, loaded)
 }
 
-/// Bind the fixed print service through ordinary common native registration.
-pub fn logging_module(
-    entry: impl for<'call> Fn(
+pub fn print_module(
+    write: impl for<'call> Fn(
         &mut HostCallContext<'call>,
-        &[ValueView<'call>],
-    ) -> Result<ValueView<'call>, HostError>
+        &ValueView<'call>,
+        &'static str,
+    ) -> Result<(), HostError>
     + Send
     + Sync
     + 'static,
 ) -> NativeModule {
-    let mut builder = ModuleBuilder::from_declaration(
-        logging::declaration().unwrap(),
-        test_library::standard().catalog(),
-        Default::default(),
-    )
-    .unwrap();
-    let log = builder.declared_function("log").unwrap();
-    builder.bind(log, host::callback(entry)).unwrap();
-    builder.finish().unwrap()
+    io::module(test_library::standard().catalog(), write).unwrap()
 }
 
-/// Compile the explicit logging contract; callers install their own logging implementation.
-pub fn compile_logging_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    compile_native_test_bytecode(
-        source_text,
-        &[&logging_module(|_, _| Ok(ValueView::unit()))],
-    )
+/// Compile against `std::io` without installing the producer's no-op sink.
+pub fn compile_print_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode(source_text, &[&print_module(|_, _, _| Ok(()))])
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {

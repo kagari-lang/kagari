@@ -348,11 +348,11 @@ fn qualified_call_navigation_selects_only_the_terminal_name() {
 #[test]
 fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
     let cases = [
-        ("use missing as print;", "print(\"blocked\")", "print", None),
+        ("use missing as type_of;", "type_of(1)", "type_of", None),
         (
-            "const print: i32 = 1; fn print() {}",
-            "print(\"blocked\")",
-            "print",
+            "const type_of: i32 = 1; fn type_of() {}",
+            "type_of(1)",
+            "type_of",
             Some(NameResolution::Ambiguous),
         ),
         (
@@ -391,7 +391,7 @@ fn absent_imports_release_categories_and_ambiguous_imports_block_fallback() {
             assert_eq!(
                 facts.names.items.lookup(
                     alias,
-                    if alias == "print" || alias == "number" {
+                    if alias == "type_of" || alias == "number" {
                         NameNamespace::Value
                     } else {
                         NameNamespace::Type
