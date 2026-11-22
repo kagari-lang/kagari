@@ -1,13 +1,9 @@
-use crate::{
-    numeric::NumericOperation,
-    representation::semantic_representation,
-    types::{PublicItem, type_contract},
-};
+use crate::{numeric::NumericOperation, representation::semantic_representation};
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{ModuleIdentity, table::DefinitionTable};
+use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::verify::{concrete_type_valid, types_in_scope},
-    language::{binding, schema::CoreEnum},
+    language::binding,
     range::RangeKind,
     ty::Ty,
 };
@@ -37,34 +33,6 @@ pub enum BinaryOp {
     Ge,
     AndAnd,
     OrOr,
-}
-
-/// Portable authorization for the origin operation, independent of a source sidecar.
-/// All three semantic slots and the reporting variant must survive artifact decoding.
-pub fn result_origin_call_valid(
-    module: &ModuleIdentity,
-    items: &[PublicItem],
-    operands: [Option<&Ty>; 2],
-    output: Option<&Ty>,
-    definitions: &DefinitionTable,
-) -> bool {
-    let [Some(original), Some(target)] = operands else {
-        return false;
-    };
-    let result = binding::result_declaration();
-    if module != &result.module
-        || output != Some(target)
-        || !binding::result_origin_carriers_valid(original, target, definitions)
-    {
-        return false;
-    }
-    let Some(id) = definitions.lookup(&result) else {
-        return false;
-    };
-    let Some(schema) = type_contract(module, items, &id, definitions) else {
-        return false;
-    };
-    CoreEnum::Result.shape_valid(id, schema, definitions)
 }
 
 /// Validate endpoint presence and physical types using the range's semantic type.

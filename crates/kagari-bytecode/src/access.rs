@@ -399,20 +399,6 @@ pub(super) fn verify(
                                 produced = Some((*dst, value));
                             }
                         }
-                        I::RangeBound {
-                            dst,
-                            value,
-                            range,
-                            bound,
-                            ..
-                        } => {
-                            if let Some(value) = get(*value)
-                                && !flows(&value, range)
-                            {
-                                return Err(invalid());
-                            }
-                            produced = Some((*dst, Fact::typed(bound.clone())));
-                        }
                         I::MakeRange {
                             dst,
                             start,

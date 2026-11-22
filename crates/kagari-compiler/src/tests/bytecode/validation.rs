@@ -1075,7 +1075,7 @@ fn verifier_rejects_malformed_debug_metadata() {
 }
 
 #[test]
-fn ranges_reject_forged_shapes_endpoints_and_bounds() {
+fn range_construction_rejects_forged_shapes_and_endpoints() {
     let context = DefinitionContext::new().unwrap();
 
     let module = common::adopt_bytecode(
@@ -1115,82 +1115,6 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         assert!(
             verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
             "range mutation {mutation}"
-        );
-    }
-    let exclusive_u64 = Ty::Range(
-        Box::new(Ty::Builtin(BuiltinType::U64)),
-        RangeKind::Exclusive,
-    );
-    for mutation in 0..5 {
-        let mut invalid = module.clone();
-        // The user call selects an authored core method, which owns the instruction.
-        let (function, instruction) = invalid
-            .modules
-            .iter_mut()
-            .flat_map(|module| &mut module.functions)
-            .find_map(|function| {
-                let instruction = function.instructions.iter_mut().find(|instruction| {
-                    matches!(instruction, BytecodeInstruction::RangeBound { upper: true, range, .. }
-                        if *range == exclusive_u64)
-                })?;
-                Some((function.id, instruction))
-            })
-            .expect("reachable core end_bound implementation");
-        let BytecodeInstruction::RangeBound {
-            value,
-            range,
-            bound,
-            ..
-        } = instruction
-        else {
-            unreachable!()
-        };
-        let invalid_contract = BytecodeVerificationError::InvalidOperation {
-            function,
-            reason: "invalid range bound contract",
-        };
-        let expected = match mutation {
-            0 => {
-                *bound = Ty::Builtin(BuiltinType::Bool);
-                invalid_contract
-            }
-            1 => {
-                let Ty::Enum(nominal) = bound else {
-                    unreachable!()
-                };
-                nominal.arguments.clear();
-                invalid_contract
-            }
-            2 => {
-                *range = Ty::Range(
-                    Box::new(Ty::Builtin(BuiltinType::I32)),
-                    RangeKind::Exclusive,
-                );
-                invalid_contract
-            }
-            3 => {
-                // The same item type keeps the bound contract valid; only the input differs.
-                *range = Ty::Range(
-                    Box::new(Ty::Builtin(BuiltinType::U64)),
-                    RangeKind::Inclusive,
-                );
-                BytecodeVerificationError::InvalidOperation {
-                    function,
-                    reason: "invalid collection access flow",
-                }
-            }
-            _ => {
-                *value = Slot::new(u32::MAX as usize);
-                BytecodeVerificationError::InvalidRegister {
-                    function,
-                    register: *value,
-                }
-            }
-        };
-        assert_eq!(
-            verify_program(&invalid, &context.snapshot(), &Default::default()),
-            Err(expected),
-            "bound mutation {mutation}"
         );
     }
 }

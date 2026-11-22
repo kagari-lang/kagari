@@ -12,7 +12,6 @@ use kagari_contract::{
     operations::UnaryOp, representation::semantic_representation, standard::RuntimePrimitive,
 };
 use kagari_hir::{
-    builtin::BuiltinFunction,
     compile_input::body::BodyKey,
     hir::{
         expr::{Condition, ops::BinaryOp as HirBinaryOp},
@@ -169,37 +168,7 @@ impl FunctionLowerer<'_, '_> {
             CheckedExprKind::Call(call) | CheckedExprKind::Format { call, .. } => {
                 self.lower_call(expr_id, call)
             }
-            CheckedExprKind::Helper {
-                helper: BuiltinFunction::RangeBound { upper },
-                operands,
-            } => {
-                let [receiver] = operands.as_slice() else {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked range bound receiver",
-                    ));
-                };
-                let value = self.lower_expr(*receiver)?;
-                if self.current_block_terminated() {
-                    return Ok(value);
-                }
-                let operand_ty = self
-                    .expression_type(*receiver)
-                    .ok_or(MirLoweringError::MissingExprType(*receiver))?;
-                let result_ty = self
-                    .expression_type(expr_id)
-                    .ok_or(MirLoweringError::MissingExprType(expr_id))?;
-                let range = self.semantic_type(&operand_ty)?;
-                let bound = self.semantic_type(&result_ty)?;
-                let dst = self.alloc_temp(ValueType::HeapObject);
-                self.emit(Instruction::RangeBound {
-                    dst,
-                    value,
-                    range,
-                    bound,
-                    upper,
-                });
-                Ok(dst)
-            }
+
             CheckedExprKind::Helper { helper, operands } => {
                 let (callee, args) = match self.lower_runtime_helper_call(helper, &operands)? {
                     ControlFlow::Break(value) => return Ok(value),

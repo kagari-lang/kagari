@@ -187,9 +187,9 @@ mod tests {
             .flat_map(|module| &module.native_imports)
             .find(|import| {
                 FoundationNative::for_id(import.binding, definitions)
-                    == Some(FoundationNative::RangeStart)
+                    == Some(FoundationNative::RangeBound(RangeKind::Exclusive))
             })
-            .expect("the packaged Range<T> start method calls a private Native entry")
+            .expect("the packaged Range<T> bounds call a private Native entry")
             .clone();
         let root = foreign.root.index();
         foreign.modules[root].native_imports.push(import);

@@ -160,19 +160,6 @@ impl RemapDefinitions for Instruction {
                 dst: *(dst),
                 elements: (elements).clone(),
             },
-            Self::RangeBound {
-                dst,
-                value,
-                range,
-                bound,
-                upper,
-            } => Instruction::RangeBound {
-                dst: *(dst),
-                value: *(value),
-                range: (range).remap_definitions(mapper)?,
-                bound: (bound).remap_definitions(mapper)?,
-                upper: *(upper),
-            },
             Self::MakeRange {
                 dst,
                 start,
@@ -411,16 +398,6 @@ impl DefinitionReferences for Instruction {
                 dst: _,
                 elements: _,
             } => {}
-            Self::RangeBound {
-                dst: _,
-                value: _,
-                range,
-                bound,
-                upper: _,
-            } => {
-                (range).visit_definition_ids(visit, cancel)?;
-                (bound).visit_definition_ids(visit, cancel)?;
-            }
             Self::MakeRange {
                 dst: _,
                 start: _,

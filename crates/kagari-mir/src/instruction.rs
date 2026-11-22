@@ -123,13 +123,6 @@ pub enum Instruction {
         dst: MirValue,
         elements: ValueBuffer,
     },
-    RangeBound {
-        dst: MirValue,
-        value: MirValue,
-        range: Ty,
-        bound: Ty,
-        upper: bool,
-    },
     MakeRange {
         dst: MirValue,
         start: Option<MirValue>,
@@ -353,7 +346,6 @@ impl Instruction {
             Self::MakeTuple { .. }
             | Self::MakeArray { .. }
             | Self::RepeatArray { .. }
-            | Self::RangeBound { .. }
             | Self::MakeFuture { .. }
             | Self::MakeClosure { .. }
             | Self::MakeCell { .. }

@@ -718,19 +718,7 @@ fn lower_instruction(
                 .map(|element| context.value(*element))
                 .collect(),
         },
-        Instruction::RangeBound {
-            dst,
-            value,
-            range,
-            bound,
-            upper,
-        } => BytecodeInstruction::RangeBound {
-            dst: context.value(*dst),
-            value: context.value(*value),
-            range: range.clone(),
-            bound: bound.clone(),
-            upper: *upper,
-        },
+
         Instruction::MakeRange {
             dst,
             start,

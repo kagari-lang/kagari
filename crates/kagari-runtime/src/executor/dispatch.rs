@@ -118,18 +118,6 @@ impl<'a> Interpreter<'a> {
                     .expect("active interpreter")
                     .make_tuple(self.runtime, dst, elements)?;
             }
-            BytecodeInstruction::RangeBound {
-                dst,
-                value,
-                ref range,
-                ref bound,
-                upper,
-            } => {
-                self.stack
-                    .as_ref()
-                    .expect("active interpreter")
-                    .range_bound(self.runtime, dst, value, range, bound, upper)?;
-            }
             BytecodeInstruction::MakeRange {
                 dst,
                 start,

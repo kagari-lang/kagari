@@ -13,14 +13,15 @@ use kagari_contract::{
     callable::receiver::accepts_owned,
     contracts,
     contracts::{ContractError, RuntimeHelperKind},
+    native_import::foundation::FoundationNative,
     numeric::NumericSignature,
     operations,
     operations::range_operands_valid,
     representation::semantic_representation,
-    standard::RuntimePrimitive,
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
+    callable::{CallableImplementation, Signature},
     declaration::{
         TypeDefKind, host::PathAccess, native::NativeStorageLayout, verify::types_in_scope,
     },
@@ -326,6 +327,12 @@ pub(super) fn verify(
                     semantic_representation(&call.signature.result),
                 )
                 .map_err(contract)?;
+                if let CallableImplementation::Native(binding) = call.implementation
+                    && FoundationNative::for_id(binding, context.definitions).is_some()
+                {
+                    verify_foundation_call(function, *dst, args, &call.signature)
+                        .map_err(contract)?;
+                }
             }
             CallTarget::Function(target) => {
                 let callee = module
@@ -415,21 +422,6 @@ pub(super) fn verify(
                     &args.iter().map(|v| v.ty).collect::<Vec<_>>(),
                 )
                 .map_err(contract)?;
-                if *intrinsic == RuntimePrimitive::ForwardErrOrigin {
-                    let semantic =
-                        |value: &MirValue| function.semantic.registers.get(&value.temp.index());
-                    if !operations::result_origin_call_valid(
-                        &module.identity,
-                        &module.abi.public_items,
-                        [semantic(&args[0]), semantic(&args[1])],
-                        dst.as_ref().and_then(semantic),
-                        context.definitions,
-                    ) {
-                        return Err(contract(ContractError::InvalidOperation {
-                            reason: "invalid Result origin transfer",
-                        }));
-                    }
-                }
             }
             CallTarget::Native(import) => {
                 contracts::verify_native_call(
@@ -439,6 +431,10 @@ pub(super) fn verify(
                     context.definitions,
                 )
                 .map_err(contract)?;
+                if FoundationNative::for_id(import.binding, context.definitions).is_some() {
+                    verify_foundation_call(function, *dst, args, &import.signature)
+                        .map_err(contract)?;
+                }
             }
 
             CallTarget::Value(_) | CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
@@ -477,21 +473,6 @@ pub(super) fn verify(
                 .map_err(contract)?;
             }
         },
-        Instruction::RangeBound {
-            dst,
-            value,
-            range,
-            bound,
-            ..
-        } => {
-            context.expect(dst.ty, ValueType::HeapObject, "bound destination")?;
-            context.expect(value.ty, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid(range, bound, context.definitions) {
-                return Err(contract(ContractError::InvalidOperation {
-                    reason: "invalid range bound contract",
-                }));
-            }
-        }
         Instruction::MakeRange {
             dst,
             start,
@@ -856,6 +837,26 @@ pub(super) fn verify(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+fn verify_foundation_call(
+    function: &MirFunction,
+    dst: Option<MirValue>,
+    args: &[MirValue],
+    signature: &Signature,
+) -> Result<(), ContractError> {
+    let semantic = |value: MirValue| function.semantic.registers.get(&value.temp.index());
+    if args
+        .iter()
+        .zip(&signature.params)
+        .any(|(arg, expected)| semantic(*arg) != Some(expected))
+        || dst.and_then(semantic) != Some(&signature.result)
+    {
+        return Err(ContractError::InvalidOperation {
+            reason: "invalid foundation native call types",
+        });
     }
     Ok(())
 }

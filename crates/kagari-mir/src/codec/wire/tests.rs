@@ -1,4 +1,4 @@
-use super::{ProgramRecord, function::MirModuleRecord};
+use super::{ProgramRecord, function::MirModuleRecord, instruction::InstructionRecord};
 use crate::{
     codec::{Header, MirCodecError, decode_program, encode_program, options},
     debug::{MirFunctionDebugMetadata, MirLexicalScope},
@@ -11,8 +11,8 @@ use crate::{
 use bincode::Options;
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
-    scoped::DefinitionReferences,
+    DefinitionKind, ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
+    metadata::DefinitionMetadata, scoped::DefinitionReferences,
 };
 use kagari_contract::{
     exports::wire::ProgramExportsRecord,
@@ -24,6 +24,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::{TypeDeclaration, TypeDef, TypeDefKind, VariantDef},
+    range::RangeKind,
     scalar::BuiltinType,
     ty::{GenericParam, Ty},
     visibility::Visibility,
@@ -119,6 +120,44 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
+}
+
+#[test]
+fn retired_instruction_tag_is_rejected_without_renumbering_make_range() {
+    let context = DefinitionContext::new().unwrap();
+    let encoding = context.snapshot().encode([]).unwrap();
+    let instruction = Instruction::MakeRange {
+        dst: MirValue {
+            temp: TempId::new(0),
+            ty: ValueType::HeapObject,
+        },
+        start: Some(MirValue {
+            temp: TempId::new(1),
+            ty: ValueType::I32,
+        }),
+        end: None,
+        ty: Ty::Range(Box::new(Ty::Builtin(BuiltinType::I32)), RangeKind::From),
+    };
+    let cancel = Default::default();
+    let record = InstructionRecord::encode(&instruction, &encoding, &cancel).unwrap();
+    let decoding = encoding.table.decode().unwrap();
+    let bytes = options().serialize(&record).unwrap();
+    assert_eq!(bytes[..4], 14u32.to_le_bytes());
+    let decoded: InstructionRecord = options().deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded.decode(&decoding, &cancel).unwrap(),
+        Instruction::MakeRange { dst, start: Some(start), end: None, ty }
+            if dst.temp == TempId::new(0) && dst.ty == ValueType::HeapObject
+                && start.temp == TempId::new(1) && start.ty == ValueType::I32
+                && ty == Ty::Range(Box::new(Ty::Builtin(BuiltinType::I32)), RangeKind::From)
+    ));
+
+    let retired: InstructionRecord = options().deserialize(&13u32.to_le_bytes()).unwrap();
+    assert!(options().serialize(&retired).is_err());
+    assert!(matches!(
+        retired.decode(&decoding, &cancel),
+        Err(DefinitionMappingError::InvalidContract)
+    ));
 }
 
 #[test]

@@ -324,26 +324,6 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
             "make_tuple s0, elements=[]",
         ),
         (
-            BytecodeInstruction::RangeBound {
-                dst: r(0),
-                value: r(1),
-                range: t(),
-                bound: Ty::Builtin(BuiltinType::U64),
-                upper: true,
-            },
-            "range_bound s0, value=s1, range=i32, bound=u64, upper=true",
-        ),
-        (
-            BytecodeInstruction::RangeBound {
-                dst: r(0),
-                value: r(1),
-                range: t(),
-                bound: t(),
-                upper: false,
-            },
-            "range_bound s0, value=s1, range=i32, bound=i32, upper=false",
-        ),
-        (
             BytecodeInstruction::MakeRange {
                 dst: r(0),
                 start: Some(r(1)),

@@ -16,10 +16,9 @@ use crate::{
     value_semantics::{comparison, formatting, hashing, storage_error},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::DefinitionKind;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_gc::{error::GcError, object::Gc};
-use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
 
 #[cfg(test)]
@@ -31,7 +30,6 @@ pub(super) fn invoke<'call>(
     arguments: ArgumentValues<'call>,
 ) -> NativeResult<ValueView<'call>> {
     match primitive {
-        RuntimePrimitive::ForwardErrOrigin => forward_err_origin(cx, arguments),
         RuntimePrimitive::ValuePartialCmp | RuntimePrimitive::ValueCmp => {
             arity(arguments, 2, TrapReason::ComparisonRequiresTwoOperands)?;
             let order = inspect(cx, arguments, |slots, resources| {
@@ -126,44 +124,6 @@ pub(super) fn invoke<'call>(
             Ok(ValueView::unit())
         }
     }
-}
-
-fn forward_err_origin<'call>(
-    cx: &mut ConversionContext<'call>,
-    arguments: ArgumentValues<'call>,
-) -> NativeResult<ValueView<'call>> {
-    let invalid = || RuntimeError::module_validation("invalid Result origin transfer");
-    let result = binding::result_declaration();
-    if arguments.len() != 2 || cx.owner().bytecode.identity != result.module {
-        return Err(invalid());
-    }
-    let original = arguments.get(cx, 0)?;
-    let destination = arguments.get(cx, 1)?;
-    let definitions = cx.runtime().definition_context().snapshot();
-    let owner = definitions.lookup(&result).ok_or_else(invalid)?;
-    let err = definitions
-        .lookup_child(owner, DefinitionKind::Variant, "Err", 0)
-        .ok_or_else(invalid)?;
-    let mut carrier = |value: &ValueView<'_>| {
-        let (layout, count) = cx.enum_shape(value)?;
-        let (nominal, variant) = layout.value_identity().ok_or_else(invalid)?;
-        if variant != err
-            || nominal.declaration != owner
-            || !layout.variant().reports_failure
-            || count != 1
-        {
-            return Err(invalid());
-        }
-        Ok(Ty::Enum(nominal))
-    };
-    if !binding::result_origin_carriers_valid(
-        &carrier(&original)?,
-        &carrier(&destination)?,
-        &definitions,
-    ) {
-        return Err(invalid());
-    }
-    cx.forward_enum_origin(&original, &destination)
 }
 
 fn arity(arguments: ArgumentValues<'_>, expected: usize, reason: TrapReason) -> NativeResult<()> {

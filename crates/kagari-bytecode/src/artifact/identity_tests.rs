@@ -3,7 +3,9 @@ use crate::{
     artifact::{
         ArtifactBuildOptions, ArtifactHeader, ArtifactValidationError, KBC_ARTIFACT_FORMAT_VERSION,
         KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_MODULES, encode_program_facts,
+        wire::instruction::BytecodeInstructionRecord,
     },
+    instruction::{BytecodeInstruction, Slot},
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
     verifier::BytecodeVerificationError,
@@ -11,7 +13,10 @@ use crate::{
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext},
+    identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        mapping::DefinitionMappingError,
+    },
 };
 use kagari_contract::{
     layout::{StructFieldLayout, StructLayout},
@@ -19,6 +24,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::{FieldDef, TraitDef, TypeDeclaration, TypeDef, TypeDefKind},
+    range::RangeKind,
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
@@ -31,6 +37,37 @@ fn codec() -> impl Options {
         .with_little_endian()
         .reject_trailing_bytes()
         .with_limit(MAX_ARTIFACT_BYTES)
+}
+
+#[test]
+fn retired_instruction_tag_is_rejected_without_renumbering_make_range() {
+    let context = DefinitionContext::new().unwrap();
+    let encoding = context.snapshot().encode([]).unwrap();
+    let instruction = BytecodeInstruction::MakeRange {
+        dst: Slot::new(0),
+        start: Some(Slot::new(1)),
+        end: None,
+        ty: Ty::Range(Box::new(Ty::Builtin(BuiltinType::I32)), RangeKind::From),
+    };
+    let cancel = CancellationToken::default();
+    let record = BytecodeInstructionRecord::encode(&instruction, &encoding, &cancel).unwrap();
+    let decoding = encoding.table.decode().unwrap();
+    let bytes = codec().serialize(&record).unwrap();
+    assert_eq!(bytes[..4], 12u32.to_le_bytes());
+    let decoded: BytecodeInstructionRecord = codec().deserialize(&bytes).unwrap();
+    assert!(matches!(
+        decoded.decode(&decoding, &cancel).unwrap(),
+        BytecodeInstruction::MakeRange { dst, start: Some(start), end: None, ty }
+            if dst == Slot::new(0) && start == Slot::new(1)
+                && ty == Ty::Range(Box::new(Ty::Builtin(BuiltinType::I32)), RangeKind::From)
+    ));
+
+    let retired: BytecodeInstructionRecord = codec().deserialize(&11u32.to_le_bytes()).unwrap();
+    assert!(codec().serialize(&retired).is_err());
+    assert!(matches!(
+        retired.decode(&decoding, &cancel),
+        Err(DefinitionMappingError::InvalidContract)
+    ));
 }
 
 #[test]

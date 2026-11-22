@@ -392,13 +392,6 @@ pub enum BytecodeInstruction {
         dst: Slot,
         elements: Vec<Slot>,
     },
-    RangeBound {
-        dst: Slot,
-        value: Slot,
-        range: Ty,
-        bound: Ty,
-        upper: bool,
-    },
     MakeRange {
         dst: Slot,
         start: Option<Slot>,

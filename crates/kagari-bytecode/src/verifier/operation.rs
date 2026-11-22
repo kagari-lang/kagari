@@ -23,7 +23,6 @@ use kagari_contract::{
     operations,
     operations::UnaryOp as MirUnaryOp,
     representation::semantic_representation,
-    standard::RuntimePrimitive,
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
@@ -238,22 +237,6 @@ pub(super) fn verify_instruction(
         }
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args, program, definitions)?;
-        }
-        BytecodeInstruction::RangeBound {
-            dst,
-            value,
-            range,
-            bound,
-            ..
-        } => {
-            expect_register_ty(function, *dst, ValueType::HeapObject, "bound destination")?;
-            expect_register_ty(function, *value, ValueType::HeapObject, "bound range")?;
-            if !operations::range_bound_valid(range, bound, definitions) {
-                return Err(BytecodeVerificationError::InvalidOperation {
-                    function: function.id,
-                    reason: "invalid range bound contract",
-                });
-            }
         }
         BytecodeInstruction::MakeRange {
             dst,
@@ -1063,21 +1046,6 @@ pub(super) fn verify_call(
         }
         CallTarget::RuntimePrimitive(intrinsic) => {
             verify_standard_intrinsic_call(function, dst, *intrinsic, args)?;
-            if *intrinsic == RuntimePrimitive::ForwardErrOrigin {
-                let semantic = |slot: Slot| function.metadata.semantic.slots.get(&slot.index());
-                if !operations::result_origin_call_valid(
-                    &module.identity,
-                    &module.public_items,
-                    [semantic(args[0]), semantic(args[1])],
-                    dst.and_then(semantic),
-                    definitions,
-                ) {
-                    return Err(BytecodeVerificationError::InvalidOperation {
-                        function: function.id,
-                        reason: "invalid Result origin transfer",
-                    });
-                }
-            }
         }
         CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall) => {
             return Err(BytecodeVerificationError::InvalidOperation {

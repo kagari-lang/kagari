@@ -11,5 +11,4 @@ pub enum RuntimePrimitive {
     ValueDisplay,
     StringPartsJoin,
     Assert,
-    ForwardErrOrigin,
 }

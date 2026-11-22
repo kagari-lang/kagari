@@ -43,6 +43,12 @@ pub enum Result<T, E> {
 
 pub use self::Result::{Ok, Err};
 
+native fn make_err_residual<T, E>(original: Result<T, E>, residual: Result<!, E>) -> Result<!, E>;
+
+native fn forward_err_origin<T, E, F>(original: Result<!, E>, converted: Result<T, F>) -> Result<
+    T, F
+>;
+
 /// When `?` propagates into a different error type `F`, it calls `F`'s direct
 /// `From<E>` conversion once and preserves the original `Err` location and stack.
 /// Matching `Err(e)` and constructing a new `Err(e)` would record a new origin.
@@ -52,7 +58,7 @@ impl<T, E, F: From<E>> FromResidual<Result<!, E>> for Result<T, F> {
             Ok(never) => match never {},
             Err(error) => {
                 val converted: Result<T, F> = Err(<F as From<E>>::from(error));
-                __forward_err_origin(residual, converted)
+                forward_err_origin(residual, converted)
             }
         }
     }
@@ -73,7 +79,7 @@ impl<T, E> Try for Result<T, E> {
             Ok(value) => ControlFlow::Continue(value),
             Err(error) => {
                 val residual: Result<!, E> = Err(error);
-                ControlFlow::Break(__forward_err_origin(self, residual))
+                ControlFlow::Break(make_err_residual(self, residual))
             }
         }
     }

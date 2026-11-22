@@ -88,13 +88,9 @@ pub(crate) enum InstructionRecord {
         #[serde(deserialize_with = "crate::codec::small_operands")]
         elements: ValueBuffer,
     },
-    RangeBound {
-        dst: MirValue,
-        value: MirValue,
-        range: WireType,
-        bound: WireType,
-        upper: bool,
-    },
+    // Keep the retired tag in Serde's positional decoder; conversion rejects it.
+    #[serde(skip_serializing)]
+    RetiredRangeBound,
     MakeRange {
         dst: MirValue,
         start: Option<MirValue>,
@@ -306,19 +302,6 @@ impl InstructionRecord {
             Instruction::MakeTuple { dst, elements } => Self::MakeTuple {
                 dst: *dst,
                 elements: elements.clone(),
-            },
-            Instruction::RangeBound {
-                dst,
-                value,
-                range,
-                bound,
-                upper,
-            } => Self::RangeBound {
-                dst: *dst,
-                value: *value,
-                range: WireType::encode(range, encoding, cancel)?,
-                bound: WireType::encode(bound, encoding, cancel)?,
-                upper: *upper,
             },
             Instruction::MakeRange {
                 dst,
@@ -563,19 +546,7 @@ impl InstructionRecord {
                 args,
             },
             Self::MakeTuple { dst, elements } => Instruction::MakeTuple { dst, elements },
-            Self::RangeBound {
-                dst,
-                value,
-                range,
-                bound,
-                upper,
-            } => Instruction::RangeBound {
-                dst,
-                value,
-                range: range.decode(decoding, cancel)?,
-                bound: bound.decode(decoding, cancel)?,
-                upper,
-            },
+            Self::RetiredRangeBound => return Err(DefinitionMappingError::InvalidContract),
             Self::MakeRange {
                 dst,
                 start,

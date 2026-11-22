@@ -48,7 +48,6 @@ impl Instruction {
                 }
             }
             Self::Await { value, .. }
-            | Self::RangeBound { value, .. }
             | Self::MakeCell { value, .. }
             | Self::MakeInterface { value, .. }
             | Self::UpcastInterface { value, .. }

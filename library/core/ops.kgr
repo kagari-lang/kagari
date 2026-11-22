@@ -269,65 +269,75 @@ pub native type RangeToInclusive<T>;
 /// value and can be used as `RangeBounds<T>` for any endpoint type `T`.
 pub native type RangeFull;
 
-native fn range_start<T>(range: Range<T>) -> Bound<T>;
+native fn range_bound<T>(range: Range<T>, upper: bool) -> Bound<T>;
+
+native fn inclusive_bound<T>(range: RangeInclusive<T>, upper: bool) -> Bound<T>;
+
+native fn from_bound<T>(range: RangeFrom<T>, upper: bool) -> Bound<T>;
+
+native fn to_bound<T>(range: RangeTo<T>, upper: bool) -> Bound<T>;
+
+native fn to_inclusive_bound<T>(range: RangeToInclusive<T>, upper: bool) -> Bound<T>;
+
+native fn full_bound<T>(range: RangeFull, upper: bool) -> Bound<T>;
 
 impl<T> RangeBounds<T> for Range<T> {
     fn start_bound(self) -> Bound<T> {
-        range_start(self)
+        range_bound(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        range_bound(self, true)
     }
 }
 
 impl<T> RangeBounds<T> for RangeInclusive<T> {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        inclusive_bound(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        inclusive_bound(self, true)
     }
 }
 
 impl<T> RangeBounds<T> for RangeFrom<T> {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        from_bound(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        from_bound(self, true)
     }
 }
 
 impl<T> RangeBounds<T> for RangeTo<T> {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        to_bound(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        to_bound(self, true)
     }
 }
 
 impl<T> RangeBounds<T> for RangeToInclusive<T> {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        to_inclusive_bound(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        to_inclusive_bound(self, true)
     }
 }
 
 impl<T> RangeBounds<T> for RangeFull {
     fn start_bound(self) -> Bound<T> {
-        __range_start_bound(self)
+        full_bound::<T>(self, false)
     }
 
     fn end_bound(self) -> Bound<T> {
-        __range_end_bound(self)
+        full_bound::<T>(self, true)
     }
 }
 

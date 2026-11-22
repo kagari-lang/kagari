@@ -149,20 +149,6 @@ pub(crate) fn write_instruction(
             write!(writer, "make_tuple s{}, elements=", dst.index())?;
             slots(writer, elements)
         }
-        BytecodeInstruction::RangeBound {
-            dst,
-            value,
-            range,
-            bound,
-            upper,
-        } => write!(
-            writer,
-            "range_bound s{}, value=s{}, range={}, bound={}, upper={upper}",
-            dst.index(),
-            value.index(),
-            context.ty(range),
-            context.ty(bound)
-        ),
         BytecodeInstruction::MakeRange {
             dst,
             start,

@@ -1313,7 +1313,7 @@ retains real bindings; no Runtime-to-HIR edge or Runtime trait solver was introd
 The [declaration-linked Native helpers plan](native-linkage-reflection-plan.md)
 queues NL01–NL03: bind existing core Native declarations without registering a
 second owner, migrate Range/Result helpers, and retire the legacy script helpers
-and HIR name fallback. NL01 is implemented; NL02–NL03 remain open. The
+and HIR name fallback. NL01–NL02 are implemented; NL03 remains open. The
 [script reflection API](spec/reflection.md#optional-script-reflection) requires a
 separate design; no replacement API ships in these phases. Moving String methods
 and measuring any call fast path remain separate follow-ups.

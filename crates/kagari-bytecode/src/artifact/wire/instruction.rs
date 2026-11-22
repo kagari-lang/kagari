@@ -92,13 +92,9 @@ pub(in crate::artifact) enum BytecodeInstructionRecord {
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
         elements: Vec<Slot>,
     },
-    RangeBound {
-        dst: Slot,
-        value: Slot,
-        range: WireType,
-        bound: WireType,
-        upper: bool,
-    },
+    // Keep the retired tag in Serde's positional decoder; conversion rejects it.
+    #[serde(skip_serializing)]
+    RetiredRangeBound,
     MakeRange {
         dst: Slot,
         start: Option<Slot>,
@@ -355,19 +351,6 @@ impl BytecodeInstructionRecord {
             BytecodeInstruction::MakeTuple { dst, elements } => Self::MakeTuple {
                 dst: *dst,
                 elements: elements.clone(),
-            },
-            BytecodeInstruction::RangeBound {
-                dst,
-                value,
-                range,
-                bound,
-                upper,
-            } => Self::RangeBound {
-                dst: *dst,
-                value: *value,
-                range: WireType::encode(range, encoding, cancel)?,
-                bound: WireType::encode(bound, encoding, cancel)?,
-                upper: *upper,
             },
             BytecodeInstruction::MakeRange {
                 dst,
@@ -676,19 +659,7 @@ impl BytecodeInstructionRecord {
                 args,
             },
             Self::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple { dst, elements },
-            Self::RangeBound {
-                dst,
-                value,
-                range,
-                bound,
-                upper,
-            } => BytecodeInstruction::RangeBound {
-                dst,
-                value,
-                range: range.decode(decoding, cancel)?,
-                bound: bound.decode(decoding, cancel)?,
-                upper,
-            },
+            Self::RetiredRangeBound => return Err(DefinitionMappingError::InvalidContract),
             Self::MakeRange {
                 dst,
                 start,

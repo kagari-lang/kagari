@@ -8,7 +8,7 @@ use crate::{
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_contract::{
     callable::witness::OperationWitness,
-    native_import::callables::NativeCallableOrigin,
+    native_import::{callables::NativeCallableOrigin, foundation::FoundationNative},
     operations::BinaryOp,
     standard::RuntimePrimitive,
     types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
@@ -187,6 +187,9 @@ pub(super) fn validate(
         return Ok(false);
     }
     for import in caller.native_applications() {
+        if !FoundationNative::import_allowed(import, &caller.identity, definitions) {
+            return Ok(false);
+        }
         let Some(owner) = closure.iter().find(|owner| {
             definitions
                 .resolve(import.instance.declaration)
@@ -203,6 +206,12 @@ pub(super) fn validate(
             return Ok(false);
         };
         if !import.matches_declaration(declaration, catalog, cancel)? {
+            return Ok(false);
+        }
+        if let Some(entry) = FoundationNative::for_id(import.binding, definitions)
+            && (!entry.declaration_matches(declaration, definitions)
+                || !entry.schema_matches(&owner.identity, &owner.abi.public_items, definitions))
+        {
             return Ok(false);
         }
     }

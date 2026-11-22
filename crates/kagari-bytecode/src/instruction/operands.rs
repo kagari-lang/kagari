@@ -22,7 +22,6 @@ impl BytecodeInstruction {
             BytecodeInstruction::Jump { .. } | BytecodeInstruction::Unreachable => vec![],
             BytecodeInstruction::Branch { cond, .. } => vec![*cond],
             BytecodeInstruction::Return(value) => value.iter().copied().collect(),
-            BytecodeInstruction::RangeBound { value, .. } => vec![*value],
             BytecodeInstruction::MakeRange { start, end, .. } => {
                 start.iter().chain(end).copied().collect()
             }
@@ -120,7 +119,6 @@ impl BytecodeInstruction {
             | BytecodeInstruction::MakeArray { dst, .. }
             | BytecodeInstruction::RepeatArray { dst, .. }
             | BytecodeInstruction::MakeRange { dst, .. }
-            | BytecodeInstruction::RangeBound { dst, .. }
             | BytecodeInstruction::MakeFuture { dst, .. }
             | BytecodeInstruction::MakeClosure { dst, .. }
             | BytecodeInstruction::MakeCell { dst, .. }
@@ -227,10 +225,6 @@ impl BytecodeInstruction {
                 for slot in elements {
                     *slot = rewrite(*slot);
                 }
-            }
-            Self::RangeBound { dst, value, .. } => {
-                *dst = rewrite(*dst);
-                *value = rewrite(*value);
             }
             Self::MakeRange {
                 dst, start, end, ..

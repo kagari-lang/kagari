@@ -1,13 +1,15 @@
 use crate::interpreter_tests::common::{load_bytecode_program, round_trip_bytecode};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
+    module::CallableTarget,
     program::verify_program,
     verifier::BytecodeVerificationError,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::standard::RuntimePrimitive;
+use kagari_contract::native_import::binding_id;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_types::language::binding::result_declaration;
 
 #[test]
 fn packaged_result_preserves_only_propagated_origins() {
@@ -27,27 +29,72 @@ fn packaged_result_preserves_only_propagated_origins() {
     let mir = lower_program_to_mir(&input, &Default::default()).unwrap();
     let bytecode = lower_program_to_bytecode(&mir, &cancel).unwrap();
     let decoded = round_trip_bytecode(bytecode.into_unverified());
-    // Physical and semantic operands match. The application still cannot mint a
-    // trace transfer by replacing its own same-named function in decoded code.
-    let mut forged = decoded.records().clone();
-    let shadowed = forged.modules[forged.root.index()]
+    let program = decoded.records();
+    let definitions = decoded.definitions();
+    let path = binding_id(&result_declaration().module, "forward_err_origin");
+    let binding = definitions
+        .lookup(&path)
+        .expect("core Result helper identity");
+    let owner_index = program
+        .modules
+        .iter()
+        .position(|module| module.identity == path.module)
+        .expect("core Result module");
+    let owner = &program.modules[owner_index];
+    let (function_index, dst, import) = owner
         .functions
-        .iter_mut()
-        .find(|f| f.name == "shadowed")
-        .unwrap();
-    let call = shadowed
-        .instructions
-        .iter_mut()
-        .find_map(|i| match i {
-            BytecodeInstruction::Call { callee, args, .. } if args.len() == 2 => Some(callee),
-            _ => None,
+        .iter()
+        .enumerate()
+        .find_map(|(index, function)| {
+            function.instructions.iter().find_map(|instruction| {
+                let BytecodeInstruction::Call {
+                    dst: Some(dst),
+                    callee,
+                    ..
+                } = instruction
+                else {
+                    return None;
+                };
+                let id = match callee {
+                    CallTarget::Native(id) => id,
+                    CallTarget::Shared {
+                        module,
+                        target: CallableTarget::Native(id),
+                        ..
+                    } if module.index() == owner_index => id,
+                    _ => return None,
+                };
+                let import = &owner.native_imports[id.index()];
+                (import.instance.declaration == binding && import.binding == binding)
+                    .then_some((index, *dst, import))
+            })
         })
-        .unwrap();
-    *call = CallTarget::RuntimePrimitive(RuntimePrimitive::ForwardErrOrigin);
+        .expect("core Result origin transfer call");
+
+    // A copied, otherwise valid import cannot grant access to the user module.
+    let mut foreign = program.clone();
+    foreign.modules[program.root.index()]
+        .native_imports
+        .push(import.clone());
     assert!(matches!(
-        verify_program(&forged, decoded.definitions(), &cancel),
+        verify_program(&foreign, definitions, &cancel),
+        Err(BytecodeVerificationError::InvalidHostInterface(_))
+    ));
+
+    let mut missing_fact = program.clone();
+    let function = &mut missing_fact.modules[owner_index].functions[function_index];
+    assert!(
+        function
+            .metadata
+            .semantic
+            .slots
+            .remove(&dst.index())
+            .is_some()
+    );
+    assert!(matches!(
+        verify_program(&missing_fact, definitions, &cancel),
         Err(BytecodeVerificationError::InvalidOperation {
-            reason: "invalid Result origin transfer",
+            reason: "invalid foundation native call types",
             ..
         })
     ));

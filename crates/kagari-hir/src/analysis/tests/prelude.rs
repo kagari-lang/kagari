@@ -123,7 +123,7 @@ fn range_projection_helpers_are_private_to_the_core_ops_owner() {
             },
         )
         .unwrap();
-    let name = "range_start";
+    let name = "range_bound";
     let file = sources
         .set(
             "ops.kgr",
@@ -139,7 +139,7 @@ fn range_projection_helpers_are_private_to_the_core_ops_owner() {
     let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
     assert!(
         matches!(diagnostics, [diagnostic] if matches!(&diagnostic.kind,
-            DiagnosticKind::ImportNotPublic { path } if path == "core::ops::range_start")),
+            DiagnosticKind::ImportNotPublic { path } if path == "core::ops::range_bound")),
         "{diagnostics:?}"
     );
 }

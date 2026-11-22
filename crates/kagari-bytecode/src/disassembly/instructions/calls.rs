@@ -116,7 +116,6 @@ pub(super) fn target(
                 RuntimePrimitive::ValueDisplay => "value_display",
                 RuntimePrimitive::StringPartsJoin => "string_parts_join",
                 RuntimePrimitive::Assert => "assert",
-                RuntimePrimitive::ForwardErrOrigin => "forward_err_origin",
             };
             write!(writer, "runtime_primitive.{name}")
         }

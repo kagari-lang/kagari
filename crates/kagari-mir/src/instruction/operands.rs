@@ -48,7 +48,6 @@ impl Instruction {
                 smallvec::smallvec![*src]
             }
             Instruction::Unary { operand, .. } => smallvec::smallvec![*operand],
-            Instruction::RangeBound { value, .. } => smallvec::smallvec![*value],
             Instruction::MakeRange { start, end, .. } => start.iter().chain(end).copied().collect(),
             Instruction::RepeatArray { value, count, .. } => smallvec::smallvec![*value, *count],
             Instruction::Binary { lhs, rhs, .. } => smallvec::smallvec![*lhs, *rhs],
@@ -139,7 +138,6 @@ impl Instruction {
             | Instruction::MakeArray { dst, .. }
             | Instruction::RepeatArray { dst, .. }
             | Instruction::MakeRange { dst, .. }
-            | Instruction::RangeBound { dst, .. }
             | Instruction::MakeFuture { dst, .. }
             | Instruction::MakeClosure { dst, .. }
             | Instruction::MakeCell { dst, .. }

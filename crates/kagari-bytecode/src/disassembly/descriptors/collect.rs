@@ -107,7 +107,6 @@ impl References {
             | BytecodeInstruction::Unary { .. }
             | BytecodeInstruction::Binary { .. }
             | BytecodeInstruction::MakeTuple { .. }
-            | BytecodeInstruction::RangeBound { .. }
             | BytecodeInstruction::MakeRange { .. }
             | BytecodeInstruction::RepeatArray { .. }
             | BytecodeInstruction::MakeArray { .. }

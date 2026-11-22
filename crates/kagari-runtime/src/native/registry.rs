@@ -181,7 +181,13 @@ impl NativeRegistry {
             if let Some(entry) =
                 FoundationNative::for_id(declaration.declaration, admission.target())
             {
-                if !entry.declaration_matches(&declaration, admission.target()) {
+                if !entry.declaration_matches(&declaration, admission.target())
+                    || !entry.schema_matches(
+                        &module.identity,
+                        &module.public_items,
+                        program.definitions(),
+                    )
+                {
                     return Err(RuntimeError::module_validation(
                         "invalid foundation native declaration",
                     ));

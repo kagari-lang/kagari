@@ -1,6 +1,6 @@
 # Declaration-linked Native helpers
 
-**Status: NL01 implemented; NL02–NL03 pending.** The [roadmap](implementation-roadmap.md#native-model-replacement)
+**Status: NL01–NL02 implemented; NL03 pending.** The [roadmap](implementation-roadmap.md#native-model-replacement)
 locates this follow-up to the existing [Native model](native-model-design.md#1-inputs-and-ownership).
 Planning baseline: `afe502b8a`.
 
@@ -40,7 +40,8 @@ authority. Do not turn a registered binding into a second declaration source.
 
 For example, [`Range<T>::start_bound`](../library/core/ops.kgr) used to call
 `__range_start_bound(self)` without a declaration. It now calls private
-`range_start`, so HIR checks the argument and gets `Bound<T>` from the signature.
+`range_bound(self, false)`, so HIR checks the arguments and gets `Bound<T>` from
+the signature.
 The compiler records the dependency and the loader checks the Runtime binding
 against it. Calling `start_bound` still produces the same lower bound. A user
 function with the same spelling in another module is a different declaration and
@@ -125,7 +126,15 @@ operands, Runtime authored Range bounds from compiled and decoded products
 structure and diff checks. Core fixture regeneration is batched with the remaining
 portable changes. No full workspace/backend matrix was run; that is CI scope.
 
-Subsequent checkpoints select focused owner tests and directly affected
-integration routes as well as the workspace lint, format, structure and diff
-checks. Preserve independently useful source-free, GC/borrowing, cancellation
-and reload assertions.
+NL02 migrates every range shape and both Result transfer routes. The protected
+Runtime kernels keep exact endpoint and reporting-carrier checks. Portable checks
+retain exact semantic slots and the reporting Result schema; retired range wire
+slots are rejected without renumbering surviving instructions. Both authored
+Runtime witnesses passed on decoded products without optional providers, including
+foreign imports and a missing Result output type fact. Clippy, format, structure
+and diff checks passed. The Native activation and argument/result staging now use
+ordinary call admission and resource limits; their cost has not been measured.
+
+NL03 selects focused owner tests and directly affected integration routes as well
+as the workspace lint, format, structure and diff checks. Preserve independently
+useful source-free, GC/borrowing, cancellation and reload assertions.

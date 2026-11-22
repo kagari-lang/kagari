@@ -206,9 +206,6 @@ pub(super) fn validate(
                 BytecodeInstruction::MakeFuture { future: ty, .. }
                 | BytecodeInstruction::Await { future: ty, .. }
                 | BytecodeInstruction::MakeRange { ty, .. } => validator.validate_type(ty)?,
-                BytecodeInstruction::RangeBound { range, bound, .. } => {
-                    validator.types([range, bound])?
-                }
                 BytecodeInstruction::UpcastInterface { source, target, .. } => {
                     validator.trait_application(source)?;
                     validator.trait_application(target)?;

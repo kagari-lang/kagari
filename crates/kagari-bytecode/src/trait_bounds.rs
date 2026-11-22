@@ -410,6 +410,7 @@ fn linked_bounds_match(
     if module.native_declarations.iter().any(|declaration| {
         if let Some(entry) = FoundationNative::for_id(declaration.declaration, definitions) {
             !entry.declaration_matches(declaration, definitions)
+                || !entry.schema_matches(&module.identity, &module.public_items, definitions)
         } else {
             matches!(declaration.function.implementation, CallableImplementation::Native(binding)
                 if FoundationNative::for_id(binding, definitions).is_some())

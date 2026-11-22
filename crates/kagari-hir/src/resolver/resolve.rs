@@ -483,11 +483,7 @@ impl<'a> BodyResolver<'a> {
             return Some(hit.target.resolved(self.names.unit.as_ref()));
         }
         if namespace == NameNamespace::Value {
-            let module = self
-                .names
-                .unit
-                .map(|u| self.resolved.catalog.identity(u.module));
-            return BuiltinFunction::from_name(name, module).map(ResolvedName::RuntimeHelper);
+            return BuiltinFunction::from_name(name).map(ResolvedName::RuntimeHelper);
         }
         None
     }
