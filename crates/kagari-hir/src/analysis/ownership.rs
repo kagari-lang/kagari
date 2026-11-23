@@ -6,13 +6,10 @@ use crate::{
         error::AnalysisError, signatures::BodyEnvironment, source_preparation::ParsedModule,
     },
     analyze_parsed, declare_analysis,
-    lower::lower_module_controlled,
+    lower::{lower_module_controlled, supplied_module_syntax},
     typeck::check::prepare_body_signatures,
 };
-use kagari_syntax::{
-    ast::module::ModuleSyntax,
-    parser::{ParseOptions, parse},
-};
+use kagari_syntax::parser::{ParseOptions, parse};
 use std::sync::Arc;
 use {
     kagari_common::{
@@ -55,11 +52,8 @@ pub(crate) fn recover_invalid_identity(
     let cancel = CancellationToken::default();
     let parsed =
         parse(source, ParseOptions::default(), &cancel).expect("uncancelled recovery parse");
-    let syntax = match source.inline_range() {
-        Some(range) => ModuleSyntax::at_content_range(&parsed, range)
-            .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,
-        None => parsed.module(),
-    };
+    let syntax =
+        supplied_module_syntax(&parsed).ok_or(AnalysisError::InvalidSourceRange(source.id()))?;
     let lowered = Arc::new(lower_module_controlled(
         Arc::new(source.clone()),
         &syntax,

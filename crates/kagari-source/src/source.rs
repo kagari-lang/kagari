@@ -18,11 +18,24 @@ struct SourceContent {
     lines: LineIndex,
 }
 
+/// The logical part of the physical text represented by a [`SourceFile`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceExtent {
+    /// The entire source; its logical and physical file IDs are the same.
+    Whole,
+    /// An inline module body in the physical source's original byte coordinates.
+    Inline {
+        /// File containing the physical text, even for nested inline modules.
+        origin: FileId,
+        /// Module content range, excluding its enclosing braces.
+        range: Span,
+    },
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     id: FileId,
-    origin: FileId,
-    inline_range: Option<Span>,
+    extent: SourceExtent,
     revision: Revision,
     module: ModuleIdentity,
     name: String,
@@ -37,8 +50,7 @@ impl SourceFile {
         let id = FileId::fresh();
         Self {
             id,
-            origin: id,
-            inline_range: None,
+            extent: SourceExtent::Whole,
             revision: Revision::default(),
             module: ModuleIdentity::single_file(name.clone()),
             name,
@@ -66,21 +78,32 @@ impl SourceFile {
         self.id
     }
 
+    /// The whole source or the inline module body selected within its physical text.
+    pub fn extent(&self) -> SourceExtent {
+        self.extent
+    }
+
     /// The physical source containing this file's text ranges. Generated inline
     /// module sources preserve byte offsets and line endings from their origin.
     pub fn origin_id(&self) -> FileId {
-        self.origin
+        match self.extent {
+            SourceExtent::Whole => self.id,
+            SourceExtent::Inline { origin, .. } => origin,
+        }
     }
 
     /// Creates a logical child sharing immutable physical text and line indexing.
-    /// Byte ranges retain parent coordinates; no source text is rewritten or parsed.
-    pub fn inline_module(parent: &Self, name: &str, id: FileId, inline_range: Span) -> Self {
+    /// Byte ranges retain physical coordinates; no source text is rewritten or parsed.
+    /// A supplied range is checked against the syntax when preparing analysis input.
+    pub fn inline_module(parent: &Self, name: &str, id: FileId, range: Span) -> Self {
         let mut module = parent.module.clone();
         module.path.push(name.to_owned());
         Self {
             id,
-            origin: parent.origin,
-            inline_range: Some(inline_range),
+            extent: SourceExtent::Inline {
+                origin: parent.origin_id(),
+                range,
+            },
             revision: parent.revision,
             module,
             name: parent.name.clone(),
@@ -89,8 +112,12 @@ impl SourceFile {
         }
     }
 
+    /// The body range for an inline module, in physical byte coordinates.
     pub fn inline_range(&self) -> Option<Span> {
-        self.inline_range
+        match self.extent {
+            SourceExtent::Whole => None,
+            SourceExtent::Inline { range, .. } => Some(range),
+        }
     }
 
     pub fn revision(&self) -> Revision {
@@ -110,7 +137,7 @@ impl SourceFile {
             ));
         }
         Some(FileSpan {
-            file: self.origin,
+            file: self.origin_id(),
             revision: self.revision,
             range,
         })
@@ -135,7 +162,7 @@ impl SourceFile {
                 .copies
                 .iter()
                 .any(|copy| local.start < copy.local.end && copy.local.start < local.end)
-            || source.id != source.origin
+            || source.extent != SourceExtent::Whole
             || !source.copies.is_empty()
         {
             return Err("source copy must be exact, disjoint and directly authored");
@@ -154,7 +181,7 @@ impl SourceFile {
 
     /// Translate a navigation location back into this analysis view.
     pub fn local_range(&self, location: FileSpan) -> Option<Span> {
-        if location.file == self.origin && location.revision == self.revision {
+        if location.file == self.origin_id() && location.revision == self.revision {
             return (self.span(location.range)? == location).then_some(location.range);
         }
         self.copies.iter().find_map(|copy| {
@@ -183,14 +210,15 @@ impl SourceFile {
             .offset(&self.content.text, position, encoding)
     }
 
+    /// Assigns the database identity of a newly captured whole source.
     pub(crate) fn with_identity(
         mut self,
         id: FileId,
         revision: Revision,
         module: ModuleIdentity,
     ) -> Self {
+        assert_eq!(self.extent, SourceExtent::Whole);
         self.id = id;
-        self.origin = id;
         self.revision = revision;
         self.module = module;
         self

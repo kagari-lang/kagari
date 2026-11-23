@@ -5,7 +5,10 @@ use crate::{
     tests::test_analysis,
 };
 use kagari_common::span::Span;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    source::SourceExtent,
+    source_database::{SourceDatabase, SourceLayer},
+};
 
 fn source_preparer(db: &mut AnalysisDatabase) -> SourcePreparer<'_> {
     SourcePreparer {
@@ -48,6 +51,30 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         })
         .unwrap();
     let child_id = child.source().id();
+    let nested = user_files(&first, root)
+        .find(|file| {
+            file.source()
+                .module_identity()
+                .path
+                .last()
+                .is_some_and(|name| name == "b")
+        })
+        .unwrap();
+    let nested_source = nested.source();
+    let nested_body = " fn inner() {} ";
+    let start = text.find(nested_body).unwrap();
+    let range = Span::new(start, start + nested_body.len());
+    assert_eq!(physical.source().extent(), SourceExtent::Whole);
+    assert_eq!(physical.source().origin_id(), root);
+    assert_eq!(
+        nested_source.extent(),
+        SourceExtent::Inline {
+            origin: root,
+            range
+        }
+    );
+    assert_ne!(nested_source.id(), child_id);
+    assert_eq!(nested_source.span(range), physical.source().span(range));
 
     assert_eq!(user_files(&first, root).count(), 3);
     assert_ne!(
@@ -80,14 +107,14 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
             .len(),
         2
     );
-    let invalid =
-        SourceFile::inline_module(child.source(), "invalid", FileId::fresh(), Span::new(1, 2));
+    let invalid_id = FileId::fresh();
+    let invalid = SourceFile::inline_module(child.source(), "invalid", invalid_id, Span::new(1, 2));
     assert!(matches!(
         db.declarations(
             SourceSnapshot::single_file(Arc::new(invalid)),
             &Default::default()
         ),
-        Err(AnalysisError::InvalidSourceRange(_))
+        Err(AnalysisError::InvalidSourceRange(id)) if id == invalid_id
     ));
     let previous = db.declaration_cache.clone();
     let repeated = prepare(

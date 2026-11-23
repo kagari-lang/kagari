@@ -978,12 +978,13 @@ can still match after a newer syntax batch succeeds but semantic analysis is can
 older requests cannot replace newer parse cache contents. Preparation uses explicit mutable
 database access with no `RefCell` or additional strong HIR retention.
 
-Inline modules share physical text, line indexing and one retained parse. Each
-logical source keeps a stable synthetic FileId and its own ModuleHandle, revision
-and lowering identity. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
-lowers attached ModuleBlock items directly; it neither masks text nor invokes the
-parser for a child. Position queries retain original UTF-8/CRLF offsets and route
-them to the corresponding logical analysis.
+[`SourceFile`](../../crates/kagari-source/src/source.rs) distinguishes `SourceExtent::Whole`
+from `Inline { origin, range }`. For a whole source, `origin_id()` returns its own `FileId`.
+An inline source keeps a synthetic `FileId` and the physical origin and byte range, even
+when nested. Inline modules share physical text, line indexing and one retained parse;
+their module and lowering identities remain distinct. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
+uses discovered `ModuleBlock` views directly, without looking up their byte ranges again
+or reparsing. Position queries retain original UTF-8/CRLF offsets.
 
 `FileDeclarations::syntax`, `FileSignatures::syntax` and `FileAnalysis::syntax` return
 `Option<ModuleSyntax>`: a matching root-or-inline view for source-backed inputs, or

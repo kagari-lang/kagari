@@ -7,10 +7,10 @@
 
 use crate::{hir::item::Module, lower::context::Lowerer};
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
-use kagari_source::source::SourceFile;
+use kagari_source::source::{SourceExtent, SourceFile};
 use kagari_syntax::{
     ast::module::ModuleSyntax,
-    parser::{ParseOptions, parse},
+    parser::{Parse, ParseOptions, parse},
 };
 use kagari_types::declaration::TraitDef;
 use std::sync::Arc;
@@ -95,12 +95,18 @@ impl LoweredModule {
 pub fn lower_module(source: &SourceFile) -> LoweredModule {
     let parsed = parse(source, ParseOptions::default(), &Default::default())
         .expect("fresh cancellation token");
-    let syntax = match source.inline_range() {
-        Some(range) => ModuleSyntax::at_content_range(&parsed, range)
-            .expect("inline source extent must identify its syntax body"),
-        None => parsed.module(),
-    };
+    let syntax = supplied_module_syntax(&parsed)
+        .expect("inline source extent must identify its syntax body");
     lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
+}
+
+/// Selects the syntax of a supplied source. Discovered children already have a module view.
+/// An inline extent must match a module body's exact range in the retained parse.
+pub(crate) fn supplied_module_syntax(parsed: &Parse) -> Option<ModuleSyntax> {
+    match parsed.source().extent() {
+        SourceExtent::Whole => Some(parsed.module()),
+        SourceExtent::Inline { range, .. } => ModuleSyntax::at_content_range(parsed, range),
+    }
 }
 
 /// Lowers a logical AST view and its matching source into fresh owned, origin-bearing HIR.

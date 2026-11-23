@@ -8,7 +8,7 @@ use crate::{
         records::{DeclarationCache, DeclarationCacheEntry},
     },
     collections::{HashMap, HashSet},
-    lower::{LoweredModule, lower_module_controlled},
+    lower::{LoweredModule, lower_module_controlled, supplied_module_syntax},
 };
 use kagari_common::cancellation::{CancellationToken, Cancelled};
 use kagari_source::{
@@ -340,11 +340,8 @@ fn discover_modules(
 ) -> Result<Vec<LogicalSource>, AnalysisError> {
     let source = &physical.source;
     let parsed = &physical.parsed;
-    let root = match source.inline_range() {
-        Some(range) => ModuleSyntax::at_content_range(parsed, range)
-            .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,
-        None => parsed.module(),
-    };
+    let root =
+        supplied_module_syntax(parsed).ok_or(AnalysisError::InvalidSourceRange(source.id()))?;
     let mut pending = VecDeque::from([(source.clone(), root)]);
     let mut generated = HashSet::default();
     let mut logical = Vec::new();
