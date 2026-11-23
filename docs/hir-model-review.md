@@ -44,6 +44,32 @@ identity/remapping and fact/context separation. No policy change or speedup is p
 `BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
 function-granularity reuse/reclamation and LSP scheduling require separate scope.
 
+## Crate-wide ownership and sharing review
+
+**Status: review requested; no migration selected.** Audit the whole `kagari-hir` crate,
+not just source preparation. `Arc` can share one allocation while adding multiple retention
+paths. Every such path should identify its owner, consumers, identity and lifetime contract.
+This is an ownership review, not an `Arc` count or a cache-capacity change.
+
+| Starting point | Ownership question |
+| --- | --- |
+| [`PreparedSource`](../crates/kagari-hir/src/analysis/source_preparation.rs) and [module assembly](../crates/kagari-hir/src/analysis/declarations.rs) | Keep the parse and lowering paired in a named product rather than unpacking and reconstructing the pair. Their independent lifetimes are intentional. |
+| [`FileSignatures`](../crates/kagari-hir/src/analysis/signatures.rs) | Its declaration and prepared signatures both retain the same lowering. Give the live result one lookup path without losing the cache's old-record/old-lowering checks. |
+| [`FileAnalysis`](../crates/kagari-hir/src/analysis.rs) | It stores `source` separately from `result.facts().lowered.source`. Check whether the separate strong reference owns any independent lifetime or identity. |
+| [`FunctionAnalysis` and `FunctionFacts`](../crates/kagari-hir/src/analysis/body.rs) | Keep shareable body facts distinct from the current request's signature context and eligibility. |
+
+Map each product's authoritative owner, strong retention paths, weak cache entries and read-only
+borrowers. Cover source/parse/HIR, declarations/imports, signatures/body facts, scoped definition
+metadata, snapshots and checked compiler input. Trace a retained old snapshot through a new edit
+and a cache entry whose matching HIR has expired; document what each handle keeps alive. Prefer
+`&T` for read-only access and `Arc<T>` only where independent ownership is required. Audit pointer
+identity checks before removing or relocating handles.
+
+Review output: one ownership map and a bounded retain/remove/merge proposal, coordinated with
+[flow and naming](#analysis-flow-and-naming-review). Preserve parse reuse independent of HIR,
+old-snapshot validity, weak graph retention, scoped identity and checked compiler admission.
+No whole-crate `Arc` removal, storage redesign or retention-policy change is implied.
+
 ## Immutable HIR-to-compiler handoff
 
 **Decision for follow-up:** HIR hands off checked facts and their immutable `DefinitionTable`
@@ -124,6 +150,198 @@ Before implementation, agree on a stage input/output diagram, an existing-type r
 map and a file-ownership map. Preserve recoverable diagnostics, positive completion evidence,
 source-free input, scoped identities, checked admission and existing cache/retention contracts.
 This is not authorization to redesign storage, introduce a pipeline framework or change semantics.
+
+
+### Language protocol shapes and member selection (deferred)
+
+For `for x in xs`, two pieces of code must agree on what `next` means:
+
+- When checking the `Iterator` **declaration**, HIR's [shape checker](../crates/kagari-hir/src/language/items/shapes.rs)
+  looks up `next` by name and requires it to be the only method, with signature
+  `next(self) -> Option<Self::Item>`. The rules for `Item`, the method signature and the
+  method count appear in separate matches, making the complete protocol hard to read in one place.
+- When [lowering the loop](../crates/kagari-compiler/src/source/lower/stmt.rs), the compiler
+  asks for `protocol_method(Protocol::Iterator, 0)`. This [indexes the checked method list](../crates/kagari-compiler/src/source/lower/support.rs);
+  it does not scan for `"next"` per `for` or per iteration. Slot `0` means `next` only because
+  of the declaration rules above. The concern is keeping those rules and their consumer in sync,
+  not the cost of a name search.
+
+**Proposed direction (deferred): one contract per language protocol, one shared validator.**
+Compiler code would declare what each language feature requires. The validator would compare that
+contract with the actual `TraitSignature` from `.kgr` or structured input. The declaration being
+checked does not supply its own expected shape. Each required member's spelling and signature
+belong together in the contract; the comparison rules should not repeat names such as `"next"`.
+
+The contract describes compiler requirements, not an exact copy of the standard library trait.
+For example, `Iterator` requires `next(self) -> Option<Self::Item>` and forbids extra methods;
+`Iterable` permits extra methods with default bodies. Adding such a helper to `Iterable` should
+require no compiler change. Adding a language protocol expressible with existing rules should
+require a contract but no new validation code. Extend the validator only for a new *kind of
+requirement*. Ordinary user traits still use ordinary type checking, not compiler-owned contracts.
+
+The contract representation is undecided. Whether lowering should refer to a named operation
+instead of a numeric slot remains a separate question.
+
+### Conditional blanket trait implementations
+
+[Blanket trait impls](spec/traits.md#blanket-trait-implementations) now support ordinary
+[library conversion forwarding](spec/builtins.md#conversion-protocols). This is separate from
+the deferred design of the general language-protocol shape validator above.
+
+### Other stable Rust `impl` differences (not conversion prerequisites)
+
+These are separate design questions, not a Rust parity checklist. GC affects receiver and
+lifetime semantics; it does not decide whether constants, async methods or opaque types are useful.
+
+| Feature | Kagari today | Direction to evaluate |
+| --- | --- | --- |
+| Inherent associated constants | The [impl grammar](kagari.ebnf) admits associated constants in trait impls, not inherent impls. | A candidate for type-owned constants such as `Limits::MAX` that should not require inventing a trait. Start with existing const-safe values; this is not static mutable storage. |
+| More general `where` predicates | Bounds on type parameters and their associated projections suffice for `U: From<T>`. | Defer predicates on composite types such as `where Pair<T>: Encode` until a library needs to require the capability of the pair itself rather than of `T`. |
+| Const generic parameters | Impl binders are types, not values such as `const N: usize`. | Independent type-system feature, not excluded by GC. Revisit for a use case where the value must distinguish types, such as matrix dimensions. |
+| Lifetime parameters, borrowed receivers and `unsafe impl` | Scripts use `self`; Rust host loans and their validation stay at the host boundary. | Do not import Rust's lifetime/aliasing model or let script impls assert unchecked host invariants. |
+| Async trait methods | Inherent methods may be async; [general async trait methods](spec/syntax.md#async-syntax) are not supported. | Separate candidate. Specify how `async fn` in a trait relates to its `Future<T>` call result, including interface calls and retained futures across reload. |
+| `impl Trait` in type position | Kagari has named generic parameters and interface values, not Rust's anonymous parameter or opaque return syntax. | A parameter `x: impl Read` is largely shorthand for a fresh `T: Read`. A return `-> impl Read` hides one concrete type chosen by the function; an interface value is not the same promise. Evaluate the two separately. |
+
+## Generic substitution and trait resolution
+
+**Status: architecture research and proposal; no implementation authorized.** This review is about
+HIR semantic ownership, not Rust feature parity or a new generic-instance planner. Current behavior
+remains owned by the [trait spec](spec/traits.md) and [HIR architecture](architecture/hir.md).
+
+### Current flow and reading order
+
+```text
+Declaration checking -> binders, signatures, GenericBounds, impl contracts
+                                      |
+Call + expected type -> infer a substitution for this use
+                                      |
+                 instantiate signature and obligations
+                             /                  \
+             normalize projected types      prove trait obligations
+                             \                  /
+                      check operands and publish ResolvedCall
+                                      |
+                compiler: apply enclosing instance arguments and materialize
+```
+
+The middle is a dependency sketch, not a single pass. During inference, argument/result context
+and known associated outputs can already require normalization. The final check still has to prove
+obligations and compare operand types; inference success is not proof.
+
+| Read in this order | What to look for |
+| --- | --- |
+| [Binder identity and substitution](../crates/kagari-hir/src/types.rs#L16), `TypeId::instantiate` | `TypeSubstitution` binds `(declaring owner, position)` and owner-qualified `Self` separately. One substitution is simultaneous: `(A, B)` with `A -> B, B -> i32` becomes `(B, i32)`. The inserted `B` is not revisited. No trait lookup. |
+| [Constraint lowering](../crates/kagari-hir/src/typeck/constraints.rs#L146), [call inference](../crates/kagari-hir/src/typeck/body/calls.rs#L215), [body solving](../crates/kagari-hir/src/typeck/body/solving.rs#L339) | `GenericBounds` maps semantic subject types to applied trait requirements. Call inference gathers binder substitutions from explicit arguments, expected result and argument expressions. The body solver separately owns temporary `Inference` variables and defaults. |
+| [`qualified_projection` and `normalize`](../crates/kagari-hir/src/typeck/associated.rs#L597), [`normalize_type`](../crates/kagari-hir/src/aggregates/implementations.rs#L472) | Syntax resolution identifies the associated member and can discharge a known equality early. Later normalization walks child types, then tries the qualifier's equality, the receiver's interface equality and a lookup callback. |
+| [`proves_requirement`](../crates/kagari-hir/src/aggregates/implementations.rs#L817), [`implementation_matches`](../crates/kagari-hir/src/aggregates/implementations.rs#L994), [`projection_output`](../crates/kagari-hir/src/aggregates/implementations/projections.rs#L94) | Exact search walks applicable impls: bind receiver and trait inputs, prove substituted bounds, then compare requested associated outputs. This path carries caller assumptions, cancellation and shared search limits. |
+| [Checked call facts](../crates/kagari-hir/src/typeck/table.rs#L87), [compiler instance planning](../crates/kagari-compiler/src/source/lower/instances/calls.rs) | `ResolvedCall` retains the selected declaration/member, applied signature and ordered type arguments. Those arguments can still name enclosing binders. The compiler applies a concrete instance and picks its execution form; it does not infer source arguments again. |
+
+For `fn get<T: Family<Item = i32>>(x: T) -> <T as Family>::Item { x.item() }`,
+`T` stays generic. The `where`/inline environment already proves the `Item` equality, so no concrete
+impl is needed to determine the result. For `T: Family` alone, a checked signature may keep a
+symbolic projection; a concrete use can later select an impl and reduce it. For
+`<Wrap<i32> as Family>::Item<bool>` with `impl<T> Family for Wrap<T>` and `type Item<U> = (T, U)`,
+matching the impl binds `T = i32`; applying the member binds `U = bool`; the output is `(i32, bool)`.
+These are separate substitutions, neither of which proves the impl's bounds.
+
+### Findings to verify before changing behavior
+
+| Finding | Code evidence and consequence |
+| --- | --- |
+| Equality ownership is hard to trace | `qualified_projection` can replace its local qualifier with the matching caller bound and reduce immediately. Other routes carry equalities on `Projection.interface`, on the interface value, or in search assumptions. The same source expression does not necessarily reach all consumers in the same representation. |
+| Normalization and proof have different impl-selection rules | `normalize_type`'s ordinary fallback calls [`match_implementation`](../crates/kagari-hir/src/typeck/table.rs#L830), which matches headers and compares substituted associated equalities but does not itself prove candidate impl bounds. `normalize_for_search` uses `explicit_applications` and proves those bounds. Thus two locally similar lookups have different guarantees; audit callers before classifying any divergence as a language bug. |
+| Protocol logic overlaps general lookup | `normalize_type` tries primitive/iteration outputs before its interface and impl branches. [`iteration_outputs`](../crates/kagari-hir/src/language/semantics.rs#L410) can itself search parent interfaces and explicit impls, then reenter `normalize_type` with an `Iterator` projection. The interface branch can return `None` without reaching the ordinary impl scan. These are not four independent fallback providers; do not move branches purely for readability. |
+| The two walks have different failure contracts | `associated::normalize` uses its own node/depth limits and an `Option` lookup. Exact search has a shared work budget, active-goal tracking and typed errors. Some `normalize_type` callback paths start fresh searches or convert errors to `None`. A symbolic generic projection, ambiguous evidence and an exhausted/cancelled pass must not become interchangeable at a checked boundary. |
+| The applied call signature is calculated twice | In the ordinary call route, `check_function_arguments` and `record_callable_application` in [body calls](../crates/kagari-hir/src/typeck/body/calls.rs#L330) instantiate and normalize parameter types from the finalized substitution. Review sharing that result, not dropping operand/coercion validation. Compiler bounded substitution and source-free `Ty` are separate boundary work, not candidates for deleting checks. |
+
+### Rust reference and the part to borrow
+
+Reviewed the local rustc checkout at
+[`5f4effd579500175af844241eb179e756190f1e7`](https://github.com/rust-lang/rust/commit/5f4effd579500175af844241eb179e756190f1e7).
+[`EarlyBinder::instantiate`](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_type_ir/src/binder.rs#L652)
+returns `Unnormalized`: substitution does not solve the resulting type.
+[`AliasTy`](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_type_ir/src/ty/alias.rs#L21)
+represents a projection by member identity and ordered `Self`, trait and member arguments.
+[`ParamEnv`](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_middle/src/ty/mod.rs#L1018)
+retains caller clauses separately; a trait object can still own its own associated equalities.
+The [next solver](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_next_trait_solver/src/solve/normalizes_to.rs)
+solves `NormalizesTo` under that environment. It matches an assumption or applicable impl,
+proves obligations and instantiates the output. The [old solver](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_trait_selection/src/traits/project.rs)
+also separates candidate assembly and confirmation; its candidate precedence is not the next
+solver's contract. Borrow the separation of substitution, question, assumptions and proof.
+Do not import Rust lifetime universes, specialization, canonical query caches or cycle semantics.
+
+### Proposed Kagari architecture
+
+```text
+Type checking / compiler specialization
+    |-- infer arguments when needed (HIR only)
+    |-- instantiate known binders and Self (pure transform)
+    `-- request a trait proof or normalize a type
+         |
+         +-- normalize: walk child types; ask to solve each projection; replace proven results
+         `-- trait resolution: one implementation-applicability path
+              reads caller evidence + interface view + language rules + impl catalog
+              owns search limits, cancellation and active goals
+```
+
+Suggested internal data boundaries, not final Rust APIs:
+
+```text
+ProjectionKey { receiver, trait_def, trait_args, member, member_args }
+ProjectionRequest { key: ProjectionKey, required_equalities }
+ResolutionContext { definitions, caller_bounds, catalog, cancel, limits }
+SearchState { active_goals, remaining_work }
+ProjectionAnswer = Known(TypeId) | Deferred
+// No solution, conflicting/ambiguous evidence, cancellation and resource failure
+// are distinct outcomes; callers decide which to diagnose at their boundary.
+```
+
+- **Keep `TypeSubstitution` pure.** `resolve` or `normalize` should never be a hidden side effect
+  of `instantiate`. Keep the HIR body's inference workspace separate, and preserve bounded
+  substitution during compiler materialization.
+- **Separate requirements from evidence.** The qualifier may require an explicit equality;
+  it cannot prove itself. A caller bound is scoped evidence, not a property of the projection
+  key. Interface values keep their own equalities and inherited interface surface. The initial
+  change can derive the request from the existing `Projection`; only consider changing `TypeId`
+  after auditing every retained projection and its environment across signatures, snapshots and
+  compiler specialization. Keep member identity and full applied trait arguments in lookup.
+- **Reuse exact applicability**, rather than routing proof through the current best-effort
+  fallback or building a new solver. Match inputs, prove substituted bounds, then compute
+  the associated result (including GAT arguments). Check required output equalities against
+  results; never infer impl binders from the requested associated output. Source recovery may
+  preserve a deferred type; executable use must not treat a deferred answer as proof.
+- **Give protocol rules a named owner.** Primitive outputs and derived `Iterator -> Iterable`
+  supply explicit evidence under the same search state. Preserve the distinction between a
+  concrete `Iter` output and the erased interface view; settle precedence against explicit
+  impls and inherited outputs with tests, not branch position. No new general protocol-shape
+  framework is implied by this review.
+- **Preserve the checked handoff.** The compiler consumes checked calls and specializes them
+  under retained assumptions; it does not repeat name lookup or body inference. The independent
+  [source-free proof path](../crates/kagari-contract/src/types/proofs/normalize.rs) continues
+  to validate contracts without HIR. Compare behavior at that boundary rather than introduce
+  an executable-to-frontend dependency. No performance claim or new cache is proposed.
+
+### Review and migration order
+
+1. **Classify callers before editing.** Mark inference hints/recovery, signature normalization,
+   exact bound proof and concrete specialization. Trace a conditional impl whose header matches
+   but whose bound fails, an inherited interface equality, and explicit versus derived iteration.
+   Compare both HIR routes on the same inputs; a source bug requires a witness at its owner.
+2. **Consolidate lookup rules before changing storage.** Keep the existing representation, pass
+   the current environment through normalization, and give proof and normalization a shared
+   candidate/applicability path and search state. Preserve existing bounds, cycles, work limits
+   and cancellation. Reuse one finalized applied signature where facts and validation agree.
+3. **Review representation after the lookup change.** Only remove copied environment equalities
+   from projections when generic signatures, inheritance and specialization can recover the same
+   evidence without redoing source analysis. Leave wider `Ty`/ABI or language changes out.
+
+Prefer extending existing [generic inference](../crates/kagari-hir/src/analysis/tests/generic_type/context.rs),
+[GAT](../crates/kagari-hir/src/analysis/tests/gat.rs), [trait proof](../crates/kagari-hir/src/tests/typeck/traits.rs)
+and [compiler handoff](../crates/kagari-compiler/src/source/elaborate/tests.rs) scenarios. Verify exact
+result/target or error kind for conditional bounds, receiver and trait-argument distinctions, inherited
+outputs, GAT inputs, explicit/derived iteration, ambiguous/cyclic/limited search and cancellation;
+include one source-free contract regression. This is a proposed validation set, not test results.
 
 ## LoweredModule boundary remediation
 

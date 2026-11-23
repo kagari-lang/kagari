@@ -778,6 +778,14 @@ The [immutable compiler handoff](hir-model-review.md#immutable-hir-to-compiler-h
 where to remove the shared HIR writer and separate executable identities from source definitions.
 Implementation remains pending.
 
+[Crate-wide HIR ownership and sharing](hir-model-review.md#crate-wide-ownership-and-sharing-review)
+will inventory authoritative data owners, redundant strong paths, weak caches and borrowed views.
+This is a pending review, not an activated migration or a retention-policy change.
+
+[Generic substitution and trait resolution](hir-model-review.md#generic-substitution-and-trait-resolution)
+records the current inference, normalization and proof paths, the rustc comparison and a proposed
+shared applicability boundary. It is a design review, not an activated implementation phase.
+
 **Source preparation cleanup:** [parse and lowering reuse contracts](architecture/hir.md#query-work-reuse-and-publication)
 now distinguish exact physical parse inputs, logical module discovery and source lowering identity.
 Changing only an authored library sidecar rebuilds its HIR even when an old parse and lowering both
