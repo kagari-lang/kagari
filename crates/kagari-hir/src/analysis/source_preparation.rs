@@ -308,23 +308,23 @@ pub(super) fn prepare_syntax<'a>(
         for logical in discover_modules(&physical, preparer.inline_ids, cancel)? {
             cancel.check()?;
             let file = logical.source.id();
-            files.insert(
+            let key = LoweringInputKey {
                 file,
-                PreparedSyntax {
-                    parsed: ParsedModule {
-                        input: ParsedInput::Source {
-                            physical: physical.clone(),
-                            key: LoweringInputKey {
-                                file,
-                                location: logical.syntax.location(),
-                                attachments: None,
-                            },
-                        },
-                        diagnostics: logical.diagnostics.into(),
-                    },
-                    source: logical.source,
+                location: logical.syntax.location(),
+                attachments: None,
+            };
+            let parsed = ParsedModule {
+                input: ParsedInput::Source {
+                    physical: physical.clone(),
+                    key,
                 },
-            );
+                diagnostics: logical.diagnostics.into(),
+            };
+            let prepared = PreparedSyntax {
+                source: logical.source,
+                parsed,
+            };
+            files.insert(file, prepared);
         }
         parses.insert(id, physical);
     }
