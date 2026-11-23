@@ -44,6 +44,39 @@ identity/remapping and fact/context separation. No policy change or speedup is p
 `BodySignatures` and `update_source` stay unchanged. Broader naming, incremental parsing,
 function-granularity reuse/reclamation and LSP scheduling require separate scope.
 
+## Immutable HIR-to-compiler handoff
+
+**Decision for follow-up:** HIR hands off checked facts and their immutable `DefinitionTable`
+for the admitted dependency closure, not a handle to its writer. Today the facts and their
+retained tables are already immutable, but [`CheckedCompilation::definition_context`](../crates/kagari-hir/src/compile_input/program.rs#L475)
+and [`CheckedAnalysis::definition_context`](../crates/kagari-hir/src/lib.rs#L220) also expose the
+shared append-only allocator. [`lower_program`](../crates/kagari-compiler/src/source/program.rs#L69)
+passes that allocator to lowering, so newly generated compiler identities share HIR's writer.
+Removing this dependency does not by itself remove the lock from other `DefinitionContext` users.
+
+| Change point | Direction |
+| --- | --- |
+| HIR admission and checked APIs | Expose the checked closure's retained table, not a fresh snapshot of the live writer. Remove the writer accessors and audit their consumers. Analysis and declaration adoption still own their construction state. |
+| Compiler input and lookups | Split the read-only source table from executable construction through `lower_program`, `Scheduler`, `ModuleLoweringInputs` and `InstancePlanner`. Resolve existing roots and protocol members by lookup or checked identity; a missing declaration is an error, not an interning request. |
+| [Intrinsic interface bridges](../crates/kagari-compiler/src/source/lower/interface_bridges.rs) | Use selected ordinary impls where available. For checked intrinsic applications, represent the executable target without inventing a source `impl` and method definitions. Preserve intrinsic behavior, including tuple arity support. |
+| Compiler-generated entries | Retain the checked closure-body origin; identify resume/initializer bodies and callable/protocol adapters as executable entries, not source functions. Keep a named local function's authored identity separate from its code placement. The exact executable key and storage are still open. |
+| Executable publication and reload | Update MIR/KBC references, verification and retained-demand correspondence where they consume generated IDs. Keep generated data under compiler-owned construction and publish it frozen. A local function slot is meaningful only with its owning product; cross-scope references still require checked mapping. Do not fork a writer under the same table ID. |
+
+Example: `static val X: i32 = compute()` already has a source ID for `X` and a checked
+initializer body. Compilation adds `X -> initializer entry` to the executable product;
+it need not add a source definition called `$static_init_X`. First access still runs the
+initializer, with the existing generation and [reload rules](spec/module-activation.md#lazy-static-activation).
+
+Rust reference (`5f4effd5795`): [definition collection](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_resolve/src/def_collector.rs#L432)
+assigns closure identity before MIR; [codegen instances](https://github.com/rust-lang/rust/blob/5f4effd579500175af844241eb179e756190f1e7/compiler/rustc_middle/src/ty/instance.rs#L60)
+identify shims separately. Borrow the identity split, not Rust's static initialization or a claim
+that its definition storage is lock-free.
+
+Acceptance: no writable HIR handle through checked outputs; repeated compilation of the same
+checked input does not extend its source identity scope. Sample declared/intrinsic interface
+calls, source-free verification, lazy statics and retained closures/Futures across reload.
+No implementation authorized here; global lock removal and unrelated cache changes are out of scope.
+
 ## Analysis flow and naming review
 
 **Status: discussion recorded; revisit after the source walkthrough.** Final names, module moves and implementation phases remain open.

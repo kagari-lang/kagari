@@ -774,6 +774,10 @@ records stage discoverability, orchestration placement and stage-result/fact/que
 Revisit after the user finishes reading the code; names, module moves and execution phases remain
 undecided. This is separate from the selected origin ownership plan.
 
+The [immutable compiler handoff](hir-model-review.md#immutable-hir-to-compiler-handoff) records
+where to remove the shared HIR writer and separate executable identities from source definitions.
+Implementation remains pending.
+
 **Source preparation cleanup:** [parse and lowering reuse contracts](architecture/hir.md#query-work-reuse-and-publication)
 now distinguish exact physical parse inputs, logical module discovery and source lowering identity.
 Changing only an authored library sidecar rebuilds its HIR even when an old parse and lowering both
