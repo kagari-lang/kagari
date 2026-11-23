@@ -92,6 +92,29 @@ map and a file-ownership map. Preserve recoverable diagnostics, positive complet
 source-free input, scoped identities, checked admission and existing cache/retention contracts.
 This is not authorization to redesign storage, introduce a pipeline framework or change semantics.
 
+### Explicit source extents
+
+**Status: deferred.** [SourceFile](../crates/kagari-source/src/source.rs) stores `origin: FileId`
+next to `inline_range: Option<Span>`. For a whole source, the origin is the file's own ID;
+only an inline module needs a separate origin and extent. Consider keeping `SourceFile` as
+one struct and replacing those two fields with a source-owned extent:
+
+```rust
+enum SourceExtent {
+    Whole,
+    Inline { origin: FileId, range: Span },
+}
+```
+
+Keep the logical ID, revision, module identity and shared text/line index on `SourceFile`.
+`origin_id()` derives the physical origin from the extent. In
+[source preparation](../crates/kagari-hir/src/analysis/source_preparation.rs), `Whole` selects
+the root AST and `Inline` selects an exact module-body range. An independently supplied
+inline view still needs that range validated and must report `InvalidSourceRange` on failure.
+Children discovered while walking the parent AST already have their syntax node and should
+not look it up again. This is a representation change, not a change to `SourceSnapshot`,
+synthetic `FileId` allocation or parse reuse.
+
 ## LoweredModule boundary remediation
 
 [Native input implementation](architecture/hir.md#native-declaration-inputs-and-origins) supports
