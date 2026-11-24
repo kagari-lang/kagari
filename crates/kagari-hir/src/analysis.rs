@@ -20,9 +20,8 @@ use crate::{
         declarations::DeclarationSnapshot,
         error::AnalysisError,
         inputs::{AnalysisInputs, LibrarySources},
-        records::DeclarationCache,
         signatures::SignatureSnapshot,
-        source_preparation::{ParsedModule, SourceParseCache},
+        source_preparation::ParsedModule,
     },
     analyze_parsed,
     collections::HashMap,
@@ -104,7 +103,7 @@ impl FileAnalysis {
     }
 }
 
-/// Mutable owner of reusable analysis inputs and published query caches.
+/// Mutable owner of analysis inputs and scoped identities.
 ///
 /// Choose the required depth explicitly:
 ///
@@ -120,16 +119,9 @@ impl FileAnalysis {
 /// queries are reads of prepared facts. Analysis errors describe cancellation, import
 /// solver failure or invalid inputs/identity metadata; ordinary source errors are retained as diagnostics.
 ///
-/// Stage caches retain immutable owned records, with weak handles to live graph/query
-/// views. Body facts are checked for each request.
-/// A matching revision alone is insufficient:
-/// imports, reachable namespaces, installed declarations and semantic dependencies also
-/// participate in reuse. Publication checks cancellation and does not replace newer
-/// published snapshots with older revisions. Earlier returned snapshots remain valid.
-///
-/// Cloning forks query state while sharing owned records, weak handles and the append-only
-/// definition identity context. Later input changes and cache publication belong
-/// to the individual database; reuse still checks source revisions and installed declarations.
+/// Each request computes source facts from its current inputs. Clones share the
+/// definition context and can share validated Native inputs, not previous analysis
+/// results. Returned snapshots retain the exact source, records and identity owner.
 #[derive(Debug, Clone)]
 pub struct AnalysisDatabase {
     source_root: String,
@@ -140,17 +132,13 @@ pub struct AnalysisDatabase {
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
-    /// Physical parses survive independently of declaration and HIR result owners.
-    source_parse_cache: SourceParseCache,
-    /// Owned declaration/syntax records with weak handles to live graphs/queries.
-    declaration_cache: Option<DeclarationCache>,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
     import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
     native_sources: Option<Vec<DeclarationSource>>,
     libraries: LibrarySources,
-    /// Owned prepared registrations/syntax with weak handles to live graphs.
+    /// Validated registration metadata and optional presentation parses.
     /// Invalidated by registration/source/parser-limit changes, not user revisions.
     native_files: OnceCell<NativeFiles>,
     /// Portable provider/settings identity, invalidated by every environment setter.
@@ -181,8 +169,6 @@ impl AnalysisDatabase {
             parse_limits: Default::default(),
             const_limits: Default::default(),
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
-            source_parse_cache: SourceParseCache::default(),
-            declaration_cache: None,
             inline_ids: HashMap::default(),
             import_environment: Default::default(),
             native_modules: vec![],
@@ -203,7 +189,6 @@ impl AnalysisDatabase {
         self.native_modules = modules;
         self.native_sources = None;
         self.native_files.take();
-        self.declaration_cache = None;
     }
 
     /// Supply presentation origins in the same order as the explicit providers.
@@ -247,10 +232,8 @@ impl AnalysisDatabase {
             return;
         }
         self.parse_limits = limits;
-        self.source_parse_cache.clear();
         self.environment_fingerprint.take();
         self.native_files.take();
-        self.declaration_cache = None;
     }
 
     /// Prepares signatures and checks bodies for every supplied/discovered file.
@@ -269,7 +252,7 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;
-        let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
+        let signature_snapshot = self.signatures(source.clone(), cancel)?;
         let shared_valid = signature_snapshot.shared_inputs_valid();
         let graph = signature_snapshot.declarations.graph.clone();
         let signatures = signature_snapshot
@@ -322,7 +305,6 @@ impl AnalysisDatabase {
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
-        self.publish_declarations(signature_snapshot.declaration_snapshot().clone());
         Ok(AnalysisSnapshot {
             inputs: self.inputs(),
             source: source.clone(),

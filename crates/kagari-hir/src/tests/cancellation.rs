@@ -17,7 +17,6 @@ pub(crate) enum Checkpoint {
     Constraints,
     TraitCandidates,
     Constants,
-    Namespaces,
     Publish,
 }
 
@@ -100,7 +99,6 @@ fn interrupted_analysis_returns_no_result_and_preserves_readable_snapshots() {
         Checkpoint::Constraints,
         Checkpoint::TraitCandidates,
         Checkpoint::Constants,
-        Checkpoint::Namespaces,
         Checkpoint::Publish,
     ] {
         let cancel = CancellationToken::default();

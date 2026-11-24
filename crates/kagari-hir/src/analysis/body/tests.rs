@@ -106,12 +106,6 @@ fn selected_body_eligibility_uses_the_current_shared_signatures() {
     let good = owner(&mut db, &sources, root, "good");
     let original = query(&mut db, &sources, &good);
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
-    assert!(db.declaration_cache.is_some());
-    let original_root = original
-        .signature_snapshot()
-        .declaration_snapshot()
-        .file(root)
-        .unwrap();
 
     let mut results = vec![original.clone()];
     for (text, eligibility) in [
@@ -149,12 +143,6 @@ fn selected_body_eligibility_uses_the_current_shared_signatures() {
             updated.lowered().module.nodes.arena(),
             fresh.lowered().module.nodes.arena(),
         );
-        let declarations = updated.signature_snapshot().declaration_snapshot();
-        let current_root = declarations.file(root).unwrap();
-        assert!(std::ptr::eq(
-            original_root.lowered(),
-            current_root.lowered()
-        ));
 
         let old_request = db
             .body(
@@ -227,22 +215,32 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let complete = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    assert!(!complete.file(id).unwrap().result().diagnostics().is_empty());
-    for (expr, _) in result.lowered().module.nodes.expressions() {
-        if let Some(ty) = result.type_table().expr_type(expr) {
+    let complete = complete.file(id).unwrap().result();
+    assert!(complete.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name } if name == "missing")));
+    let selected_nodes = &result.lowered().module.nodes;
+    let full_nodes = &complete.facts().lowered.module.nodes;
+    assert_ne!(selected_nodes.arena(), full_nodes.arena());
+    assert_eq!(
+        selected_nodes.expressions().count(),
+        full_nodes.expressions().count()
+    );
+    let mut saw_selected_type = false;
+    for ((selected_id, selected_expr), (full_id, full_expr)) in
+        selected_nodes.expressions().zip(full_nodes.expressions())
+    {
+        assert_eq!(
+            selected_expr.origin.diagnostic_span(),
+            full_expr.origin.diagnostic_span()
+        );
+        if let Some(ty) = result.type_table().expr_type(selected_id) {
             assert_eq!(
-                Some(ty),
-                complete
-                    .file(id)
-                    .unwrap()
-                    .result()
-                    .facts()
-                    .typed
-                    .type_table
-                    .expr_type(expr)
+                complete.facts().typed.type_table.expr_type(full_id),
+                Some(ty)
             );
+            saw_selected_type = true;
         }
     }
+    assert!(saw_selected_type);
 }
 
 #[test]

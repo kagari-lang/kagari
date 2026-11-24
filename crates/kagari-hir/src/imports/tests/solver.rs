@@ -22,12 +22,12 @@ use kagari_types::declaration::names::NameNamespace;
 use std::{cell::RefCell, sync::Arc, time::Instant};
 
 #[test]
-fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
+fn failed_solves_preserve_retained_imports_and_allow_recovery() {
     let mut sources = SourceDatabase::default();
     let seed = insert(&mut sources, "seed", "pub fn value() {}");
     insert(&mut sources, "other", "pub fn value() {}");
     let a = insert(&mut sources, "a", "pub use pkg::seed::*;");
-    insert(&mut sources, "b", "pub use pkg::a::value;");
+    let b = insert(&mut sources, "b", "pub use pkg::a::value;");
     let old_input = sources.snapshot();
     let mut analysis = AnalysisDatabase::default();
     let old = analysis
@@ -96,12 +96,20 @@ fn failed_solves_preserve_published_snapshots_and_allow_recovery() {
     let retained = analysis
         .declarations(old_input, &Default::default())
         .unwrap();
-    assert!(Arc::ptr_eq(
-        old.file(seed).unwrap(),
-        retained.file(seed).unwrap()
-    ));
-    assert!(Arc::ptr_eq(old.file(a).unwrap(), retained.file(a).unwrap()));
-    assert_eq!(old.file(seed).unwrap().source().text(), "pub fn value() {}");
+    for snapshot in [&old, &retained] {
+        let catalog = &snapshot.module_graph().catalog;
+        let seed_file = snapshot.file(seed).unwrap();
+        assert_eq!(seed_file.source().text(), "pub fn value() {}");
+        assert!(snapshot.file(a).unwrap().diagnostics().is_empty());
+        let importer = snapshot.file(b).unwrap();
+        assert!(importer.diagnostics().is_empty());
+        let dependencies = &importer.names().imports.dependencies;
+        assert!(
+            dependencies
+                .iter()
+                .any(|module| catalog.identity(*module) == seed_file.source().module_identity())
+        );
+    }
     sources
         .set(
             "mem://a",

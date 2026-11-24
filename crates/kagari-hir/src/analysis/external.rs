@@ -8,8 +8,7 @@ use crate::{
     analysis::{
         AnalysisDatabase,
         error::AnalysisError,
-        inputs::LibrarySourceKey,
-        source_preparation::{self, ParsedModule, SourceParseCache, SourcePreparer},
+        source_preparation::{self, ParsedModule, SourcePreparer},
     },
     collections::HashSet,
     hir::item::function::{Function, FunctionImplementation, FunctionKind, NativeContract},
@@ -53,7 +52,7 @@ mod tests;
 ///
 /// The source's module identity is authoritative for semantic ownership, and all
 /// diagnostics/navigation retain its real byte ranges. Ordinary Script declarations
-/// must be complete, including defaults. Setters invalidate semantic caches; retained
+/// must be complete, including defaults. New requests use the current inputs; retained
 /// snapshots keep their exact inputs. No filesystem discovery is performed.
 #[derive(Debug, Clone)]
 pub struct ExternalModule {
@@ -253,18 +252,13 @@ impl ExternalFunction {
     }
 }
 
-/// The root sidecar and its identity travel together into lowering.
+/// The current root sidecar and the identity context used to attach it.
 pub(super) struct LibraryLowering<'a> {
-    key: LibrarySourceKey,
     input: &'a ExternalModule,
     definitions: &'a DefinitionContext,
 }
 
 impl LibraryLowering<'_> {
-    pub(super) fn key(&self) -> &LibrarySourceKey {
-        &self.key
-    }
-
     pub(super) fn attach(
         self,
         lowered: &mut LoweredModule,
@@ -297,7 +291,6 @@ impl AnalysisDatabase {
         // Prepared registration imports and materialized views retain package spellings.
         self.native_files.take();
         self.environment_fingerprint.take();
-        self.declaration_cache = None;
     }
 
     pub(super) fn prepare_external(
@@ -306,23 +299,15 @@ impl AnalysisDatabase {
     ) -> Result<BTreeMap<FileId, (ParsedModule, Arc<LoweredModule>)>, AnalysisError> {
         let mut files = BTreeMap::new();
         let mut identities = HashSet::default();
-        let previous = |id| {
-            self.declaration_cache
-                .as_ref()
-                .and_then(|cache| cache.files.get(&id))
-        };
-        for (key, input, limits) in self.libraries.parse_inputs(self.parse_limits) {
+        for (input, limits) in self.libraries.parse_inputs(self.parse_limits) {
             cancel.check()?;
-            let mut cache = SourceParseCache::default();
             let mut preparer = SourcePreparer {
-                cache: &mut cache,
                 inline_ids: &mut self.inline_ids,
                 limits,
             };
             let syntax = source_preparation::prepare_syntax(
                 &mut preparer,
                 &SourceSnapshot::single_file(input.source.clone()),
-                |id| previous(id).map(|old| &old.parsed),
                 cancel,
             )?;
             for (id, module) in syntax {
@@ -335,12 +320,11 @@ impl AnalysisDatabase {
                     .into());
                 }
                 // Inline modules do not inherit root-owned sidecars.
-                let attachments = (id == input.source.id()).then(|| LibraryLowering {
-                    key: key.clone(),
+                let attachments = (id == input.source.id()).then_some(LibraryLowering {
                     input,
                     definitions: &self.definitions,
                 });
-                let prepared = module.lower(previous(id), attachments, cancel)?;
+                let prepared = module.lower(attachments, cancel)?;
                 files.insert(id, (prepared.parsed, prepared.lowered));
             }
         }

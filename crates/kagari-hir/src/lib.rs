@@ -17,7 +17,7 @@
 //!
 //! This is a dependency outline, not a claim that every query scans or checks every
 //! body. [`analysis::AnalysisDatabase`] prepares immutable snapshots; their query
-//! APIs distinguish declaration, signature and body work and reuse retained inputs.
+//! APIs distinguish declaration, signature and body work.
 //! HIR does not execute scripts. [`CheckedAnalysis`] validates a single module;
 //! [`program::CheckedProgram`] fixes a complete dependency closure.
 //! [`compile_input::program::CheckedCompilation`] admits that closure for compiler
@@ -504,7 +504,7 @@ fn analyze_prepared(
 /// Analyzes one source with packaged core and the explicitly supplied Native providers.
 ///
 /// Returns recoverable facts and source diagnostics. This convenience entrypoint
-/// creates a fresh database; use [`AnalysisDatabase`] to retain caches across edits.
+/// creates a fresh database; use [`AnalysisDatabase`] for multiple sources or staged queries.
 ///
 /// # Errors
 ///

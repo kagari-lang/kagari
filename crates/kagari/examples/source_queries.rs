@@ -289,13 +289,6 @@ fn main() -> kagari::CompileResult<()> {
         checked_signature.signatures(),
         analysis.signatures()
     ));
-    assert!(Arc::ptr_eq(
-        header,
-        snapshot
-            .declaration_snapshot()
-            .file(file)
-            .expect("shared declarations")
-    ));
     let offset = text.rfind("answer }").expect("reference offset");
     let target = analysis
         .queries()

@@ -608,7 +608,6 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         db.snapshot(SourceSnapshot::default(), &Default::default()),
         Err(AnalysisError::NativeApi(_))
     ));
-    assert!(db.declaration_cache.is_none());
     // Constructor identity itself imposes shape, even when no sidecar is supplied.
     for (package, module, name, constructor, valid, wrong_arity, fields) in [
         (
@@ -725,5 +724,4 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
         db.snapshot(SourceSnapshot::default(), &cancel),
         Err(AnalysisError::Cancelled)
     ));
-    assert!(db.declaration_cache.is_none());
 }

@@ -20,7 +20,6 @@ impl AnalysisDatabase {
     pub fn set_import_environment(&mut self, environment: ImportEnvironment) {
         self.import_environment = environment;
         self.environment_fingerprint.take();
-        self.declaration_cache = None;
     }
 
     pub(super) fn import_scopes<'a>(

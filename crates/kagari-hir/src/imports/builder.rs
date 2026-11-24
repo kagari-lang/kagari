@@ -94,7 +94,7 @@ impl ModuleGraph {
                     .map_err(ImportSolveError::Identity)?;
             }
         }
-        let mut base = NamespaceCatalog::new(definitions.snapshot(), packages.clone());
+        let mut base = NamespaceCatalog::new(definitions.snapshot());
         base.environment = environment.clone();
         for module in &sources {
             let identity = module.source.module_identity();

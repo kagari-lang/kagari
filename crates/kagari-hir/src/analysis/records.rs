@@ -1,23 +1,10 @@
-//! Persistent semantic records contain owned facts, never a lowered HIR graph.
-//!
-//! HIR-local IDs are meaningful only with the exact lowering supplied by a live
-//! query. Weak graph/query handles permit reuse while that graph remains alive;
-//! expired graphs require fresh lowering/checking. This retention policy does not
-//! require an arena or borrowed-session API.
+//! Owned semantic facts for the declaration and signature stages.
 
 use crate::{
-    AnalysisResult, DiagnosticBuffer,
-    analysis::{declarations::FileDeclarations, source_preparation::ParsedModule},
-    declarations::Declarations,
-    lower::LoweredModule,
-    resolver::resolved::DeclarationNames,
+    AnalysisResult, declarations::Declarations, resolver::resolved::DeclarationNames,
     typeck::ModuleSignatures,
 };
-use kagari_source::identity::{FileId, Revision};
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Weak},
-};
+use std::sync::Arc;
 
 /// Declaration-stage identity and name facts, shared with the graph-bearing view.
 #[derive(Debug, Clone)]
@@ -35,19 +22,4 @@ pub(crate) struct SignatureRecord {
     pub(crate) signatures: Arc<AnalysisResult<ModuleSignatures>>,
     /// Diagnostics after this boundary are recomputed against completed aggregates.
     pub(crate) local_signature_diagnostics: usize,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct DeclarationCacheEntry {
-    pub(super) record: Arc<DeclarationRecord>,
-    pub(super) parsed: ParsedModule,
-    pub(super) diagnostics: Arc<DiagnosticBuffer>,
-    pub(super) query: Weak<FileDeclarations>,
-    pub(super) lowered: Weak<LoweredModule>,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct DeclarationCache {
-    pub(super) revision: Revision,
-    pub(super) files: BTreeMap<FileId, DeclarationCacheEntry>,
 }

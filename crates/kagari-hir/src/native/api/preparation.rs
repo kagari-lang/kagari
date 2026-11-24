@@ -17,7 +17,7 @@ use kagari_types::declaration::{
     module::{DeclarationError, ModuleDecl},
     ownership::ReceiverOwners,
 };
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 
 #[cfg(test)]
 use crate::analysis::core_source::packaged_modules;
@@ -153,12 +153,10 @@ impl PreparedRegistration {
     }
 }
 
-/// Persistent owned inputs plus weak handles to live owned graphs.
-/// Expired graphs are rebuilt from the retained inputs, never from old node-ID maps.
+/// Validated adopted registrations and optional authored parses, without prior HIR.
 #[derive(Debug, Clone)]
 pub(crate) struct NativeFiles {
     prepared: Vec<PreparedRegistration>,
-    lowered: Vec<Weak<LoweredModule>>,
 }
 
 impl NativeFiles {
@@ -192,29 +190,19 @@ impl NativeFiles {
             })
             .collect::<Result<Vec<_>, _>>()?;
         check_cancel(cancel)?;
-        let lowered = (0..prepared.len()).map(|_| Weak::new()).collect();
-        Ok(Self { prepared, lowered })
+        Ok(Self { prepared })
     }
 
-    /// Publishes weak handles only after the entire attachment batch succeeds.
+    /// Attaches fresh lowerings to the current request from validated inputs.
     pub(crate) fn attach(
-        &mut self,
+        &self,
         cancel: &CancellationToken,
     ) -> Result<Vec<AttachedRegistration>, DeclarationError> {
         let mut attached = Vec::with_capacity(self.prepared.len());
-        for (prepared, old) in self.prepared.iter().zip(&self.lowered) {
-            check_cancel(cancel)?;
-            let lowered = match old.upgrade() {
-                Some(lowered) => lowered,
-                None => prepared.attach(cancel)?,
-            };
-            attached.push((prepared.parsed.clone(), lowered));
+        for prepared in &self.prepared {
+            attached.push((prepared.parsed.clone(), prepared.attach(cancel)?));
         }
         check_cancel(cancel)?;
-        self.lowered = attached
-            .iter()
-            .map(|(_, lowered)| Arc::downgrade(lowered))
-            .collect();
         Ok(attached)
     }
 

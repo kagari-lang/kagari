@@ -779,7 +779,6 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         ModuleGraph::build(lowered.iter().rev(), &definitions, &Default::default()).unwrap();
     assert_eq!(forward.catalog.modules, reverse.catalog.modules);
     assert_eq!(forward.catalog.namespaces, reverse.catalog.namespaces);
-    assert_eq!(forward.catalog.packages, reverse.catalog.packages);
     assert_eq!(forward.catalog.environment, reverse.catalog.environment);
     assert_eq!(
         forward.catalog.module_dependencies,

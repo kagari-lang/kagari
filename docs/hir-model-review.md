@@ -106,7 +106,7 @@ No implementation authorized here; global lock removal and unrelated cache chang
 
 ## Single-run frontend plan
 
-**Status: HC01–HC02 implemented; HC03–HC04 pending.** Make a standalone source compilation the baseline.
+**Status: HC01–HC03 implemented; HC04 pending.** Make a standalone source compilation the baseline.
 A new request computes source facts from its current inputs, not from a previous result.
 Independent `kg build` processes cannot use the existing in-memory reuse paths; they have no
 persistent HIR cache. Long-lived sessions will do more work after edits, and repeat requests
@@ -140,7 +140,10 @@ snapshot/binding ownership rather than cache hits. The declaration and signature
 were left for their own phases. HC02 removes exact signature hits and cross-revision remapping,
 while keeping declaration publication after successful, cancellation-checked requests until HC03.
 Focused coverage checks current imported signature facts and constraints, diagnostic provenance and
-retained results. The pre-change baseline uses `plain` and `dependency_edit` at size 96
+retained results. HC03 removes the remaining source parse/declaration reuse, including weak
+Native lowering reuse (validated Native metadata and presentation parses remain reusable inputs).
+Its local sample covers logical inline inputs and physical diagnostics, external sidecar and
+source-view validation, import-solver failure and cancellation. The pre-change baseline uses `plain` and `dependency_edit` at size 96
 (five timing runs) and a browser build of the minimal source compile/load workload; report the
 matched comparison in HC04.
 

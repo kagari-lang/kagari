@@ -42,45 +42,6 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    // Recheck the edited file from scratch with the same live library lowerings.
-    // Imported addresses include arena provenance even for bundled authored modules.
-    let mut library_declarations = db.declaration_cache.clone().unwrap();
-    library_declarations.files.remove(&file);
-    let mut fresh_db = AnalysisDatabase {
-        definitions: db.definitions.clone(),
-        native_files: db.native_files.clone(),
-        declaration_cache: Some(library_declarations),
-        ..test_analysis()
-    };
-    let fresh = analyze(&mut fresh_db, &sources);
-    let fresh_file = fresh.file(file).unwrap();
-    let authoring_fresh = fresh_file.to_unverified(&Default::default()).unwrap();
-    let fresh = authoring_fresh.records().facts();
-    assert_ne!(
-        new_facts.lowered.module.nodes.arena(),
-        fresh.lowered.module.nodes.arena()
-    );
-    let fresh_aggregates = import_facts(
-        &fresh.aggregates,
-        authoring_fresh.definitions(),
-        &db.definitions,
-    );
-    assert_eq!(&new_facts.aggregates, fresh_aggregates.records());
-    let fresh_functions = import_facts(
-        &fresh.imported_functions,
-        authoring_fresh.definitions(),
-        &db.definitions,
-    );
-    assert_eq!(&new_facts.imported_functions, fresh_functions.records());
-    let fresh_types = import_facts(
-        fresh.declarations.imported_types(),
-        authoring_fresh.definitions(),
-        &db.definitions,
-    );
-    assert_eq!(
-        new_facts.declarations.imported_types(),
-        fresh_types.records()
-    );
     let original_enum = old_facts
         .aggregates
         .enumerations()

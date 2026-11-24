@@ -6,7 +6,6 @@ use crate::{
         error::AnalysisError,
         external::evidence,
         ownership,
-        records::{DeclarationCache, DeclarationCacheEntry},
         source_preparation::{self, ParsedModule, SourcePreparer},
     },
     declarations::{Declaration, DeclarationId, Declarations},
@@ -172,8 +171,8 @@ impl AnalysisDatabase {
     /// Parses/lowers sources and resolves imports and declaration names without checking bodies.
     ///
     /// Includes installed native declarations and recursively discovered inline modules.
-    /// Source errors remain in each file's diagnostics. Successful preparation is published
-    /// only after a cancellation check and never replaces a newer declaration snapshot.
+    /// Source errors remain in each file's diagnostics. The returned snapshot pairs
+    /// each logical lowering with its parse and resolves names using the current inputs.
     ///
     /// # Errors
     ///
@@ -184,61 +183,13 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
-        let snapshot = self.prepare_declarations(source, cancel)?;
-        cancel.check()?;
-        self.publish_declarations(snapshot.clone());
-        Ok(snapshot)
-    }
-
-    /// Publishes a non-older declaration snapshot and prunes stale selected-body entries.
-    pub(super) fn publish_declarations(&mut self, snapshot: DeclarationSnapshot) {
-        if self
-            .declaration_cache
-            .as_ref()
-            .is_none_or(|old| snapshot.revision >= old.revision)
-        {
-            self.declaration_cache = Some(DeclarationCache {
-                revision: snapshot.revision,
-                files: snapshot
-                    .files
-                    .iter()
-                    .map(|(id, file)| {
-                        (
-                            *id,
-                            DeclarationCacheEntry {
-                                record: file.declared.record.clone(),
-                                parsed: file.parsed.clone(),
-                                diagnostics: file.diagnostics.clone(),
-                                query: Arc::downgrade(file),
-                                lowered: Arc::downgrade(&file.declared.lowered),
-                            },
-                        )
-                    })
-                    .collect(),
-            });
-        }
-    }
-
-    /// Builds declarations using reusable parses and a newly resolved import graph.
-    ///
-    /// One physical parse supplies attached logical views and independent lowering
-    /// arenas. Inline sources share text and line indexing with their origin.
-    /// File results are retained only when source revisions, import facts and reachable
-    /// namespace contents permit it. Installed declarations participate through those
-    /// ordinary facts. This prepares a value; publication is separate.
-    pub(super) fn prepare_declarations(
-        &mut self,
-        source: SourceSnapshot,
-        cancel: &CancellationToken,
-    ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
         let mut lowered_files = self.prepare_external(cancel)?;
         let paths = Arc::new(LibraryPaths::new(
             &self.native_modules,
             self.libraries.all(),
         ));
-        let previous = self.declaration_cache.as_ref();
-        let native_files = match self.native_files.get_mut() {
+        let native_files = match self.native_files.get() {
             Some(files) => {
                 let attached = files.attach(cancel);
                 cancel.check()?;
@@ -255,7 +206,7 @@ impl AnalysisDatabase {
                     cancel,
                 );
                 cancel.check()?;
-                let mut prepared = prepared?;
+                let prepared = prepared?;
                 let attached = prepared.attach(cancel);
                 cancel.check()?;
                 let attached = attached?;
@@ -285,11 +236,10 @@ impl AnalysisDatabase {
             }
         }
         let preparer = SourcePreparer {
-            cache: &mut self.source_parse_cache,
             inline_ids: &mut self.inline_ids,
             limits: self.parse_limits,
         };
-        for (id, prepared) in source_preparation::prepare(preparer, &source, previous, cancel)? {
+        for (id, prepared) in source_preparation::prepare(preparer, &source, cancel)? {
             if lowered_files.values().any(|(_, library)| {
                 library.source.id() == id
                     || library.source.module_identity() == prepared.lowered.source.module_identity()
@@ -360,55 +310,27 @@ impl AnalysisDatabase {
                 .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
                 .expect("declared module is in graph")
                 .clone();
-            let old = previous
-                .and_then(|snapshot| snapshot.files.get(&id))
-                .filter(|old| {
-                    old.lowered
-                        .upgrade()
-                        .is_some_and(|old| Arc::ptr_eq(&old, &lowered))
-                        && old.record.names.facts().imports == imports
-                        && old
-                            .record
-                            .names
-                            .facts()
-                            .catalog
-                            .same_namespaces(&graph.catalog, &imports.scope, cancel)
-                            .unwrap_or(false)
-                });
-            let file = if let Some(old) = old {
-                old.query.upgrade().unwrap_or_else(|| {
-                    Arc::new(FileDeclarations {
-                        parsed: old.parsed.clone(),
-                        declared: DeclaredAnalysis {
-                            lowered,
-                            record: old.record.clone(),
-                        },
-                        diagnostics: old.diagnostics.clone(),
-                    })
-                })
-            } else {
-                let declared = declare_analysis(
-                    lowered,
-                    imports,
-                    graph.catalog.clone(),
-                    &self.definitions,
-                    cancel,
-                )?;
-                let mut diagnostics = declared.record.names.diagnostics.clone();
-                diagnostics.extend(parsed.diagnostics().cloned());
-                let metadata =
-                    DefinitionMetadata::checked(self.definitions.snapshot(), declared, cancel)?;
-                let definitions = metadata.definitions().clone();
-                let mut declared = metadata.into_records();
-                Arc::make_mut(&mut declared.record)
-                    .declarations
-                    .publish_definitions(definitions);
-                Arc::new(FileDeclarations {
-                    parsed,
-                    declared,
-                    diagnostics: Arc::new(diagnostics),
-                })
-            };
+            let declared = declare_analysis(
+                lowered,
+                imports,
+                graph.catalog.clone(),
+                &self.definitions,
+                cancel,
+            )?;
+            let mut diagnostics = declared.record.names.diagnostics.clone();
+            diagnostics.extend(parsed.diagnostics().cloned());
+            let metadata =
+                DefinitionMetadata::checked(self.definitions.snapshot(), declared, cancel)?;
+            let definitions = metadata.definitions().clone();
+            let mut declared = metadata.into_records();
+            Arc::make_mut(&mut declared.record)
+                .declarations
+                .publish_definitions(definitions);
+            let file = Arc::new(FileDeclarations {
+                parsed,
+                declared,
+                diagnostics: Arc::new(diagnostics),
+            });
             files.insert(id, file);
         }
         cancel.check()?;

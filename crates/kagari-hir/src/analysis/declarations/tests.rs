@@ -21,7 +21,7 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
 }
 
 #[test]
-fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
+fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
     let mut sources = SourceDatabase::default();
     sources
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -60,10 +60,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
     assert!(method_count > 0);
     let old_type = file.declared.lowered.module.functions[0].params[0].ty;
     let old_parameter = file.declared.lowered.module.functions[0].params[0].id;
-    let graph_handles = first
-        .files()
-        .map(|file| Arc::downgrade(&file.declared.lowered))
-        .collect::<Vec<_>>();
+    let old_lowering = Arc::downgrade(&file.declared.lowered);
     sources
         .set(
             "main.kgr",
@@ -72,23 +69,11 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         )
         .unwrap();
     let second = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(
-        first.file(id).unwrap(),
-        second.file(id).unwrap()
-    ));
+    let file = second.file(id).unwrap();
     let mut fork = db.clone();
-    drop(first);
-    drop(second);
-    assert!(
-        graph_handles
-            .iter()
-            .all(|handle| handle.upgrade().is_none())
-    );
     assert!(db.native_files.get().is_some());
 
-    // A locator resolves only against the original physical parse, not a reparse.
-    let third = query(&mut db, &sources);
-    let file = third.file(id).unwrap();
+    // The validated input owns the locator; each request owns its own lowering.
     assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
     assert!(Arc::ptr_eq(&source, &file.declared.lowered.source));
     let lowered = &file.declared.lowered;
@@ -126,7 +111,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
         }
     }
 
-    let core = &third
+    let core = &second
         .files()
         .find(|file| {
             file.source().module_identity() == &kagari_stdlib::namespaces::module("core", "iter")
@@ -176,6 +161,13 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
             .is_none()
     );
     assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
+    assert!(
+        location
+            .resolve(first.file(id).unwrap().parsed.physical().unwrap())
+            .is_some()
+    );
+    drop(first);
+    assert!(old_lowering.upgrade().is_none());
     drop(db);
     drop(fork);
     assert_eq!(file.source().text(), source.text());
@@ -183,7 +175,7 @@ fn native_cache_retains_preparation_but_not_graphs_across_user_revisions() {
 }
 
 #[test]
-fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
+fn cancelled_or_invalid_native_inputs_are_not_retained() {
     let sources = SourceDatabase::default();
     let mut db = test_analysis();
     let cancelled = CancellationToken::default();
@@ -193,7 +185,6 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
         Err(AnalysisError::Cancelled)
     ));
     assert!(db.native_files.get().is_none());
-    assert!(db.declaration_cache.is_none());
     let modules = db.native_modules.clone();
     let views = modules
         .iter()
@@ -212,7 +203,6 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
         Err(AnalysisError::NativeApi(_))
     ));
     assert!(db.native_files.get().is_none());
-    assert!(db.declaration_cache.is_none());
     db.set_parse_limits(Default::default());
     let modules = db.native_modules.clone();
     assert!(modules.len() > 1);
@@ -237,7 +227,6 @@ fn cancelled_or_invalid_native_import_never_publishes_a_snapshot() {
         matches!(error, AnalysisError::NativeApi(error) if error.0.contains("invalid native declaration syntax"))
     );
     assert!(db.native_files.get().is_none());
-    assert!(db.declaration_cache.is_none());
     db.set_native_modules(modules);
     let complete = query(&mut db, &sources);
     assert_eq!(
@@ -277,19 +266,12 @@ fn declaration_query_stops_before_body_resolution_signatures_and_const_evaluatio
     let complete = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    assert!(Arc::ptr_eq(
-        file,
-        complete.declaration_snapshot().file(id).unwrap()
-    ));
     let full = complete.file(id).unwrap();
     assert!(!full.result().diagnostics().is_empty());
     assert!(!full.signatures().diagnostics().is_empty());
     for declaration in file.declarations().iter() {
         assert_eq!(complete.declaration(&declaration.id), Some(declaration));
     }
-
-    let again = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(file, again.file(id).unwrap()));
 }
 
 #[test]
@@ -376,7 +358,7 @@ fn declaration_attribute_errors_are_shared_header_diagnostics() {
 }
 
 #[test]
-fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
+fn declarations_follow_import_visibility_edits_and_keep_old_locations() {
     let mut sources = SourceDatabase::default();
     let mut insert = |name: &str, text: &str| {
         let path = format!("mem://{name}");
@@ -393,16 +375,6 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
     };
     let dependency = insert("dep", "pub struct Data { val value: i32 }");
     let root = insert("root", "use pkg::dep::Data; fn pass(x: Data) -> Data { x }");
-    let unrelated = insert("other", "fn other() -> i32 { 42 }");
-    sources
-        .bind_module(
-            "mem://other",
-            ModuleIdentity {
-                package: PackageId("independent".into()),
-                path: vec!["other".into()],
-            },
-        )
-        .unwrap();
     let mut db = test_analysis();
     let first = query(&mut db, &sources);
     assert!(first.file(root).unwrap().diagnostics().is_empty());
@@ -422,14 +394,10 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
         )
         .unwrap();
     let second = query(&mut db, &sources);
-    assert!(!Arc::ptr_eq(
-        first.file(root).unwrap(),
-        second.file(root).unwrap()
-    ));
-    assert!(Arc::ptr_eq(
-        first.file(unrelated).unwrap(),
-        second.file(unrelated).unwrap()
-    ));
+    assert_eq!(
+        first.file(root).unwrap().source().revision(),
+        second.file(root).unwrap().source().revision()
+    );
     assert!(
         second
             .file(root)
@@ -458,7 +426,7 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
 }
 
 #[test]
-fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
+fn declaration_queries_keep_recovery_across_out_of_order_requests() {
     let mut sources = SourceDatabase::default();
     let id = sources
         .set(
@@ -491,7 +459,10 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
     assert!(old.file(id).unwrap().diagnostics().is_empty());
     let cancel = CancellationToken::default();
     cancel.cancel();
-    assert!(db.declarations(old_source.clone(), &cancel).is_err());
+    assert!(matches!(
+        db.declarations(old_source.clone(), &cancel),
+        Err(AnalysisError::Cancelled)
+    ));
     let stale = db.declarations(old_source, &Default::default()).unwrap();
     assert!(
         stale
@@ -503,15 +474,23 @@ fn declaration_queries_keep_recovery_and_reject_stale_cache_publication() {
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
     let again = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(
-        latest.file(id).unwrap(),
-        again.file(id).unwrap()
-    ));
+    assert_eq!(
+        latest.file(id).unwrap().diagnostics(),
+        again.file(id).unwrap().diagnostics()
+    );
+    assert_eq!(
+        stale.file(id).unwrap().source().text(),
+        old.file(id).unwrap().source().text()
+    );
+    assert_eq!(
+        latest.file(id).unwrap().source().text(),
+        again.file(id).unwrap().source().text()
+    );
     assert_eq!(latest.revision(), sources.snapshot().revision());
 }
 
 #[test]
-fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
+fn changing_parser_budget_only_affects_new_requests() {
     let mut sources = SourceDatabase::default();
     let id = sources
         .set(
@@ -580,76 +559,6 @@ fn changing_parser_budget_invalidates_queries_without_changing_old_snapshots() {
             .iter()
             .all(|d| !matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
     );
-}
-
-#[test]
-fn declaration_records_outlive_queries_without_owning_the_lowering() {
-    let mut sources = SourceDatabase::default();
-    let id = sources
-        .set(
-            "types.kgr",
-            include_str!("../../../tests/fixtures/analysis/records/types.kgr").into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let mut db = AnalysisDatabase::default();
-    let first = query(&mut db, &sources);
-    let file = first.file(id).unwrap();
-    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
-    let declaration = file
-        .declarations()
-        .iter()
-        .find(|declaration| declaration.name == "Data")
-        .unwrap()
-        .clone();
-    let record = file.declared.record.clone();
-    let lowered = file.declared.lowered.clone();
-    let arena = lowered.module.nodes.arena();
-    let query_handle = Arc::downgrade(file);
-    let graph_handle = Arc::downgrade(&lowered);
-    let fork = db.clone();
-    // Reuse requires the reachable namespace graph, not just the local arena.
-    let library_graphs: Vec<_> = first
-        .files()
-        .filter(|other| other.source().id() != id)
-        .map(|other| other.declared.lowered.clone())
-        .collect();
-    drop(first);
-    assert!(query_handle.upgrade().is_none());
-    assert!(graph_handle.upgrade().is_some());
-    assert!(Arc::ptr_eq(
-        &record,
-        &db.declaration_cache.as_ref().unwrap().files[&id].record
-    ));
-
-    // Another live graph owner permits rebuilding a view without cloning facts.
-    let second = query(&mut db, &sources);
-    let file = second.file(id).unwrap();
-    assert!(Arc::ptr_eq(&record, &file.declared.record));
-    assert!(Arc::ptr_eq(&lowered, &file.declared.lowered));
-    assert_eq!(second.declaration(&declaration.id), Some(&declaration));
-    drop(second);
-    drop(library_graphs);
-    drop(lowered);
-    assert!(graph_handle.upgrade().is_none());
-    assert!(
-        db.declaration_cache.as_ref().unwrap().files[&id]
-            .query
-            .upgrade()
-            .is_none()
-    );
-    assert!(Arc::ptr_eq(
-        &record,
-        &fork.declaration_cache.as_ref().unwrap().files[&id].record
-    ));
-
-    // The owned IDs survive as evidence, not as permission to reuse a dead graph.
-    let third = query(&mut db, &sources);
-    let file = third.file(id).unwrap();
-    assert_ne!(file.declared.lowered.module.nodes.arena(), arena);
-    assert!(!Arc::ptr_eq(&record, &file.declared.record));
-    assert_eq!(third.declaration(&declaration.id), Some(&declaration));
-    assert!(graph_handle.upgrade().is_none());
 }
 
 #[test]

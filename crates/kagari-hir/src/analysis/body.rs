@@ -168,7 +168,7 @@ impl AnalysisDatabase {
         owner: &DefinitionId,
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<FunctionAnalysis>>, AnalysisError> {
-        let signatures = self.prepare_signatures(source, cancel)?;
+        let signatures = self.signatures(source, cancel)?;
         let definitions = self.definitions.snapshot();
         definitions
             .resolve(*owner)
@@ -196,7 +196,6 @@ impl AnalysisDatabase {
         });
         let Some((file, function)) = target else {
             cancel.check()?;
-            self.publish_declarations(signatures.declaration_snapshot().clone());
             return Ok(None);
         };
         let environment = signatures
@@ -240,7 +239,7 @@ impl AnalysisDatabase {
         let definitions = self.definitions.snapshot();
         declarations.publish_definitions(definitions.clone());
         let result = Arc::new(FunctionAnalysis {
-            signatures: signatures.clone(),
+            signatures,
             file,
             facts: FunctionFacts {
                 owner: owner_id,
@@ -254,7 +253,6 @@ impl AnalysisDatabase {
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
-        self.publish_declarations(signatures.declaration_snapshot().clone());
         Ok(Some(result))
     }
 }

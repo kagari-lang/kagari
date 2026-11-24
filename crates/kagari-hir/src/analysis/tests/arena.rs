@@ -188,8 +188,7 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
     let newest_declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    // The declaration cache now holds the edit. Reconstruct the old source
-    // against its new lowering without using IDs from the retained result.
+    // An explicit request for old source must still own a fresh lowering.
     let reconstructed = db.snapshot(old_source, &Default::default()).unwrap();
     let file = reconstructed.file(id).unwrap();
     let arena = file.result().facts().lowered.module.nodes.arena();
@@ -242,8 +241,15 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
                 .nodes
                 .arena(),
         );
-    assert!(Arc::ptr_eq(
-        newest_declarations.file(id).unwrap(),
-        latest.declaration_snapshot().file(id).unwrap()
+    let header = newest_declarations.file(id).unwrap();
+    let latest_header = latest.declaration_snapshot().file(id).unwrap();
+    assert_eq!(
+        header.source().revision(),
+        latest_header.source().revision()
+    );
+    assert_eq!(header.diagnostics(), latest_header.diagnostics());
+    assert!(std::ptr::eq(
+        latest_header.lowered(),
+        latest.file(id).unwrap().result().facts().lowered.as_ref()
     ));
 }

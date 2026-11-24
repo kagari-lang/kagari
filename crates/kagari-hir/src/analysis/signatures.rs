@@ -256,8 +256,7 @@ impl AnalysisDatabase {
     /// Prepares declarations and checked signatures without analyzing function bodies.
     ///
     /// Builds imported type projections and aggregate contracts across the supplied sources.
-    /// Ordinary source errors remain in per-file diagnostics; successful preparation is
-    /// published after checking cancellation.
+    /// Ordinary source errors remain in per-file diagnostics.
     ///
     /// # Errors
     ///
@@ -267,19 +266,7 @@ impl AnalysisDatabase {
         source: SourceSnapshot,
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {
-        let snapshot = self.prepare_signatures(source, cancel)?;
-        cancel.check()?;
-        self.publish_declarations(snapshot.declarations.clone());
-        Ok(snapshot)
-    }
-
-    /// Checks file signatures, then completes visible aggregate contracts before publication.
-    pub(super) fn prepare_signatures(
-        &mut self,
-        source: SourceSnapshot,
-        cancel: &CancellationToken,
-    ) -> Result<SignatureSnapshot, AnalysisError> {
-        let declarations = self.prepare_declarations(source, cancel)?;
+        let declarations = self.declarations(source, cancel)?;
         let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::default();
         for (id, file) in declarations.files.iter() {
@@ -350,6 +337,7 @@ impl AnalysisDatabase {
         }
         cancel.check()?;
         let aggregates = ownership::scope(&aggregates, &self.definitions, cancel)?.into_records();
+        cancel.check()?;
         Ok(SignatureSnapshot {
             declarations,
             files: Arc::new(files),

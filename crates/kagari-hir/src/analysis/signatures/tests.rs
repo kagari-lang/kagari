@@ -332,15 +332,10 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
         .set("signatures.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    let declarations = db
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap();
     let signatures = query(&mut db, &sources);
     let file = signatures.file(id).unwrap();
-    assert!(Arc::ptr_eq(
-        declarations.file(id).unwrap(),
-        signatures.declaration_snapshot().file(id).unwrap()
-    ));
+    let declarations = signatures.declaration_snapshot().file(id).unwrap();
+    assert!(std::ptr::eq(file.lowered(), declarations.lowered()));
     assert!(
         file.declarations()
             .iter()
@@ -372,13 +367,9 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
         full.signature_snapshot().file(id).unwrap().signatures(),
         full.file(id).unwrap().signatures()
     ));
-    assert!(Arc::ptr_eq(
-        &file.prepared.lowered,
-        &full.file(id).unwrap().result().facts().lowered
-    ));
-    assert!(Arc::ptr_eq(
-        &file.prepared.lowered,
-        &declarations.file(id).unwrap().declared.lowered
+    assert!(std::ptr::eq(
+        full.declaration_snapshot().file(id).unwrap().lowered(),
+        full.file(id).unwrap().result().facts().lowered.as_ref(),
     ));
     let diagnostics = full.file(id).unwrap().result().diagnostics();
     assert!(
@@ -443,22 +434,10 @@ fn signatures_add_imported_type_facts_without_changing_declarations() {
     };
     assert_eq!(data.id, DeclarationId::Definition(nominal.declaration));
     assert_eq!(pass.params[0].ty, pass.return_type);
-
-    let record = headers.declared.record.clone();
-    let lowering = Arc::downgrade(&headers.declared.lowered);
-    let fork = db.clone();
-    drop(checked);
-    assert!(lowering.upgrade().is_none());
-    for owner in [&db, &fork] {
-        assert!(Arc::ptr_eq(
-            &record,
-            &owner.declaration_cache.as_ref().unwrap().files[&user].record
-        ));
-    }
 }
 
 #[test]
-fn older_or_cancelled_signature_queries_preserve_current_declarations() {
+fn older_or_cancelled_signature_requests_preserve_each_revisions_facts() {
     let mut sources = SourceDatabase::default();
     let id = sources
         .set(
@@ -497,11 +476,4 @@ fn older_or_cancelled_signature_queries_preserve_current_declarations() {
         let signature = &snapshot.file(id).unwrap().signatures().facts().functions()[0];
         assert_eq!(signature.return_type, TypeId::Builtin(expected));
     }
-    let declarations = db
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(Arc::ptr_eq(
-        latest.declaration_snapshot().file(id).unwrap(),
-        declarations.file(id).unwrap()
-    ));
 }

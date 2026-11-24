@@ -1,8 +1,6 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
 pub(crate) mod definitions;
 use crate::imports::environment::ImportEnvironment;
-#[cfg(test)]
-use crate::tests::cancellation::{Checkpoint, checkpoint};
 
 use crate::{
     collections::{HashMap, HashSet},
@@ -23,7 +21,6 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable, module::ModuleHandle},
     },
 };
-use kagari_source::package::PackageEnvironment;
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     cell::RefCell,
@@ -70,7 +67,6 @@ pub struct NamespaceCatalog {
     /// Exact foreign traits accessible to a registered importer, not package-wide visibility.
     pub(crate) registered_trait_access: BTreeMap<ModuleHandle, BTreeSet<DefinitionId>>,
     pub(crate) environment: ImportEnvironment,
-    pub(crate) packages: PackageEnvironment,
 }
 
 /// A canonical target plus the selected binding origins along its lookup path.
@@ -190,10 +186,9 @@ impl NamespaceCatalog {
         &self.definitions
     }
 
-    pub(crate) fn new(definitions: DefinitionTable, packages: PackageEnvironment) -> Self {
+    pub(crate) fn new(definitions: DefinitionTable) -> Self {
         Self {
             definitions,
-            packages,
             modules: BTreeMap::new(),
             namespaces: HashMap::default(),
             module_dependencies: BTreeMap::new(),
@@ -645,84 +640,6 @@ impl NamespaceCatalog {
 }
 
 impl NamespaceCatalog {
-    /// A retained file may keep its catalog only when every namespace it can
-    /// enter still has the same qualified targets, candidates and access facts.
-    pub(crate) fn same_namespaces(
-        &self,
-        other: &Self,
-        names: &NameTable,
-        cancel: &CancellationToken,
-    ) -> Result<bool, Cancelled> {
-        let Some(unit) = names.unit.as_ref() else {
-            return Ok(false);
-        };
-        let ctx = LookupContext::new(&unit.module);
-        let mut pending = names
-            .entries
-            .keys()
-            .flat_map(|name| {
-                NameNamespace::ALL.into_iter().filter_map(move |namespace| {
-                    names
-                        .hit(name.as_str(), namespace)
-                        .hit()
-                        .map(|hit| hit.target)
-                })
-            })
-            .collect::<Vec<_>>();
-        let package_start = pending.len();
-        self.add_package_namespaces(&ctx, &mut pending, cancel)?;
-        let mut other_packages = Vec::new();
-        other.add_package_namespaces(&ctx, &mut other_packages, cancel)?;
-        let package_namespaces = &pending[package_start..];
-        if package_namespaces.len() != other_packages.len()
-            || !package_namespaces
-                .iter()
-                .zip(&other_packages)
-                .all(|(a, b)| {
-                    matches!((a, b), (
-                    ResolvedTarget::Namespace(NamespaceId::Module(a)),
-                    ResolvedTarget::Namespace(NamespaceId::Module(b))
-                ) if a.module == b.module && a.file == b.file)
-                })
-        {
-            return Ok(false);
-        }
-        let mut seen = HashSet::default();
-        while let Some(target) = pending.pop() {
-            #[cfg(test)]
-            checkpoint(Checkpoint::Namespaces);
-            cancel.check()?;
-            let NamespaceResult::Found(ns) = self.namespace_of(&ctx, &target, cancel)? else {
-                continue;
-            };
-            if !seen.insert(ns) {
-                continue;
-            }
-            let table = self.namespaces.get(&ns);
-            if table != other.namespaces.get(&ns) {
-                return Ok(false);
-            }
-            if let Some(table) = table {
-                for name in table.names.entries.keys() {
-                    for namespace in NameNamespace::ALL {
-                        if let Some(hit) = self
-                            .lookup_member(&ctx, &ns, name.as_str(), namespace, cancel)?
-                            .hit()
-                        {
-                            pending.push(hit.target);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(self.module_dependencies == other.module_dependencies
-            && self.registered_trait_access == other.registered_trait_access
-            && self.environment == other.environment
-            && self.packages == other.packages)
-    }
-}
-
-impl NamespaceCatalog {
     fn allows_registered_trait(
         &self,
         ctx: &LookupContext<'_>,
@@ -848,7 +765,6 @@ impl Default for NamespaceCatalog {
             DefinitionContext::new()
                 .expect("identity capacity")
                 .snapshot(),
-            PackageEnvironment::default(),
         )
     }
 }
