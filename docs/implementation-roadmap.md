@@ -794,10 +794,12 @@ All 22 selected HIR source preparation, declaration-cache and packaged-core case
 structure, workspace formatting, workspace all-target Clippy and diff checks. Full workspace tests
 and feature/platform matrices remain CI-only.
 
-**Separate deferred work:** [cache retention](hir-model-review.md#cache-policy-is-separate),
-incremental parsing, finer body reuse/reclamation and LSP scheduling.
-[Native frontend ownership](#native-model-replacement) is implemented; broader Native products
-and NC restoration retain their separate follow-up owners.
+**Pending:** [single-run frontend plan](hir-model-review.md#single-run-frontend-plan) (HC01–HC04)
+removes retained source-stage reuse and measures fresh source compilation separately from editor
+rechecks. Keep request-local sharing and published snapshots. Defer incremental compilation,
+incremental parsing and cross-edit reuse until the [fresh compile/load target](#fast-compilation-and-eager-startup)
+is met and a measured workload justifies them. LSP scheduling, broader Native products and NC
+restoration retain their separate follow-up owners.
 
 ### HIR hash collection policy
 
