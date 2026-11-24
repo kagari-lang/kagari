@@ -1,6 +1,9 @@
 use crate::analysis::*;
 use crate::tests::test_analysis;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -190,21 +193,20 @@ fn type_bindings_shadow_standard_constructors_independently_of_value_bindings() 
 */
 
 #[test]
-fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_errors() {
+fn signature_applications_keep_recovery_facts_until_repaired() {
     let text = "fn before() {} fn bad<T>(x: T<>) {}";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("edit.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    let _old = snapshot(&mut db, &sources);
+    let old = snapshot(&mut db, &sources);
     let edit = text.replace("fn before() {}", "fn before() { val n = 1; }");
     sources
         .set("edit.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let changed = snapshot(&mut db, &sources);
     let file = changed.file(id).unwrap();
-    assert!(file.signatures_reused());
 
     let fresh = snapshot(&mut test_analysis(), &sources);
     file.to_unverified(&Default::default())
@@ -240,6 +242,19 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
         .set("edit.kgr", edit.replace("T<>", "T"), SourceLayer::Overlay)
         .unwrap();
     let fixed = snapshot(&mut db, &sources);
-    assert!(!fixed.file(id).unwrap().signatures_reused());
     assert!(fixed.file(id).unwrap().result().diagnostics().is_empty());
+    for (snapshot, source) in [(&old, text), (&changed, edit.as_str())] {
+        let file = snapshot.file(id).unwrap();
+        let [diagnostic] = file.signatures().diagnostics() else {
+            panic!(
+                "expected a signature error: {:?}",
+                file.signatures().diagnostics()
+            );
+        };
+        assert!(matches!(
+            diagnostic.kind,
+            DiagnosticKind::UnknownType { .. }
+        ));
+        assert_eq!(diagnostic.span.unwrap().start, source.find("T<>").unwrap());
+    }
 }

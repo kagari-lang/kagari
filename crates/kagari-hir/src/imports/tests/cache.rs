@@ -82,34 +82,3 @@ fn selected_body_follows_the_current_transitive_alias_target() {
     );
     assert!(first.diagnostics().is_empty());
 }
-
-#[test]
-fn local_nominal_namespaces_allow_signature_reuse_after_body_edits() {
-    let mut sources = SourceDatabase::default();
-    let text = "enum Choice { A, B } struct P { val n: i32 } fn changed() -> i32 { 1 } fn keep(p: P) -> i32 { p.n }";
-    let root = insert(&mut sources, "root", text);
-    let mut analysis = test_analysis();
-    let first = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(first.file(root).unwrap().result().diagnostics().is_empty());
-    sources
-        .set(
-            "mem://root",
-            text.replace("{ 1 }", "{ val shifted: i32 = 2; shifted }"),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let incremental = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let fresh = test_analysis()
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let result = incremental.file(root).unwrap();
-    assert_eq!(
-        result.result().diagnostics(),
-        fresh.file(root).unwrap().result().diagnostics()
-    );
-    assert!(result.signatures_reused());
-}

@@ -7,10 +7,7 @@
 
 use crate::{
     AnalysisResult, DiagnosticBuffer,
-    analysis::{
-        declarations::FileDeclarations, signatures::FileSignatures,
-        source_preparation::ParsedModule,
-    },
+    analysis::{declarations::FileDeclarations, source_preparation::ParsedModule},
     declarations::Declarations,
     lower::LoweredModule,
     resolver::resolved::DeclarationNames,
@@ -53,20 +50,4 @@ pub(super) struct DeclarationCacheEntry {
 pub(super) struct DeclarationCache {
     pub(super) revision: Revision,
     pub(super) files: BTreeMap<FileId, DeclarationCacheEntry>,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct SignatureCacheEntry {
-    pub(super) record: Arc<SignatureRecord>,
-    pub(super) declaration: Arc<DeclarationRecord>,
-    pub(super) diagnostics: Arc<DiagnosticBuffer>,
-    pub(super) query: Weak<FileSignatures>,
-    pub(super) lowered: Weak<LoweredModule>,
-    pub(super) signatures_reused: bool,
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct SignatureCache {
-    pub(super) revision: Revision,
-    pub(super) files: BTreeMap<FileId, SignatureCacheEntry>,
 }

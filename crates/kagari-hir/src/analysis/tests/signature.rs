@@ -1,7 +1,10 @@
 use crate::analysis::*;
 use crate::tests::{common::import_facts, test_analysis};
 use kagari_common::identity::map::DefinitionContext;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 
 fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
     db.snapshot(sources.snapshot(), &Default::default())
@@ -34,7 +37,7 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
         fresh.definitions(),
         &context,
     );
-    // Signature type-reference facts must match a fresh analysis after rebasing.
+    // Compare type-reference facts using each analysis's own local IDs.
     let types = |file: &FileAnalysis| {
         file.result()
             .facts()
@@ -57,7 +60,7 @@ fn assert_fresh(file: &FileAnalysis, sources: &SourceDatabase) {
 }
 
 #[test]
-fn body_edits_rebase_signature_types_and_preserve_old_queries() {
+fn signature_types_and_parameter_spans_follow_each_source_revision() {
     let mut sources = SourceDatabase::default();
     let text = "fn first() -> i32 { 1 }\r\nstruct Point { var x: i32 }\r\ntrait Show { fn show(self) -> i32; }\r\nimpl Show for Point { fn show(self) -> i32 { self.x } }\r\nfn keep<T: Show>(value: T) -> T { value }\r\nfn read(p: Point) -> i32 { p.x }";
     let id = sources
@@ -65,7 +68,6 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
         .unwrap();
     let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
-    assert!(!first.file(id).unwrap().signatures_reused());
     assert!(
         first.file(id).unwrap().result().diagnostics().is_empty(),
         "{:?}",
@@ -83,7 +85,6 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
         .unwrap();
     let second = snapshot(&mut db, &sources);
     let file = second.file(id).unwrap();
-    assert!(file.signatures_reused());
     assert_fresh(file, &sources);
     let old = &first.file(id).unwrap().result().facts().lowered;
     let current = &file.result().facts().lowered;
@@ -101,7 +102,7 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
         }
     }
 
-    // A real signature change invalidates reuse and subsequent bodies.
+    // The edited field type also changes the body-checking inputs.
     sources
         .set(
             "signatures.kgr",
@@ -110,12 +111,11 @@ fn body_edits_rebase_signature_types_and_preserve_old_queries() {
         )
         .unwrap();
     let third = snapshot(&mut db, &sources);
-    assert!(!third.file(id).unwrap().signatures_reused());
     assert_fresh(third.file(id).unwrap(), &sources);
 }
 
 #[test]
-fn erroneous_signatures_reuse_with_rebased_diagnostics_and_fresh_body_errors() {
+fn signature_and_body_errors_follow_their_current_source_sites() {
     let mut sources = SourceDatabase::default();
     let text = "fn first() { missing; }\r\nfn bad(x: Absent) -> Absent { x }\r\npub fn generic<T>(x: T) -> T { x }";
     let id = sources
@@ -123,59 +123,30 @@ fn erroneous_signatures_reuse_with_rebased_diagnostics_and_fresh_body_errors() {
         .unwrap();
     let mut db = test_analysis();
     let first = snapshot(&mut db, &sources);
-    assert!(
-        !first
-            .file(id)
-            .unwrap()
-            .signatures()
-            .diagnostics()
-            .is_empty()
-    );
     let edit = text
         .replace("missing;", "val note: String = \"中文😀\";")
         .replace("-> T { x }", "-> T { unknown }");
     sources
-        .set("errors.kgr", edit, SourceLayer::Overlay)
+        .set("errors.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let second = snapshot(&mut db, &sources);
-    assert!(second.file(id).unwrap().signatures_reused());
     assert_fresh(second.file(id).unwrap(), &sources);
-    assert_ne!(
-        first.file(id).unwrap().signatures().diagnostics(),
-        second.file(id).unwrap().signatures().diagnostics()
-    );
-}
-
-#[test]
-fn cancelled_or_older_queries_cannot_replace_signature_cache() {
-    let mut sources = SourceDatabase::default();
-    let id = sources
-        .set(
-            "race.kgr",
-            "fn value() -> i32 { 1 }".into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let old_source = sources.snapshot();
-    let mut db = test_analysis();
-    snapshot(&mut db, &sources);
-    sources
-        .set(
-            "race.kgr",
-            "fn value() -> bool { true }".into(),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let latest = snapshot(&mut db, &sources);
-    let cancel = CancellationToken::default();
-    cancel.cancel();
-    assert!(db.snapshot(old_source.clone(), &cancel).is_err());
-    let stale = db.snapshot(old_source, &Default::default()).unwrap();
-    assert!(!stale.file(id).unwrap().signatures_reused());
-    let again = snapshot(&mut db, &sources);
-    assert!(Arc::ptr_eq(
-        latest.file(id).unwrap(),
-        again.file(id).unwrap()
-    ));
-    assert_fresh(again.file(id).unwrap(), &sources);
+    for (snapshot, source, missing_name) in [
+        (&first, text, "missing"),
+        (&second, edit.as_str(), "unknown"),
+    ] {
+        let file = snapshot.file(id).unwrap();
+        let diagnostics = file.signatures().diagnostics();
+        assert_eq!(diagnostics.len(), 2);
+        for diagnostic in diagnostics {
+            assert!(
+                matches!(&diagnostic.kind, DiagnosticKind::UnknownType { type_name, .. } if type_name == "Absent")
+            );
+            let span = diagnostic.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "Absent");
+        }
+        let diagnostic = file.result().diagnostics().iter().find(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name } if name == missing_name)).unwrap();
+        let span = diagnostic.span.unwrap();
+        assert_eq!(&source[span.start..span.end], missing_name);
+    }
 }

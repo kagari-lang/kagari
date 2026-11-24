@@ -1,5 +1,5 @@
 use crate::imports::tests::{analyze, insert};
-use crate::tests::test_analysis;
+use crate::{declarations::DeclarationId, tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -70,42 +70,38 @@ fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
 */
 
 #[test]
-fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
+fn unchanged_signature_imports_observe_transitive_type_visibility_edits() {
     let mut db = SourceDatabase::default();
-    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    let provider = insert(&mut db, "types", "pub struct Data { val value: i32 }");
     insert(&mut db, "facade", "pub use pkg::types::Data;");
     let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
     let root = insert(&mut db, "root", text);
     let mut analysis = test_analysis();
-    analysis
+    let old = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
-    db.set("mem://root", text.replace("42", "43"), SourceLayer::Overlay)
+    let old_file = old.file(root).unwrap();
+    let data = old
+        .file(provider)
+        .unwrap()
+        .result()
+        .facts()
+        .declarations
+        .iter()
+        .find(|declaration| declaration.name == "Data")
         .unwrap();
-    let edited = analysis
-        .snapshot(db.snapshot(), &Default::default())
-        .unwrap();
-    // The baseline snapshot was dropped; weak graph caches cannot supply old IDs.
-    assert!(!edited.file(root).unwrap().signatures_reused());
-    db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
-        .unwrap();
-    let retained_edit = analysis
-        .snapshot(db.snapshot(), &Default::default())
-        .unwrap();
-    assert!(retained_edit.file(root).unwrap().signatures_reused());
     db.set(
         "mem://types",
         "struct Data { val value: i32 }".into(),
         SourceLayer::Overlay,
     )
     .unwrap();
-    db.set("mem://root", text.replace("42", "45"), SourceLayer::Overlay)
-        .unwrap();
+
     let changed = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let file = changed.file(root).unwrap();
-    assert!(!file.signatures_reused());
+    assert_eq!(file.source().revision(), old_file.source().revision());
     let fresh = analyze(&db);
     file.signatures().as_ref().facts().assert_same_source_facts(
         file.definitions(),
@@ -132,4 +128,16 @@ fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
             .iter()
             .any(|d| matches!(d.kind, DiagnosticKind::UnknownType { .. }))
     );
+    let pass = old_file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|function| function.name == "pass")
+        .unwrap();
+    let TypeId::Struct(ty) = &pass.return_type else {
+        panic!("the retained signature must still resolve Data");
+    };
+    assert_eq!(data.id, DeclarationId::Definition(ty.declaration));
+    assert!(old_file.result().diagnostics().is_empty());
 }

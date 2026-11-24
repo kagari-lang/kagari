@@ -329,7 +329,7 @@ fn type_alias_rejects_native_only_attributes() {
         let types = TypeCatalog::new([&declared])
             .bindings(&declared.record.names.facts, &cancel)
             .unwrap();
-        let prepared = declared.check_signatures(types, None, &cancel).unwrap();
+        let prepared = declared.check_signatures(types, &cancel).unwrap();
         assert!(prepared.record.signatures.diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidTypeAlias { reason, .. } if reason.contains("attribute"))), "{attribute}: {:?}", prepared.record.signatures.diagnostics());
     }
 }

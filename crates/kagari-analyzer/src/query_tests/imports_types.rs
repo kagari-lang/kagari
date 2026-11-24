@@ -12,7 +12,6 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_types::scalar::BuiltinType;
-use std::sync::*;
 
 #[test]
 fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
@@ -238,7 +237,7 @@ fn type_facades_resolve_before_signatures_including_module_aliases() {
 }
 
 #[test]
-fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_remain() {
+fn transitive_type_visibility_changes_remove_current_targets_but_keep_old_ones() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "types", "pub struct Data { val value: i32 }");
     let facade = insert(&mut db, "facade", "pub use pkg::types::Data;");
@@ -267,10 +266,6 @@ fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_rema
         first.file(facade).unwrap().source().revision(),
         second.file(facade).unwrap().source().revision()
     );
-    assert!(!Arc::ptr_eq(
-        first.file(root).unwrap().signatures(),
-        second.file(root).unwrap().signatures()
-    ));
     assert!(second.queries().definition_at(root, location).is_none());
     assert_eq!(first.queries().definition_at(root, location), Some(&old));
     let file = second.file(root).unwrap();

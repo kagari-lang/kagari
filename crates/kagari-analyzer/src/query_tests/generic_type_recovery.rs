@@ -97,7 +97,6 @@ fn generic_type_parameters_navigate_and_rebase_without_losing_their_owner() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = changed.file(id).unwrap();
-    assert!(file.signatures_reused());
     let new_parameter = file
         .queries()
         .definition_at(edit.find("value: T").unwrap() + 7)

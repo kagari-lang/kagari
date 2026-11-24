@@ -1,88 +1,16 @@
 use super::*;
-use crate::{
-    declarations::DeclarationId, hir::item::function::FunctionImplementation as HirImplementation,
-    semantic::signatures::FunctionImplementation, tests::test_analysis,
-    typeck::signature_reuse::reuse_signatures,
-};
+use crate::{declarations::DeclarationId, tests::test_analysis, types::TypeId};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
 
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::scalar::BuiltinType;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> SignatureSnapshot {
     db.signatures(sources.snapshot(), &Default::default())
         .unwrap()
-}
-
-#[test]
-fn reused_signatures_require_equal_native_static_contracts() {
-    let mut sources = SourceDatabase::default();
-    sources
-        .set("root.kgr", "fn main() {}".into(), SourceLayer::Base)
-        .unwrap();
-    let signatures = query(&mut test_analysis(), &sources);
-    let file = signatures
-        .files
-        .values()
-        .find(|file| {
-            file.source().module_identity()
-                == &kagari_stdlib::namespaces::module("std", "collections")
-        })
-        .unwrap();
-    assert!(
-        file.signatures()
-            .facts()
-            .functions()
-            .iter()
-            .any(|function| {
-                matches!(function.implementation, FunctionImplementation::Native(_))
-            })
-    );
-    let prepared = &file.prepared;
-    let original = &prepared.lowered;
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            original,
-            &Default::default()
-        )
-        .is_some()
-    );
-    let mut changed = original.as_ref().clone();
-    let native = changed
-        .module
-        .functions
-        .iter()
-        .position(|function| matches!(function.implementation, HirImplementation::Native(_)))
-        .unwrap();
-    let HirImplementation::Native(contract) = &mut changed.module.functions[native].implementation
-    else {
-        unreachable!();
-    };
-    contract.concrete_result = Some(Ty::Builtin(BuiltinType::I64));
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            &changed,
-            &Default::default()
-        )
-        .is_none()
-    );
-    changed.module.functions[native].implementation = HirImplementation::Required;
-    assert!(
-        reuse_signatures(
-            original,
-            &prepared.record.signatures,
-            &changed,
-            &Default::default()
-        )
-        .is_none()
-    );
 }
 
 #[test]
@@ -104,29 +32,40 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
             .count(),
         3
     );
-    let same = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(file, same.file(id).unwrap()));
     let edit = text.replace("fn before() {}", "fn before() { val text = \"中文😀\"; }");
     sources
         .set("applications.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let changed = query(&mut db, &sources);
-    assert!(changed.file(id).unwrap().reused());
     let fresh = query(&mut test_analysis(), &sources);
     assert_eq!(
         changed.file(id).unwrap().diagnostics(),
         fresh.file(id).unwrap().diagnostics()
     );
-    assert_eq!(changed.file(id).unwrap().diagnostics().len(), 4);
-    assert_ne!(file.diagnostics(), changed.file(id).unwrap().diagnostics());
+    let changed_diagnostics = changed.file(id).unwrap().diagnostics();
+    assert_eq!(changed_diagnostics.len(), 4);
+    let shift = edit.len() - text.len();
+    for (old, current) in file.diagnostics().iter().zip(changed_diagnostics) {
+        assert_eq!(old.kind, current.kind);
+        let old_span = old.span.unwrap();
+        let current_span = current.span.unwrap();
+        assert_eq!(
+            (current_span.start, current_span.end),
+            (old_span.start + shift, old_span.end + shift)
+        );
+        assert_eq!(
+            &text[old_span.start..old_span.end],
+            &edit[current_span.start..current_span.end]
+        );
+    }
     let full = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     assert_eq!(full.file(id).unwrap().result().diagnostics().len(), 4);
-    assert!(Arc::ptr_eq(
-        changed.file(id).unwrap().signatures(),
-        full.file(id).unwrap().signatures()
-    ));
+    assert_eq!(
+        full.signature_snapshot().file(id).unwrap().diagnostics(),
+        changed_diagnostics
+    );
     sources
         .set(
             "applications.kgr",
@@ -287,7 +226,7 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
 */
 
 #[test]
-fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls() {
+fn signature_bounds_stay_stable_across_body_edits_and_govern_calls() {
     let text = "use std::hash::{Hash};\ntrait Get { fn get(self) -> i32; } fn pass<T: Eq + Hash>(x: T) -> T { x } fn main() -> i32 { pass(7) }";
     let mut sources = SourceDatabase::default();
     let id = sources
@@ -312,8 +251,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         )
         .unwrap();
     let edited = query(&mut db, &sources);
-    assert!(edited.file(id).unwrap().reused());
-    let cached = edited
+    let unchanged = edited
         .file(id)
         .unwrap()
         .signatures()
@@ -322,7 +260,7 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         .iter()
         .find(|f| f.name == "pass")
         .unwrap();
-    assert_eq!(original.bounds, cached.bounds);
+    assert_eq!(original.bounds, unchanged.bounds);
     let good = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -335,7 +273,6 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         )
         .unwrap();
     let changed = query(&mut db, &sources);
-    assert!(!changed.file(id).unwrap().reused());
     let current = changed
         .file(id)
         .unwrap()
@@ -400,7 +337,6 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
         .unwrap();
     let signatures = query(&mut db, &sources);
     let file = signatures.file(id).unwrap();
-    assert!(!file.reused());
     assert!(Arc::ptr_eq(
         declarations.file(id).unwrap(),
         signatures.declaration_snapshot().file(id).unwrap()
@@ -416,23 +352,24 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
             .iter()
             .all(|d| matches!(d.kind, DiagnosticKind::UnknownType { .. }))
     );
-    let _good = file
+    let good = file
         .signatures()
         .facts()
         .functions()
         .iter()
         .find(|f| f.name == "good")
         .unwrap();
+    assert_eq!(good.return_type, TypeId::Builtin(BuiltinType::I32));
 
     let full = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
+    assert_eq!(
+        file.diagnostics(),
+        full.signature_snapshot().file(id).unwrap().diagnostics()
+    );
     assert!(Arc::ptr_eq(
-        file,
-        full.signature_snapshot().file(id).unwrap()
-    ));
-    assert!(Arc::ptr_eq(
-        file.signatures(),
+        full.signature_snapshot().file(id).unwrap().signatures(),
         full.file(id).unwrap().signatures()
     ));
     assert!(Arc::ptr_eq(
@@ -443,84 +380,17 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
         &file.prepared.lowered,
         &declarations.file(id).unwrap().declared.lowered
     ));
-    assert!(full.file(id).unwrap().result().diagnostics().len() > file.diagnostics().len());
-    let again = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(file, again.file(id).unwrap()));
+    let diagnostics = full.file(id).unwrap().result().diagnostics();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "missing"))
+    );
+    assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidConstInitializer { const_name, .. } if const_name == "BAD")));
 }
 
 #[test]
-fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
-    let mut sources = SourceDatabase::default();
-    let text = "fn first() { missing; }\r\nfn good(x: i32) -> i32 { x }\r\nfn bad(x: Absent) -> Absent { x }";
-    let id = sources
-        .set("edit.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let mut db = test_analysis();
-    let first = query(&mut db, &sources);
-    let edit = text.replace("missing;", "val note: String = \"中文😀\";");
-    sources
-        .set("edit.kgr", edit.clone(), SourceLayer::Overlay)
-        .unwrap();
-    let second = query(&mut db, &sources);
-    assert!(second.file(id).unwrap().reused());
-    let fresh = query(&mut test_analysis(), &sources);
-    second
-        .file(id)
-        .unwrap()
-        .signatures()
-        .as_ref()
-        .facts()
-        .assert_same_source_facts(
-            second.file(id).unwrap().definitions(),
-            fresh.file(id).unwrap().signatures().as_ref().facts(),
-            fresh.file(id).unwrap().definitions(),
-            second
-                .file(id)
-                .unwrap()
-                .prepared
-                .lowered
-                .module
-                .nodes
-                .arena(),
-            fresh
-                .file(id)
-                .unwrap()
-                .prepared
-                .lowered
-                .module
-                .nodes
-                .arena(),
-        );
-    assert_eq!(
-        second.file(id).unwrap().diagnostics(),
-        fresh.file(id).unwrap().diagnostics()
-    );
-    assert_ne!(
-        first.file(id).unwrap().diagnostics(),
-        second.file(id).unwrap().diagnostics()
-    );
-    sources
-        .set(
-            "edit.kgr",
-            edit.replace("-> i32", "-> bool"),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let third = query(&mut db, &sources);
-    assert!(!third.file(id).unwrap().reused());
-    let _good = third
-        .file(id)
-        .unwrap()
-        .signatures()
-        .facts()
-        .functions()
-        .iter()
-        .find(|f| f.name == "good")
-        .unwrap();
-}
-
-#[test]
-fn signature_records_preserve_checked_context_without_retaining_graphs() {
+fn signatures_add_imported_type_facts_without_changing_declarations() {
     let mut sources = SourceDatabase::default();
     let mut ids = Vec::new();
     let user = include_str!("../../../tests/fixtures/analysis/records/user.kgr");
@@ -543,79 +413,52 @@ fn signature_records_preserve_checked_context_without_retaining_graphs() {
             .unwrap();
         ids.push(sources.set(&path, text.into(), SourceLayer::Base).unwrap());
     }
-    let id = ids[1];
-    let _annotation = user.find("value: Data").unwrap() + "value: ".len();
+    let [provider, user]: [FileId; 2] = ids.try_into().unwrap();
     let mut db = AnalysisDatabase::default();
-    let first = query(&mut db, &sources);
-    let file = first.file(id).unwrap();
+    let checked = query(&mut db, &sources);
+    let declarations = checked.declaration_snapshot();
+    let headers = declarations.file(user).unwrap();
+    let file = checked.file(user).unwrap();
     assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
-
-    let record = file.prepared.record.clone();
-    let declaration_record = file.declaration.declared.record.clone();
     assert_ne!(
-        record.declarations.imported_types,
-        declaration_record.declarations.imported_types
+        file.declarations().imported_types(),
+        headers.declarations().imported_types()
     );
-
-    assert!(Arc::ptr_eq(&record.names, &declaration_record.names));
-    assert!(Arc::ptr_eq(
-        &record,
-        &db.signature_cache.as_ref().unwrap().files[&id].record
-    ));
-    let graphs = first
-        .files
-        .values()
-        .map(|file| Arc::downgrade(&file.prepared.lowered))
-        .collect::<Vec<_>>();
-    let arena = file.prepared.lowered.module.nodes.arena();
-    let old_query = Arc::downgrade(file);
-
-    // Full-file results can supply the old graph without retaining stage views.
-    let full = db
-        .snapshot(sources.snapshot(), &Default::default())
+    let data = declarations
+        .file(provider)
+        .unwrap()
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.name == "Data")
         .unwrap();
-    let full_files = full.files.values().cloned().collect::<Vec<_>>();
-    drop(full);
-    drop(first);
-    assert!(old_query.upgrade().is_none());
-    let second = query(&mut db, &sources);
-    let file = second.file(id).unwrap();
-    assert!(Arc::ptr_eq(&record, &file.prepared.record));
+    let pass = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    let TypeId::Struct(nominal) = &pass.return_type else {
+        panic!("expected the imported Data type");
+    };
+    assert_eq!(data.id, DeclarationId::Definition(nominal.declaration));
+    assert_eq!(pass.params[0].ty, pass.return_type);
 
+    let record = headers.declared.record.clone();
+    let lowering = Arc::downgrade(&headers.declared.lowered);
     let fork = db.clone();
-    drop(second);
-    drop(full_files);
-
-    // Both databases keep their semantic/syntax records, but none owns a graph.
-    assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));
+    drop(checked);
+    assert!(lowering.upgrade().is_none());
     for owner in [&db, &fork] {
-        let cached = &owner.signature_cache.as_ref().unwrap().files[&id];
-        assert!(Arc::ptr_eq(&record, &cached.record));
-        assert!(cached.query.upgrade().is_none());
-        assert!(cached.lowered.upgrade().is_none());
         assert!(Arc::ptr_eq(
-            &declaration_record,
-            &owner.declaration_cache.as_ref().unwrap().files[&id].record
+            &record,
+            &owner.declaration_cache.as_ref().unwrap().files[&user].record
         ));
     }
-
-    assert_ne!(
-        record.declarations.imported_types,
-        declaration_record.declarations.imported_types
-    );
-
-    let rebuilt = query(&mut db, &sources);
-    let file = rebuilt.file(id).unwrap();
-    assert!(!file.reused());
-    assert!(!Arc::ptr_eq(&record, &file.prepared.record));
-    assert_ne!(file.prepared.lowered.module.nodes.arena(), arena);
-
-    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
-    assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));
 }
 
 #[test]
-fn older_or_cancelled_signature_queries_do_not_replace_newer_caches() {
+fn older_or_cancelled_signature_queries_preserve_current_declarations() {
     let mut sources = SourceDatabase::default();
     let id = sources
         .set(
@@ -626,7 +469,7 @@ fn older_or_cancelled_signature_queries_do_not_replace_newer_caches() {
         .unwrap();
     let old_source = sources.snapshot();
     let mut db = test_analysis();
-    query(&mut db, &sources);
+    let original = query(&mut db, &sources);
     sources
         .set(
             "race.kgr",
@@ -637,14 +480,23 @@ fn older_or_cancelled_signature_queries_do_not_replace_newer_caches() {
     let latest = query(&mut db, &sources);
     let token = CancellationToken::default();
     token.cancel();
-    assert!(db.signatures(old_source.clone(), &token).is_err());
-    let stale = db.signatures(old_source, &Default::default()).unwrap();
-    assert!(stale.revision() < latest.revision());
-    let again = query(&mut db, &sources);
-    assert!(Arc::ptr_eq(
-        latest.file(id).unwrap(),
-        again.file(id).unwrap()
+    assert!(matches!(
+        db.signatures(old_source.clone(), &token),
+        Err(AnalysisError::Cancelled)
     ));
+    let stale = db.signatures(old_source, &Default::default()).unwrap();
+    let again = query(&mut db, &sources);
+    assert_eq!(stale.revision(), original.revision());
+    assert_eq!(again.revision(), latest.revision());
+    for (snapshot, expected) in [
+        (&original, BuiltinType::I32),
+        (&stale, BuiltinType::I32),
+        (&latest, BuiltinType::Bool),
+        (&again, BuiltinType::Bool),
+    ] {
+        let signature = &snapshot.file(id).unwrap().signatures().facts().functions()[0];
+        assert_eq!(signature.return_type, TypeId::Builtin(expected));
+    }
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();

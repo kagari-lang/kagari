@@ -6,7 +6,6 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_types::scalar::BuiltinType;
-use std::sync::Arc;
 
 #[test]
 fn signatures_and_imported_calls_survive_dependency_body_errors() {
@@ -125,7 +124,7 @@ fn imported_nominal_signatures_distinguish_same_named_types() {
 }
 
 #[test]
-fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
+fn facade_signature_changes_retype_unchanged_transitive_callers() {
     let mut db = SourceDatabase::default();
     insert(&mut db, "library", "pub fn value() -> i32 { 1 }");
     let facade = insert(&mut db, "facade", "pub use pkg::library::value;");
@@ -164,10 +163,6 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
 
     assert!(second.declaration(&old_binding.id).is_none());
     assert_eq!(first.declaration(&old_binding.id), Some(&old_binding));
-    assert!(Arc::ptr_eq(
-        first.file(root).unwrap().signatures(),
-        second.file(root).unwrap().signatures()
-    ));
 
     assert!(
         second

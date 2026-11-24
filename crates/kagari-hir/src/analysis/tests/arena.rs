@@ -188,8 +188,8 @@ fn interleaved_query_revisions_rebase_even_identical_source_revisions() {
     let newest_declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    // Declaration cache now holds the edit, but signature/full caches hold the
-    // original revision. Reconstructing that revision must not copy its old IDs.
+    // The declaration cache now holds the edit. Reconstruct the old source
+    // against its new lowering without using IDs from the retained result.
     let reconstructed = db.snapshot(old_source, &Default::default()).unwrap();
     let file = reconstructed.file(id).unwrap();
     let arena = file.result().facts().lowered.module.nodes.arena();

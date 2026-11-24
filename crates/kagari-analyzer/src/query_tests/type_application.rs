@@ -295,7 +295,6 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
         .unwrap();
     let changed = snapshot(&mut db, &sources);
     let file = changed.file(id).unwrap();
-    assert!(file.signatures_reused());
     let target = file
         .queries()
         .definition_at(edit.find("T<>").unwrap())
@@ -308,13 +307,15 @@ fn erroneous_applications_rebase_signature_targets_and_repair_without_stale_erro
         file.queries().type_at(edit.find("T<>").unwrap()),
         Some(TypeId::Error)
     );
-    let _fresh = snapshot(&mut test_analysis(), &sources);
+    let fresh = snapshot(&mut test_analysis(), &sources);
+    let diagnostics = file.result().diagnostics();
+    assert!(!diagnostics.is_empty());
+    assert_eq!(diagnostics, fresh.file(id).unwrap().result().diagnostics());
 
     sources
         .set("edit.kgr", edit.replace("T<>", "T"), SourceLayer::Overlay)
         .unwrap();
     let fixed = snapshot(&mut db, &sources);
-    assert!(!fixed.file(id).unwrap().signatures_reused());
     assert!(fixed.file(id).unwrap().result().diagnostics().is_empty());
     assert_eq!(
         old.file(id)

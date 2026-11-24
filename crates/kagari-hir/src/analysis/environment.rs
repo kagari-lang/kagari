@@ -21,7 +21,6 @@ impl AnalysisDatabase {
         self.import_environment = environment;
         self.environment_fingerprint.take();
         self.declaration_cache = None;
-        self.signature_cache = None;
     }
 
     pub(super) fn import_scopes<'a>(

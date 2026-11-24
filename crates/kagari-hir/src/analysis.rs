@@ -20,7 +20,7 @@ use crate::{
         declarations::DeclarationSnapshot,
         error::AnalysisError,
         inputs::{AnalysisInputs, LibrarySources},
-        records::{DeclarationCache, SignatureCache},
+        records::DeclarationCache,
         signatures::SignatureSnapshot,
         source_preparation::{ParsedModule, SourceParseCache},
     },
@@ -67,7 +67,6 @@ pub mod signatures;
 /// [`Self::definitions`]. Editor projections are owned by kagari-analyzer.
 #[derive(Debug)]
 pub struct FileAnalysis {
-    signatures_reused: bool,
     /// Borrows the immutable source revision analyzed by this result.
     source: Arc<SourceFile>,
     shared_valid: bool,
@@ -78,11 +77,6 @@ pub struct FileAnalysis {
 }
 
 impl FileAnalysis {
-    /// Whether this result's signature query reused earlier checked facts.
-    pub fn signatures_reused(&self) -> bool {
-        self.signatures_reused
-    }
-
     /// Borrows the shared signature-stage result used to check this file.
     pub fn signatures(&self) -> &Arc<AnalysisResult<ModuleSignatures>> {
         &self.result.records().facts().signatures
@@ -150,8 +144,6 @@ pub struct AnalysisDatabase {
     source_parse_cache: SourceParseCache,
     /// Owned declaration/syntax records with weak handles to live graphs/queries.
     declaration_cache: Option<DeclarationCache>,
-    /// Owned signature records, without retaining their declaration graph views.
-    signature_cache: Option<SignatureCache>,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
     import_environment: ImportEnvironment,
@@ -191,7 +183,6 @@ impl AnalysisDatabase {
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
             source_parse_cache: SourceParseCache::default(),
             declaration_cache: None,
-            signature_cache: None,
             inline_ids: HashMap::default(),
             import_environment: Default::default(),
             native_modules: vec![],
@@ -213,7 +204,6 @@ impl AnalysisDatabase {
         self.native_sources = None;
         self.native_files.take();
         self.declaration_cache = None;
-        self.signature_cache = None;
     }
 
     /// Supply presentation origins in the same order as the explicit providers.
@@ -261,7 +251,6 @@ impl AnalysisDatabase {
         self.environment_fingerprint.take();
         self.native_files.take();
         self.declaration_cache = None;
-        self.signature_cache = None;
     }
 
     /// Prepares signatures and checks bodies for every supplied/discovered file.
@@ -303,7 +292,6 @@ impl AnalysisDatabase {
             cancel.check()?;
             let prepared = scoped_prepared;
             let environment = environments.remove(&id).expect("prepared body environment");
-            let signatures_reused = prepared.signatures_reused;
             let result = analyze_parsed(
                 prepared,
                 &parsed,
@@ -325,7 +313,6 @@ impl AnalysisDatabase {
             let result = DefinitionMetadata::checked(definitions, records, cancel)?;
             let analysis = Arc::new(FileAnalysis {
                 shared_valid,
-                signatures_reused,
                 source: file,
                 parsed,
                 result,
@@ -335,7 +322,7 @@ impl AnalysisDatabase {
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
-        self.publish_signatures(signature_snapshot.clone());
+        self.publish_declarations(signature_snapshot.declaration_snapshot().clone());
         Ok(AnalysisSnapshot {
             inputs: self.inputs(),
             source: source.clone(),

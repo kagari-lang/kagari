@@ -2,11 +2,10 @@ use crate::{imports::tests::insert, tests::test_analysis};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
-fn foreign_inherited_trait_revision_invalidates_nominal_only_reuse() {
+fn inherited_trait_surfaces_follow_edits_without_becoming_explicit_imports() {
     let mut sources = SourceDatabase::default();
     // The descendant facade can name Parent, but root can reach it only through inheritance.
-    let parent_text =
-        "pub mod facade; trait Parent { type Item; fn read(self) -> i32; } fn edit() -> i32 { 1 }";
+    let parent_text = "pub mod facade; trait Parent { type Item; fn read(self) -> i32; }";
     let parent = insert(&mut sources, "parent", parent_text);
     let facade = insert(
         &mut sources,
@@ -48,13 +47,13 @@ fn foreign_inherited_trait_revision_invalidates_nominal_only_reuse() {
             .values()
             .all(|surface| surface.declaration.id != old_parent.declaration.id)
     );
-    assert!(!old_parent.trait_methods.is_empty());
-    assert!(!old_parent.associated_types.is_empty());
+    assert_eq!(old_parent.trait_methods[0].name, "read");
+    assert_eq!(old_parent.associated_types, ["Item"]);
 
     sources
         .set(
             "mem://parent",
-            parent_text.replace("{ 1 }", "{ val n = 2; n }"),
+            parent_text.replace("type Item;", "type Item; type Detail;"),
             SourceLayer::Overlay,
         )
         .unwrap();
@@ -84,22 +83,27 @@ fn foreign_inherited_trait_revision_invalidates_nominal_only_reuse() {
             .all(|surface| surface.declaration.id != current_parent.declaration.id)
     );
 
-    // Only the inherited nominal surface changes, not explicit import inputs.
-    assert_eq!(old_types.resolutions, current_types.resolutions);
-    assert_eq!(old_types.aliases, current_types.aliases);
-    assert_eq!(old_types.variants, current_types.variants);
-    assert_ne!(old_parent.id.unit.revision, current_parent.id.unit.revision);
+    let child = current_types
+        .resolutions
+        .values()
+        .find(|surface| surface.declaration.name == "Child")
+        .unwrap();
+    let [supertrait] = child.supertraits.as_slice() else {
+        panic!("Child must still inherit Parent");
+    };
+    assert_eq!(supertrait.declaration, *parent_id);
+    assert_eq!(current_parent.associated_types, ["Item", "Detail"]);
+    assert_eq!(old_parent.associated_types, ["Item"]);
+    assert_eq!(old_parent.trait_methods, current_parent.trait_methods);
     assert_ne!(old_parent.id.unit.arena, current_parent.id.unit.arena);
-    assert!(old_parent.same_local_contract(
-        current_parent,
-        &old_parent.id.unit,
-        &current_parent.id.unit,
-    ));
-
-    let old_local = old_root.declarations().names.unit.as_ref().unwrap();
-    let current_local = current_root.declarations().names.unit.as_ref().unwrap();
-    assert_eq!(old_local, current_local);
-    assert_ne!(old_parent.id.unit.module, old_local.module);
-    assert!(!old_types.same_reuse_inputs(current_types, Some(old_local), Some(current_local),));
-    assert!(!current_root.reused());
+    for (snapshot, surface) in [(&old, old_parent), (&current, current_parent)] {
+        let source = snapshot.file(parent).unwrap().source();
+        let location = surface.declaration.source_location().unwrap();
+        assert_eq!(location.file, parent);
+        assert_eq!(location.revision, source.revision());
+        assert_eq!(
+            &source.text()[location.range.start..location.range.end],
+            "Parent"
+        );
+    }
 }

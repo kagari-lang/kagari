@@ -298,7 +298,6 @@ impl AnalysisDatabase {
         self.native_files.take();
         self.environment_fingerprint.take();
         self.declaration_cache = None;
-        self.signature_cache = None;
     }
 
     pub(super) fn prepare_external(

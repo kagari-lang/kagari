@@ -11,7 +11,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
-fn signature_reuse_rebases_field_keys_into_the_current_arena() {
+fn checked_field_types_belong_to_their_own_lowering() {
     let text = "struct Point { var x: i32 } fn read(p: Point) -> i32 { p.x }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -35,7 +35,6 @@ fn signature_reuse_rebases_field_keys_into_the_current_arena() {
         .unwrap();
     let new = analyze(&mut db, &sources);
     let new_file = new.file(file).unwrap();
-    assert!(new_file.signatures_reused());
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     let new_field = new_facts.lowered.module.structs[0].fields[0].id;

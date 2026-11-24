@@ -43,49 +43,6 @@ pub struct ImportedType {
     pub supertraits: Vec<NominalType>,
 }
 
-impl ImportedType {
-    fn same_local_contract(
-        &self,
-        other: &Self,
-        local: &SourceUnit,
-        other_local: &SourceUnit,
-    ) -> bool {
-        // Exhaustive patterns require an explicit reuse decision for added fields.
-        let Self {
-            native_type,
-            host,
-            associated_arities,
-            id,
-            declaration:
-                Declaration {
-                    id: declaration_id,
-                    name,
-                    origin: _,
-                },
-            ty,
-            trait_methods,
-            associated_types,
-            supertraits,
-        } = self;
-        id.unit == *local
-            && other.id.unit == *other_local
-            && local.module == other_local.module
-            && local.file == other_local.file
-            && id.item == other.id.item
-            && declaration_id == &other.declaration.id
-            && name == &other.declaration.name
-            && self.declaration.source_location().map(|site| site.file)
-                == other.declaration.source_location().map(|site| site.file)
-            && native_type == &other.native_type
-            && host == &other.host
-            && associated_arities == &other.associated_arities
-            && ty == &other.ty
-            && trait_methods == &other.trait_methods
-            && associated_types == &other.associated_types
-            && supertraits == &other.supertraits
-    }
-}
-
 /// A method-name/definition pair on an imported trait surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedTraitMethod {
@@ -422,35 +379,6 @@ pub mod aliases;
 mod mapping;
 
 impl ImportedTypes {
-    /// Compares reuse inputs while allowing this module's refined trait surfaces
-    /// to acquire fresh navigation sites. Foreign source addresses remain exact;
-    /// the caller must still validate namespaces and remap eligible local facts.
-    pub(crate) fn same_reuse_inputs(
-        &self,
-        other: &Self,
-        local: Option<&SourceUnit>,
-        other_local: Option<&SourceUnit>,
-    ) -> bool {
-        let Self {
-            resolutions,
-            nominal_types,
-            variants,
-            aliases,
-        } = self;
-        resolutions == &other.resolutions
-            && variants == &other.variants
-            && aliases == &other.aliases
-            && nominal_types.len() == other.nominal_types.len()
-            && nominal_types.iter().all(|(id, surface)| {
-                other.nominal_types.get(id).is_some_and(|other| {
-                    surface == other
-                        || local.zip(other_local).is_some_and(|(local, other_local)| {
-                            surface.same_local_contract(other, local, other_local)
-                        })
-                })
-            })
-    }
-
     /// Canonical transparent alias metadata, keyed by its source declaration identity.
     /// The identity owns binders/navigation, not a runtime type.
     pub fn alias(&self, id: &DefinitionId) -> Option<&aliases::CanonicalAlias> {

@@ -17,6 +17,7 @@ use {kagari_hir::typeck::const_budget::ConstLimits, kagari_syntax::parser::Parse
 
 use kagari::engine::KagariEngine;
 use kagari_types::declaration::names::NameNamespace;
+use std::sync::Arc;
 
 fn main() -> kagari::CompileResult<()> {
     let mut builder = KagariEngine::builder().unwrap();
@@ -280,11 +281,15 @@ fn main() -> kagari::CompileResult<()> {
         .definition_at(constructor_start + "Mode::".len())
         .expect("resolved variant target");
     println!("constructor {} -> {:?}", constructor.name, constructor.id);
-    assert!(std::sync::Arc::ptr_eq(
-        signature.signatures(),
+    let checked_signature = snapshot
+        .signature_snapshot()
+        .file(file)
+        .expect("signatures used to check this file");
+    assert!(Arc::ptr_eq(
+        checked_signature.signatures(),
         analysis.signatures()
     ));
-    assert!(std::sync::Arc::ptr_eq(
+    assert!(Arc::ptr_eq(
         header,
         snapshot
             .declaration_snapshot()
@@ -395,15 +400,9 @@ fn main() -> kagari::CompileResult<()> {
     let new_facts = edited.file(file).expect("edited source").result().facts();
     assert_ne!(old_expr.arena(), new_facts.lowered.module.nodes.arena());
     assert!(new_facts.typed.type_table().expr_type(old_expr).is_none());
-    assert!(
-        edited
-            .file(file)
-            .expect("edited source")
-            .signatures_reused()
-    );
-    println!("body edit reused checked signatures; local bindings belong to the new query");
     assert!(edited.declaration(&field.id).is_some());
     assert_eq!(snapshot.declaration(&target.id), Some(target));
+    println!("local bindings belong to their own analysis; the old snapshot remains queryable");
     engine.set_source(
         source_name,
         format!("{text}\r\nenum Point {{ Origin }}"),

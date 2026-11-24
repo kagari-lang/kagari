@@ -160,7 +160,7 @@ fn alias_target_swap_updates_calls_after_trivia_edit() {
 }
 
 #[test]
-fn type_alias_swap_invalidates_signature_reuse() {
+fn transitive_type_alias_swap_changes_the_current_signature_type() {
     let mut sources = SourceDatabase::default();
     insert(&mut sources, "library", "pub struct A {} pub struct B {}");
     insert(
@@ -185,13 +185,13 @@ fn type_alias_swap_invalidates_signature_reuse() {
             SourceLayer::Overlay,
         )
         .unwrap();
-    let incremental = analysis
+    let current = analysis
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
     let fresh = test_analysis()
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
-    let result = incremental.file(root).unwrap();
+    let result = current.file(root).unwrap();
     let context = DefinitionContext::new().unwrap();
     let scoped_type = |file: &FileSignatures| {
         DefinitionMetadata::checked(
@@ -206,7 +206,6 @@ fn type_alias_swap_invalidates_signature_reuse() {
     };
     assert_eq!(scoped_type(result), scoped_type(fresh.file(root).unwrap()));
     assert_ne!(result.queries().type_at(offset), Some(old_type.clone()));
-    assert!(!result.reused());
     assert_eq!(
         first.file(root).unwrap().queries().type_at(offset),
         Some(old_type)

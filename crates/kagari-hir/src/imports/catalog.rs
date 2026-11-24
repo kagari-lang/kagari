@@ -10,7 +10,6 @@ use crate::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
         SourceItem, SourceUnit,
         bindings::LookupOutcome,
-        cache::same_name_tables,
         solver::{Observation, PendingGlobs},
     },
     native::paths::source_package_alias,
@@ -654,35 +653,6 @@ impl NamespaceCatalog {
         names: &NameTable,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
-        self.same_namespace_inputs(other, names, None, cancel, false)
-    }
-
-    /// Compare signature namespace bindings independently of foreign function body revisions.
-    /// The caller must also compare imported type surfaces before reusing typed signatures.
-    pub(crate) fn same_signature_namespaces(
-        &self,
-        other: &Self,
-        names: &NameTable,
-        other_names: &NameTable,
-        cancel: &CancellationToken,
-    ) -> Result<bool, Cancelled> {
-        let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
-            return Ok(false);
-        };
-        if unit.module != other_unit.module || unit.file != other_unit.file {
-            return Ok(false);
-        }
-        self.same_namespace_inputs(other, names, Some(other_unit), cancel, true)
-    }
-
-    fn same_namespace_inputs(
-        &self,
-        other: &Self,
-        names: &NameTable,
-        rebased_unit: Option<&SourceUnit>,
-        cancel: &CancellationToken,
-        signature: bool,
-    ) -> Result<bool, Cancelled> {
         let Some(unit) = names.unit.as_ref() else {
             return Ok(false);
         };
@@ -728,49 +698,8 @@ impl NamespaceCatalog {
             if !seen.insert(ns) {
                 continue;
             }
-            let foreign_unit = match &ns {
-                NamespaceId::Module(source) => Some(source),
-                NamespaceId::Associated(source) => Some(&source.unit),
-                _ => None,
-            }
-            .filter(|_| signature)
-            .and_then(|source| {
-                other
-                    .modules
-                    .get(&source.module)
-                    .filter(|units| units.len() == 1)
-                    .and_then(|units| units.iter().find(|candidate| candidate.file == source.file))
-            });
-            let mapped_unit = if signature {
-                foreign_unit
-            } else {
-                rebased_unit
-            };
-            let other_ns = match (&ns, mapped_unit) {
-                (NamespaceId::Module(source), Some(new)) if signature || source == unit => {
-                    NamespaceId::Module(*new)
-                }
-                (NamespaceId::Associated(source), Some(new))
-                    if signature || &source.unit == unit =>
-                {
-                    NamespaceId::Associated(SourceDeclRef {
-                        unit: *new,
-                        item: source.item,
-                    })
-                }
-                _ => ns,
-            };
             let table = self.namespaces.get(&ns);
-            let other_table = other.namespaces.get(&other_ns);
-            let matches = match (table, other_table, rebased_unit) {
-                (Some(a), Some(b), Some(new)) => {
-                    a.owner == b.owner
-                        && a.glob_allowed == b.glob_allowed
-                        && same_name_tables(&a.names, &b.names, Some(unit), Some(new), signature)
-                }
-                _ => table == other_table,
-            };
-            if !matches {
+            if table != other.namespaces.get(&ns) {
                 return Ok(false);
             }
             if let Some(table) = table {

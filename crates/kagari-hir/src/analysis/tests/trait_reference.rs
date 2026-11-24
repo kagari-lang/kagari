@@ -359,7 +359,7 @@ fn imported_generic_method_accepts_interface_calls() {
 }
 
 #[test]
-fn body_edits_rebase_impl_trait_references_in_signature_cache() {
+fn impl_trait_references_belong_to_their_own_lowering() {
     let text = "trait View {} struct Point {} impl View for Point { fn value(self) -> i32 { 1 } }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -384,7 +384,6 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         .unwrap();
     let new = analyze(&mut db, &sources);
     let new_file = new.file(file).unwrap();
-    assert!(new_file.signatures_reused());
     let authoring_facts = new_file.to_unverified(&Default::default()).unwrap();
     let facts = authoring_facts.records().facts();
     assert!(facts.typed.type_table.type_ref(old_ref).is_none());
@@ -410,7 +409,6 @@ fn body_edits_rebase_impl_trait_references_in_signature_cache() {
         )
         .unwrap();
     let invalid = analyze(&mut db, &sources);
-    assert!(!invalid.file(file).unwrap().signatures_reused());
     assert!(
         invalid
             .file(file)
@@ -471,7 +469,7 @@ fn imported_interface_eligibility_checks_method_bounds() {
 }
 
 #[test]
-fn callable_facts_survive_body_reuse_and_preserve_bound_navigation() {
+fn callable_facts_match_fresh_checking_after_a_neighbor_edit() {
     let text = r#"
 struct Add {val value:i32}
 impl Fn<(i32,)> for Add {type Output=i32; fn call(self,args:(i32,))->i32 {self.value+args[0]}}
@@ -515,7 +513,6 @@ fn untouched()->i32 {1}
         facts.lowered.module.nodes.arena(),
         fresh.lowered.module.nodes.arena(),
     );
-    assert!(updated.file(file).unwrap().signatures_reused());
     assert!(
         updated
             .file(file)

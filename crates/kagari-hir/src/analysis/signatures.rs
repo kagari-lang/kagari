@@ -9,7 +9,6 @@ use crate::{
         declarations::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
         ownership,
-        records::{SignatureCache, SignatureCacheEntry},
     },
     collections::HashMap,
     declarations::Declarations,
@@ -87,19 +86,13 @@ impl FileSignatures {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diagnostics
     }
-
-    /// Whether construction reused checked signature facts from an earlier query.
-    pub fn reused(&self) -> bool {
-        self.prepared.signatures_reused
-    }
 }
 
 /// Checked signatures for all declaration files, before function-body checking.
 ///
 /// Retains a [`DeclarationSnapshot`], a `FileId -> Arc<FileSignatures>` map and a
 /// shared aggregate catalog. Body queries derive visible function/aggregate inputs
-/// from this snapshot. Reuse depends on declaration results and imported type inputs;
-/// completing aggregate contracts can add signature diagnostics.
+/// from this snapshot. Completing aggregate contracts can add signature diagnostics.
 #[derive(Debug, Clone)]
 pub struct SignatureSnapshot {
     pub(super) declarations: DeclarationSnapshot,
@@ -276,42 +269,11 @@ impl AnalysisDatabase {
     ) -> Result<SignatureSnapshot, AnalysisError> {
         let snapshot = self.prepare_signatures(source, cancel)?;
         cancel.check()?;
-        self.publish_signatures(snapshot.clone());
+        self.publish_declarations(snapshot.declarations.clone());
         Ok(snapshot)
     }
 
-    /// Publishes the declaration dependency and signatures only when their revisions are not older.
-    pub(super) fn publish_signatures(&mut self, snapshot: SignatureSnapshot) {
-        self.publish_declarations(snapshot.declarations.clone());
-        if self
-            .signature_cache
-            .as_ref()
-            .is_none_or(|old| snapshot.revision() >= old.revision)
-        {
-            self.signature_cache = Some(SignatureCache {
-                revision: snapshot.revision(),
-                files: snapshot
-                    .files
-                    .iter()
-                    .map(|(id, file)| {
-                        (
-                            *id,
-                            SignatureCacheEntry {
-                                record: file.prepared.record.clone(),
-                                declaration: file.declaration.declared.record.clone(),
-                                diagnostics: file.diagnostics.clone(),
-                                query: Arc::downgrade(file),
-                                lowered: Arc::downgrade(&file.prepared.lowered),
-                                signatures_reused: file.prepared.signatures_reused,
-                            },
-                        )
-                    })
-                    .collect(),
-            });
-        }
-    }
-
-    /// Checks or reuses file signatures, then completes visible aggregate contracts before publication.
+    /// Checks file signatures, then completes visible aggregate contracts before publication.
     pub(super) fn prepare_signatures(
         &mut self,
         source: SourceSnapshot,
@@ -328,60 +290,29 @@ impl AnalysisDatabase {
         for (id, declaration) in declarations.files.iter() {
             cancel.check()?;
             let imported = imported_types.remove(id).expect("declared type bindings");
-            let old = self
-                .signature_cache
-                .as_ref()
-                .and_then(|old| old.files.get(id));
-            let previous = old.and_then(|old| {
-                Some(PreparedSignatures {
-                    lowered: old.lowered.upgrade()?,
-                    record: old.record.clone(),
-                    signatures_reused: old.signatures_reused,
-                })
-            });
-            let result = if let Some(old) = old.filter(|old| {
-                Arc::ptr_eq(&old.declaration, &declaration.declared.record)
-                    && previous.as_ref().is_some_and(|previous| {
-                        Arc::ptr_eq(&previous.lowered, &declaration.declared.lowered)
-                    })
-                    && old.record.declarations.imported_types == imported
-            }) {
-                old.query
-                    .upgrade()
-                    .filter(|query| Arc::ptr_eq(&query.declaration, declaration))
-                    .unwrap_or_else(|| {
-                        Arc::new(FileSignatures {
-                            declaration: declaration.clone(),
-                            prepared: previous.as_ref().expect("live signature graph").clone(),
-                            diagnostics: old.diagnostics.clone(),
-                        })
-                    })
-            } else {
-                let prepared = declaration.declared.clone().check_signatures(
-                    imported,
-                    previous.as_ref(),
-                    cancel,
-                )?;
-                let mut diagnostics = declaration
-                    .diagnostics()
-                    .iter()
-                    .cloned()
-                    .collect::<DiagnosticBuffer>();
-                diagnostics.extend(prepared.record.signatures.diagnostics().iter().cloned());
+            let prepared = declaration
+                .declared
+                .clone()
+                .check_signatures(imported, cancel)?;
+            let mut diagnostics = declaration
+                .diagnostics()
+                .iter()
+                .cloned()
+                .collect::<DiagnosticBuffer>();
+            diagnostics.extend(prepared.record.signatures.diagnostics().iter().cloned());
 
-                let metadata =
-                    DefinitionMetadata::checked(self.definitions.snapshot(), prepared, cancel)?;
-                let definitions = metadata.definitions().clone();
-                let mut prepared = metadata.into_records();
-                Arc::make_mut(&mut prepared.record)
-                    .declarations
-                    .publish_definitions(definitions);
-                Arc::new(FileSignatures {
-                    declaration: declaration.clone(),
-                    prepared,
-                    diagnostics: Arc::new(diagnostics),
-                })
-            };
+            let metadata =
+                DefinitionMetadata::checked(self.definitions.snapshot(), prepared, cancel)?;
+            let definitions = metadata.definitions().clone();
+            let mut prepared = metadata.into_records();
+            Arc::make_mut(&mut prepared.record)
+                .declarations
+                .publish_definitions(definitions);
+            let result = Arc::new(FileSignatures {
+                declaration: declaration.clone(),
+                prepared,
+                diagnostics: Arc::new(diagnostics),
+            });
             files.insert(*id, result);
         }
         let mut aggregates = AggregateCatalog::default();

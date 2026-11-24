@@ -39,7 +39,6 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         .unwrap();
     let new = analyze(&mut db, &sources);
     let new_file = new.file(file).unwrap();
-    assert!(new_file.signatures_reused());
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
@@ -55,7 +54,6 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     };
     let fresh = analyze(&mut fresh_db, &sources);
     let fresh_file = fresh.file(file).unwrap();
-    assert!(!fresh_file.signatures_reused());
     let authoring_fresh = fresh_file.to_unverified(&Default::default()).unwrap();
     let fresh = authoring_fresh.records().facts();
     assert_ne!(
@@ -107,7 +105,6 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let mut independent_db = test_analysis();
     let independent = analyze(&mut independent_db, &sources);
     let independent_file = independent.file(file).unwrap();
-    assert!(!independent_file.signatures_reused());
     let authoring_independent = independent_file.to_unverified(&Default::default()).unwrap();
     assert_ne!(
         authoring_new_facts.definitions().id(),

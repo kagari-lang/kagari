@@ -25,7 +25,6 @@ use std::{
 
 pub mod bindings;
 mod builder;
-mod cache;
 pub mod catalog;
 pub mod constants;
 pub mod environment;

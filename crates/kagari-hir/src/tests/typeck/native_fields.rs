@@ -3,7 +3,6 @@ use crate::{
     analysis::{AnalysisDatabase, AnalysisSnapshot, external::ExternalModule},
     hir::ids::FieldOwner,
     resolver::resolved::ResolvedName,
-    typeck::signature_reuse::reuse_signatures,
 };
 use kagari_common::identity::{map::DefinitionContext, scoped::DefinitionReferences};
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
@@ -130,14 +129,13 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
         4
     );
 
-    let (changed, changed_id) = analyze(&text.replace("cell.value\n", "cell.value + 1\n"));
-    let changed = &changed.file(changed_id).unwrap().result().facts().lowered;
-    let reused = reuse_signatures(lowered, signatures, changed, &Default::default()).unwrap();
-    let new_field = changed.module.native_types[0].fields[0].id;
-    assert_ne!(field.id.arena(), new_field.arena());
-    assert!(reused.facts().type_table().field_type(field.id).is_none());
+    let types = signatures.facts().type_table();
+    assert!(matches!(
+        types.field_type(field.id),
+        Some(TypeId::Generic(_))
+    ));
     assert_eq!(
-        reused.facts().type_table().field_type(new_field),
-        signatures.facts().type_table().field_type(field.id)
+        types.field_type(cell.fields[2].id),
+        Some(TypeId::Builtin(BuiltinType::I32))
     );
 }

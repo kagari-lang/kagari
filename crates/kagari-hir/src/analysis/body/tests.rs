@@ -107,8 +107,11 @@ fn selected_body_eligibility_uses_the_current_shared_signatures() {
     let original = query(&mut db, &sources, &good);
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
     assert!(db.declaration_cache.is_some());
-    assert!(db.signature_cache.is_some());
-    let original_root = original.signature_snapshot().file(root).unwrap();
+    let original_root = original
+        .signature_snapshot()
+        .declaration_snapshot()
+        .file(root)
+        .unwrap();
 
     let mut results = vec![original.clone()];
     for (text, eligibility) in [
@@ -146,13 +149,11 @@ fn selected_body_eligibility_uses_the_current_shared_signatures() {
             updated.lowered().module.nodes.arena(),
             fresh.lowered().module.nodes.arena(),
         );
-        let signatures = db
-            .signatures(sources.snapshot(), &Default::default())
-            .unwrap();
-        assert!(Arc::ptr_eq(updated_other, signatures.file(other).unwrap()));
-        assert!(Arc::ptr_eq(
-            &original_root.prepared.lowered,
-            &signatures.file(root).unwrap().prepared.lowered,
+        let declarations = updated.signature_snapshot().declaration_snapshot();
+        let current_root = declarations.file(root).unwrap();
+        assert!(std::ptr::eq(
+            original_root.lowered(),
+            current_root.lowered()
         ));
 
         let old_request = db

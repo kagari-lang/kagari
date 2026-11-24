@@ -55,7 +55,6 @@ use crate::{
         check::{check_bodies_controlled, check_signatures},
         const_budget::ConstLimits,
         definition_registration,
-        signature_reuse::reuse_signatures,
         supertraits::validate,
     },
 };
@@ -259,7 +258,6 @@ impl CheckedAnalysis {
 /// completed aggregates; signature reuse must not preserve stale cross-module diagnostics.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedSignatures {
-    signatures_reused: bool,
     lowered: Arc<lower::LoweredModule>,
     record: Arc<SignatureRecord>,
 }
@@ -362,79 +360,19 @@ pub(crate) struct DeclaredAnalysis {
 }
 
 impl DeclaredAnalysis {
-    /// Checks signatures or remaps compatible previous facts after comparing imported types and namespace inputs.
+    /// Checks signatures against this request's declarations and imported types.
     fn check_signatures(
         self,
         imported_types: ImportedTypes,
-        previous_analysis: Option<&PreparedSignatures>,
         cancel: &CancellationToken,
     ) -> Result<PreparedSignatures, DefinitionMappingError> {
         let mut declarations = self.record.declarations.clone();
         declarations.imported_types = imported_types;
         declarations.publish_definitions(declarations.context().snapshot());
-        let previous = previous_analysis
-            .map(|old| -> Result<_, DefinitionMappingError> {
-                if !(old
-                    .record
-                    .names
-                    .facts
-                    .imports
-                    .same_signature_bindings(&self.record.names.facts.imports)
-                    && old
-                        .record
-                        .names
-                        .facts
-                        .catalog
-                        .same_signature_namespaces(
-                            &self.record.names.facts.catalog,
-                            &old.record.names.facts.items,
-                            &self.record.names.facts.items,
-                            cancel,
-                        )
-                        .map_err(|_| DefinitionMappingError::Cancelled)?
-                    && old.record.declarations.imported_types.same_reuse_inputs(
-                        &declarations.imported_types,
-                        old.record.names.facts.items.unit.as_ref(),
-                        self.record.names.facts.items.unit.as_ref(),
-                    ))
-                {
-                    return Ok(None);
-                }
-                if old.lowered.source.revision() == self.lowered.source.revision()
-                    && old.lowered.source.module_identity() == self.lowered.source.module_identity()
-                    && old.lowered.module.nodes.arena() == self.lowered.module.nodes.arena()
-                {
-                    Ok(Some(old.record.signatures.clone()))
-                } else {
-                    let reused = reuse_signatures(
-                        &old.lowered,
-                        &old.record.signatures,
-                        &self.lowered,
-                        cancel,
-                    )
-                    .map(Arc::new);
-                    cancel
-                        .check()
-                        .map_err(|_| DefinitionMappingError::Cancelled)?;
-                    Ok(reused)
-                }
-            })
-            .transpose()?
-            .flatten();
-        let signatures_reused = previous.is_some();
-        let reused_local_diagnostics = previous.as_ref().map(|_| {
-            previous_analysis
-                .expect("signature reuse source")
-                .record
-                .local_signature_diagnostics
-        });
-        let signatures = match previous {
-            Some(signatures) => signatures,
-            None => Arc::new(
-                check_signatures(&self.lowered, &declarations, cancel)
-                    .map_err(|_| DefinitionMappingError::Cancelled)?,
-            ),
-        };
+        let signatures = Arc::new(
+            check_signatures(&self.lowered, &declarations, cancel)
+                .map_err(|_| DefinitionMappingError::Cancelled)?,
+        );
         let definitions = definition_registration::implementation_members(
             &self.lowered,
             &declarations,
@@ -443,11 +381,9 @@ impl DeclaredAnalysis {
         )?;
         declarations.publish_definitions(definitions);
         Ok(PreparedSignatures {
-            signatures_reused,
             lowered: self.lowered,
             record: Arc::new(SignatureRecord {
-                local_signature_diagnostics: reused_local_diagnostics
-                    .unwrap_or(signatures.diagnostics().len()),
+                local_signature_diagnostics: signatures.diagnostics().len(),
                 names: self.record.names.clone(),
                 declarations,
                 signatures,
@@ -518,11 +454,7 @@ fn analyze_prepared(
         constants,
         aggregates,
     } = environment;
-    let PreparedSignatures {
-        signatures_reused: _,
-        lowered,
-        record,
-    } = prepared;
+    let PreparedSignatures { lowered, record } = prepared;
     let names = AnalysisResult {
         facts: resolve_bodies(&lowered, &record.names.facts, BodySelection::All, cancel),
         diagnostics: record.names.diagnostics.clone(),

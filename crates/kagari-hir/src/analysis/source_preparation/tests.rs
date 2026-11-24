@@ -147,7 +147,6 @@ fn inline_views_share_the_parse_and_rebase_retained_queries() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let next = second.file(child_id).unwrap();
-    assert!(next.signatures_reused());
     let old_lowered = &child.result().facts().lowered;
     let new_lowered = &next.result().facts().lowered;
     let old_parameter = old_lowered.module.functions[0].params[0].id;
@@ -419,7 +418,6 @@ fn parse_cache_outlives_lowerings_and_old_requests_cannot_replace_newer_parses()
         manifest[&child].parsed.shared_parse().unwrap(),
     ));
     assert!(db.declaration_cache.is_none());
-    assert!(db.signature_cache.is_none());
     assert!(declarations.iter().all(|owner| owner.upgrade().is_none()));
     assert!(lowerings.iter().all(|owner| owner.upgrade().is_none()));
     drop(manifest);

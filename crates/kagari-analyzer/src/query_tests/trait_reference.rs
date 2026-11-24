@@ -263,10 +263,8 @@ fn untouched()->i32 {1}
     let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     assert!(old.file(file).unwrap().result().diagnostics().is_empty());
-    let definition = old
-        .queries()
-        .documentation_at(file, text.find("Fn(i32)").unwrap())
-        .unwrap();
+    let bound = text.find("Fn(i32)").unwrap();
+    let definition = old.queries().documentation_at(file, bound).unwrap();
     assert_eq!(definition.declaration.name, "Fn");
     sources
         .set(
@@ -276,21 +274,8 @@ fn untouched()->i32 {1}
         )
         .unwrap();
     let updated = analyze(&mut db, &sources);
-    let fresh = analyze(&mut test_analysis(), &sources);
-    let authoring_facts = updated
-        .file(file)
-        .unwrap()
-        .to_unverified(&Default::default())
-        .unwrap();
-    let _facts = authoring_facts.records().facts();
-    let authoring_fresh = fresh
-        .file(file)
-        .unwrap()
-        .to_unverified(&Default::default())
-        .unwrap();
-    let _fresh = authoring_fresh.records().facts();
-
-    assert!(updated.file(file).unwrap().signatures_reused());
+    let current = updated.queries().documentation_at(file, bound).unwrap();
+    assert_eq!(current.declaration, definition.declaration);
     assert!(
         updated
             .file(file)

@@ -321,37 +321,6 @@ impl TypeTable {
         self.host_paths.insert(expr, path);
     }
 
-    pub(super) fn remap_signature_types(
-        &self,
-        ids: &HashMap<TypeRefId, TypeRefId>,
-        fields: &HashMap<FieldId, FieldId>,
-        generics: &HashMap<GenericParamId, GenericParamId>,
-    ) -> Option<Self> {
-        let mut result = self.clone();
-        result.field_types = self
-            .field_types
-            .iter()
-            .map(|(id, value)| Some((*fields.get(id)?, value.clone())))
-            .collect::<Option<_>>()?;
-        result.type_refs = self
-            .type_refs
-            .iter()
-            .map(|(id, value)| {
-                let mut value = value.clone();
-                if let Some(ResolvedTypeTarget::Generic(id)) = &mut value.target {
-                    *id = *generics.get(id)?;
-                }
-                Some((*ids.get(id)?, value))
-            })
-            .collect::<Option<_>>()?;
-        result.constraints = self
-            .constraints
-            .iter()
-            .map(|(id, value)| Some((*ids.get(id)?, value.clone())))
-            .collect::<Option<_>>()?;
-        Some(result)
-    }
-
     pub(crate) fn insert_implementation(
         &mut self,
         declaration: DefinitionId,

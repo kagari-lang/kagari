@@ -196,7 +196,7 @@ impl AnalysisDatabase {
         });
         let Some((file, function)) = target else {
             cancel.check()?;
-            self.publish_signatures(signatures);
+            self.publish_declarations(signatures.declaration_snapshot().clone());
             return Ok(None);
         };
         let environment = signatures
@@ -254,7 +254,7 @@ impl AnalysisDatabase {
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
-        self.publish_signatures(signatures);
+        self.publish_declarations(signatures.declaration_snapshot().clone());
         Ok(Some(result))
     }
 }

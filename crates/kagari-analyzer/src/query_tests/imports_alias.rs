@@ -56,7 +56,7 @@ fn type_alias_definition_scope_imports_reexports_and_navigation() {
 }
 
 #[test]
-fn type_alias_navigation_and_template_survive_body_edit_snapshot_reuse() {
+fn type_alias_navigation_and_binder_follow_a_neighboring_body_edit() {
     let text = "fn before() {} type Alias<T> = [T]; fn pass(x: Alias<i32>) -> [i32] { x }";
     let mut sources = SourceDatabase::default();
     let id = sources
@@ -93,7 +93,6 @@ fn type_alias_navigation_and_template_survive_body_edit_snapshot_reuse() {
         "{:?}",
         file.result().diagnostics()
     );
-    assert!(file.signatures_reused());
     assert_eq!(
         file.queries()
             .definition_at(edited.find("Alias<i32>").unwrap())

@@ -136,7 +136,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
-fn reused_signatures_emit_the_same_artifact_as_fresh_analysis() {
+fn edited_snapshot_emits_the_same_artifact_as_fresh_analysis() {
     let engine =
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let token = CancellationToken::default();
@@ -156,20 +156,18 @@ fn reused_signatures_emit_the_same_artifact_as_fresh_analysis() {
         .set_source("memory://reuse.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();
     let snapshot = engine.source_snapshot();
-    let analysis = engine.analyze(snapshot.clone(), &token).unwrap();
-    assert!(analysis.file(id).unwrap().signatures_reused());
-    let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
+    let updated = engine.compile_snapshot(snapshot, id, &token).unwrap();
     let fresh_engine =
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let fresh = fresh_engine
         .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();
-    let reused = engine.emit_artifact(&reused, Default::default()).unwrap();
+    let updated = engine.emit_artifact(&updated, Default::default()).unwrap();
     let fresh = fresh_engine
         .emit_artifact(&fresh, Default::default())
         .unwrap();
     assert_eq!(
-        reused.records().to_bytes(reused.definitions()).unwrap(),
+        updated.records().to_bytes(updated.definitions()).unwrap(),
         fresh.records().to_bytes(fresh.definitions()).unwrap()
     );
 }
