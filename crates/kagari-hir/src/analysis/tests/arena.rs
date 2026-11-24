@@ -122,7 +122,7 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
 }
 
 #[test]
-fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
+fn edited_lowerings_reject_old_local_ids_without_changing_retained_facts() {
     let mut sources = SourceDatabase::default();
     let text = "fn value(x: i32) -> i32 { x + 1 }";
     let id = sources
@@ -130,8 +130,6 @@ fn edits_retire_local_ids_while_unchanged_queries_share_the_lowering() {
         .unwrap();
     let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
-    let again = analyze(&mut db, &sources);
-    assert!(Arc::ptr_eq(old.file(id).unwrap(), again.file(id).unwrap()));
     let old_facts = old.file(id).unwrap().result().facts();
     let old_expr = old_facts
         .lowered

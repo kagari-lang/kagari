@@ -55,7 +55,6 @@ use crate::{
         check::{check_bodies_controlled, check_signatures},
         const_budget::ConstLimits,
         definition_registration,
-        reuse::BodyReuse,
         signature_reuse::reuse_signatures,
         supertraits::validate,
     },
@@ -509,7 +508,6 @@ fn analyze_prepared(
     prepared: PreparedSignatures,
     const_limits: ConstLimits,
     environment: BodyEnvironment,
-    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
     let BodyEnvironment {
@@ -549,7 +547,6 @@ fn analyze_prepared(
             constants: constants.as_deref(),
             aggregates: &aggregates,
         },
-        reuse,
         cancel,
     )?;
     let mut diagnostics = names.diagnostics.clone();
@@ -623,16 +620,15 @@ pub(crate) struct AnalysisPolicy {
     max_semantic_diagnostics: usize,
 }
 
-/// Resolves selected lexical bodies, checks/reuses their facts and merges staged diagnostics.
+/// Resolves selected lexical bodies, checks their facts and merges staged diagnostics.
 pub(crate) fn analyze_parsed(
     prepared: PreparedSignatures,
     parsed: &ParsedModule,
     policy: AnalysisPolicy,
     environment: BodyEnvironment,
-    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> Result<AnalysisResult<AnalyzedModule>, Cancelled> {
-    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, reuse, cancel)?;
+    let mut analyzed = analyze_prepared(prepared, policy.const_limits, environment, cancel)?;
 
     analyzed.facts.source_diagnostics = parsed
         .physical()

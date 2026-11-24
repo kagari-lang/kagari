@@ -1,83 +1,82 @@
 use super::*;
-use crate::tests::test_analysis;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use crate::{tests::test_analysis, typeck::table::CallTarget, types::TypeId};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_types::scalar::BuiltinType;
 
 #[test]
-fn body_edits_reuse_other_bodies_but_signatures_invalidate_them() {
+fn full_body_checks_follow_current_signatures_without_changing_old_facts() {
     let mut sources = SourceDatabase::default();
+    let text = "fn a() -> i32 { 1 } fn b() -> i32 { a() }";
     let file = sources
-        .set(
-            "body.kgr",
-            "fn a() -> i32 { 1 } fn b() -> i32 { a() }".into(),
-            SourceLayer::Base,
-        )
+        .set("body.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
     let token = CancellationToken::default();
-    let first = db.snapshot(sources.snapshot(), &token).unwrap();
-    assert_eq!(
-        first
-            .file(file)
-            .unwrap()
-            .result()
-            .facts()
-            .typed
-            .checked_bodies,
-        2
-    );
-    sources
-        .set(
-            "body.kgr",
-            "fn a() -> i32 { 100 + 2 } fn b() -> i32 { a() }".into(),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let second = db.snapshot(sources.snapshot(), &token).unwrap();
-    let result = second.file(file).unwrap().result();
-    assert_eq!(result.facts().typed.reused_bodies, 1);
-    assert_eq!(result.facts().typed.checked_bodies, 1);
-    assert!(result.clone().into_codegen().is_ok());
-    sources
-        .set(
-            "body.kgr",
-            "fn a() -> bool { true } fn b() -> i32 { a() }".into(),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let third = db.snapshot(sources.snapshot(), &token).unwrap();
-    let result = third.file(file).unwrap().result();
-    assert_eq!(result.facts().typed.reused_bodies, 0);
-    assert!(!result.diagnostics().is_empty());
-}
+    let old = db.snapshot(sources.snapshot(), &token).unwrap();
+    let check_call = |snapshot: &AnalysisSnapshot, return_type| {
+        let facts = snapshot.file(file).unwrap().result().facts();
+        let a = &facts.lowered.module.functions[0];
+        let b = &facts.lowered.module.functions[1];
+        let call = facts
+            .lowered
+            .module
+            .block(b.implementation.script_body().unwrap())
+            .tail_expr
+            .unwrap();
+        let resolution = facts.typed.type_table.call_resolution(call).unwrap();
+        assert_eq!(resolution.target, CallTarget::Function(a.id));
+        assert_eq!(
+            resolution.signature.unwrap().return_type,
+            TypeId::Builtin(return_type)
+        );
+    };
 
-#[test]
-fn snapshots_reuse_unchanged_files_and_cancellation_does_not_publish() {
-    let mut sources = SourceDatabase::default();
-    let a = sources
-        .set("a.kgr", "fn a() -> i32 { 1 }".into(), SourceLayer::Base)
-        .unwrap();
-    let b = sources
-        .set("b.kgr", "fn b() -> i32 { 2 }".into(), SourceLayer::Base)
-        .unwrap();
-    let mut db = test_analysis();
-    let first = db
-        .snapshot(sources.snapshot(), &CancellationToken::default())
-        .unwrap();
     sources
-        .set("b.kgr", "fn b() -> i32 { 3 }".into(), SourceLayer::Overlay)
+        .set(
+            "body.kgr",
+            text.replace("{ 1 }", "{ 100 + 2 }"),
+            SourceLayer::Overlay,
+        )
         .unwrap();
-    let second = db
-        .snapshot(sources.snapshot(), &CancellationToken::default())
+    let current = db.snapshot(sources.snapshot(), &token).unwrap();
+    let fresh = test_analysis()
+        .snapshot(sources.snapshot(), &token)
         .unwrap();
-    assert!(Arc::ptr_eq(first.file(a).unwrap(), second.file(a).unwrap()));
-    assert!(!Arc::ptr_eq(
-        first.file(b).unwrap(),
-        second.file(b).unwrap()
+    for snapshot in [&current, &fresh] {
+        check_call(snapshot, BuiltinType::I32);
+        snapshot.check_program(file, &token).unwrap();
+    }
+    let current_file = current.file(file).unwrap();
+    let fresh_file = fresh.file(file).unwrap();
+    let current_facts = current_file.result().facts();
+    let fresh_facts = fresh_file.result().facts();
+    current_facts.typed.type_table.assert_same_source_facts(
+        current_file.definitions(),
+        &fresh_facts.typed.type_table,
+        fresh_file.definitions(),
+        current_facts.lowered.module.nodes.arena(),
+        fresh_facts.lowered.module.nodes.arena(),
+    );
+
+    sources
+        .set(
+            "body.kgr",
+            text.replace("i32 { 1 }", "bool { true }"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let broken = db.snapshot(sources.snapshot(), &token).unwrap();
+    check_call(&broken, BuiltinType::Bool);
+    assert!(matches!(
+        broken.file(file).unwrap().result().diagnostics(),
+        [diagnostic] if matches!(&diagnostic.kind, DiagnosticKind::ReturnTypeMismatch { expected, found, .. } if expected == "i32" && found == "bool")
     ));
-    let cancel = CancellationToken::default();
-    cancel.cancel();
-    assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
-    assert!(first.file(b).unwrap().source().text().contains("{ 2 }"));
+    check_call(&old, BuiltinType::I32);
+    assert_eq!(old.file(file).unwrap().source().text(), text);
+    old.check_program(file, &token).unwrap();
 }
 
 mod arena;

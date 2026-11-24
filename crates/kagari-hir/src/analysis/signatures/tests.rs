@@ -104,7 +104,6 @@ fn applied_bounds_are_signature_diagnostics_and_rebase_without_body_analysis() {
             .count(),
         3
     );
-    assert!(db.files.is_empty());
     let same = query(&mut db, &sources);
     assert!(Arc::ptr_eq(file, same.file(id).unwrap()));
     let edit = text.replace("fn before() {}", "fn before() { val text = \"中文😀\"; }");
@@ -220,7 +219,6 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
             .diagnostics()
             .is_empty()
     );
-    assert!(db.files.is_empty());
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
@@ -265,7 +263,6 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
             [_]
         ));
         assert_eq!(method.bounds.len(), 2);
-        assert!(db.files.is_empty());
         let full = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -353,7 +350,6 @@ fn cached_signature_bounds_survive_body_edits_and_bound_changes_invalidate_calls
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let analysis = bad.file(id).unwrap();
-    assert_eq!(analysis.result().facts().typed.reused_bodies, 0);
     assert!(
         analysis
             .result()
@@ -428,7 +424,6 @@ fn independent_signature_query_preserves_errors_without_body_analysis() {
         .find(|f| f.name == "good")
         .unwrap();
 
-    assert!(db.files.is_empty());
     let full = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -522,8 +517,6 @@ fn signature_cache_reuses_and_rebases_without_any_complete_analysis() {
         .iter()
         .find(|f| f.name == "good")
         .unwrap();
-
-    assert!(db.files.is_empty());
 }
 
 #[test]
@@ -589,23 +582,12 @@ fn signature_records_preserve_checked_context_without_retaining_graphs() {
     let file = second.file(id).unwrap();
     assert!(Arc::ptr_eq(&record, &file.prepared.record));
 
-    let retained_full = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    for previous in &full_files {
-        assert!(Arc::ptr_eq(
-            previous,
-            retained_full.file(previous.source().id()).unwrap()
-        ));
-    }
-    drop(retained_full);
     let fork = db.clone();
     drop(second);
     drop(full_files);
 
     // Both databases keep their semantic/syntax records, but none owns a graph.
     assert!(graphs.iter().all(|graph| graph.upgrade().is_none()));
-    assert!(db.files.values().all(|file| file.upgrade().is_none()));
     for owner in [&db, &fork] {
         let cached = &owner.signature_cache.as_ref().unwrap().files[&id];
         assert!(Arc::ptr_eq(&record, &cached.record));
@@ -670,5 +652,4 @@ fn older_or_cancelled_signature_queries_do_not_replace_newer_caches() {
         latest.declaration_snapshot().file(id).unwrap(),
         declarations.file(id).unwrap()
     ));
-    assert!(db.files.is_empty());
 }

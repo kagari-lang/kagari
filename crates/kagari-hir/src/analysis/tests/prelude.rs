@@ -13,7 +13,7 @@ use kagari_source::{
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
-fn ordinary_calls_rebase_on_body_reuse_and_invalidate_on_signature_change() {
+fn selected_ordinary_calls_follow_edited_source_and_signatures() {
     let text = "fn first() -> i32 { 1 } fn answer(x: i32) -> String { \"ok\" } fn keep() -> String { answer(7) }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -51,12 +51,11 @@ fn ordinary_calls_rebase_on_body_reuse_and_invalidate_on_signature_change() {
     sources
         .set("cache.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().call_resolution(old_call).is_none());
+    assert!(current.type_table().call_resolution(old_call).is_none());
     let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
     let mut fresh_database = test_analysis();
     let fresh_headers = fresh_database
@@ -73,11 +72,11 @@ fn ordinary_calls_rebase_on_body_reuse_and_invalidate_on_signature_change() {
         .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        reused.definitions(),
+    current.type_table().assert_same_source_facts(
+        current.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.nodes.arena(),
+        current.lowered().module.nodes.arena(),
         fresh.lowered().module.nodes.arena(),
     );
     sources
@@ -91,7 +90,6 @@ fn ordinary_calls_rebase_on_body_reuse_and_invalidate_on_signature_change() {
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(changed.reused_bodies(), 0);
     assert!(matches!(changed.diagnostics(), [diagnostic] if matches!(
         diagnostic.kind, DiagnosticKind::ReturnTypeMismatch { .. }
     )));
@@ -235,7 +233,7 @@ fn partial_index_errors_do_not_hide_known_noninteger_index_types() {
 */
 
 #[test]
-fn standard_variants_and_propagation_rebase_on_body_reuse() {
+fn selected_standard_variants_and_propagation_match_fresh_facts_after_an_edit() {
     let text = "fn first()->i32 { 1 } fn keep(x: Option<i32>)->Option<i32> { val y = Some(x?); match y { Some(n) => Some(n), None => None, } }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -268,11 +266,10 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
             SourceLayer::Overlay,
         )
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
     let owner_path = old.definitions().resolve(*owner).unwrap().to_path();
     let mut fresh_database = test_analysis();
     let fresh_headers = fresh_database
@@ -289,11 +286,11 @@ fn standard_variants_and_propagation_rebase_on_body_reuse() {
         .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        reused.definitions(),
+    current.type_table().assert_same_source_facts(
+        current.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.nodes.arena(),
+        current.lowered().module.nodes.arena(),
         fresh.lowered().module.nodes.arena(),
     );
 }

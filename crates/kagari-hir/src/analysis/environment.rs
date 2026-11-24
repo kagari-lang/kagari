@@ -22,8 +22,6 @@ impl AnalysisDatabase {
         self.environment_fingerprint.take();
         self.declaration_cache = None;
         self.signature_cache = None;
-        self.body_cache.clear();
-        self.files.clear();
     }
 
     pub(super) fn import_scopes<'a>(

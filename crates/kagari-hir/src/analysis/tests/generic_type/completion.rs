@@ -761,7 +761,7 @@ fn terminating_callees_retain_explicit_call_facts_and_independent_errors() {
 }
 
 #[test]
-fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
+fn terminating_callee_keeps_its_receiver_in_each_revision() {
     let text = "fn neighbor() -> i32 { 1 } fn main() -> i32 { (if true { return 42; } else { return 7; })(1); 0 }";
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -783,10 +783,6 @@ fn terminating_callee_facts_rebase_with_unchanged_body_reuse() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     new.check_program(root, &Default::default()).unwrap();
-    assert_eq!(
-        new.file(root).unwrap().result().facts().typed.reused_bodies,
-        1
-    );
     for snapshot in [&old, &new] {
         let facts = snapshot.file(root).unwrap().result().facts();
         let mut found = false;

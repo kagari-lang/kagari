@@ -34,12 +34,7 @@ use crate::{
 
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        mapping::{DefinitionMapper, DefinitionMappingError},
-        metadata::DefinitionMetadata,
-        scoped::{DefinitionReferences, RemapDefinitions},
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::{metadata::DefinitionMetadata, table::DefinitionTable},
 };
 use kagari_source::{
     diagnostic::Diagnostic,
@@ -202,7 +197,6 @@ impl SignatureSnapshot {
                     constants: None,
                     aggregates: &environment.aggregates,
                 },
-                None,
                 cancel,
             )?;
             checked.insert(
@@ -249,7 +243,7 @@ impl SignatureSnapshot {
 }
 
 /// Semantic dependencies required to check one file's bodies.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct BodyEnvironment {
     /// Normalized local callable/static contracts shared with every body result.
     pub signatures: Arc<BodySignatures>,
@@ -431,45 +425,6 @@ impl AnalysisDatabase {
             aggregates: Arc::new(aggregates),
             definitions: self.definitions.snapshot(),
         })
-    }
-}
-
-impl RemapDefinitions for BodyEnvironment {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        Ok(BodyEnvironment {
-            signatures: Arc::new(self.signatures.remap_definitions(mapper)?),
-            imported_functions: self.imported_functions.remap_definitions(mapper)?,
-            imported_statics: self.imported_statics.remap_definitions(mapper)?,
-            imported_constants: self.imported_constants.remap_definitions(mapper)?,
-            constants: self
-                .constants
-                .as_ref()
-                .map(|facts| facts.remap_definitions(mapper).map(Arc::new))
-                .transpose()?,
-            aggregates: self.aggregates.remap_definitions(mapper)?,
-        })
-    }
-}
-
-impl DefinitionReferences for BodyEnvironment {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        self.signatures.visit_definition_ids(visit, cancel)?;
-        self.imported_functions
-            .visit_definition_ids(visit, cancel)?;
-        self.imported_statics.visit_definition_ids(visit, cancel)?;
-        self.imported_constants
-            .visit_definition_ids(visit, cancel)?;
-        if let Some(facts) = &self.constants {
-            facts.visit_definition_ids(visit, cancel)?;
-        }
-        self.aggregates.visit_definition_ids(visit, cancel)
     }
 }
 

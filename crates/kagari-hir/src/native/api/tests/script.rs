@@ -221,7 +221,7 @@ fn embedded_script_definitions_keep_bodies_fields_and_native_binding_separate() 
         FunctionImplementation::Native(_)
     ));
     let names = resolve_names(&lowered).unwrap().into_checked().unwrap();
-    let checked = check_module(&context, &lowered, &names, None);
+    let checked = check_module(&context, &lowered, &names);
     assert!(
         checked.diagnostics().is_empty(),
         "{:?}",

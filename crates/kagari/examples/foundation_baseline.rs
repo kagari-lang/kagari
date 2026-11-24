@@ -42,30 +42,22 @@ fn main() {
 
     builder.install_all(library.modules().unwrap()).unwrap();
     let engine = builder.build().unwrap();
-    let file = engine
+    engine
         .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
         .unwrap();
-    let first = engine
+    let _first = engine
         .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
-    let initial = &first.file(file).unwrap().result().facts().typed;
-    assert_eq!(initial.checked_bodies(), 33);
     let edited = source.replacen("fn f0() -> i32 { 0 }", "fn f0() -> i32 { 100 }", 1);
     engine
         .set_source("baseline.kgr", edited, SourceLayer::Overlay)
         .unwrap();
     let start = Instant::now();
-    let second = engine
+    let _second = engine
         .analyze(engine.source_snapshot(), &Default::default())
         .unwrap();
     let edit_us = start.elapsed().as_micros();
-    let changed = &second.file(file).unwrap().result().facts().typed;
-    assert_eq!((changed.checked_bodies(), changed.reused_bodies()), (1, 32));
-    println!(
-        "edit_analysis_us={edit_us} checked={} reused={}",
-        changed.checked_bodies(),
-        changed.reused_bodies()
-    );
+    println!("edit_analysis_us={edit_us}");
 
     let artifact = engine
         .compile_to_artifact(

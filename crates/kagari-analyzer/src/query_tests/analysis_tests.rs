@@ -83,7 +83,6 @@ fn local_function_signature_edits_refresh_facts_and_retain_old_navigation() {
             .unwrap();
         let result = next.file(file).unwrap().result();
         assert!(!result.diagnostics().is_empty(), "{changed}");
-        assert_eq!(result.facts().typed.reused_bodies(), 0);
         assert!(result.clone().into_codegen().is_err());
     }
     assert_eq!(

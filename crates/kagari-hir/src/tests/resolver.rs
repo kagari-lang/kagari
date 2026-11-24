@@ -35,7 +35,7 @@ fn standard_item_spellings_require_installed_declarations() {
             panic!("name expression statement");
         };
         assert_eq!(resolved.facts().expr_resolution(expression), None, "{name}");
-        let checked = common::check_module(&context, &lowered, resolved.facts(), None);
+        let checked = common::check_module(&context, &lowered, resolved.facts());
         assert!(checked.diagnostics().iter().any(|diagnostic| {
             matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name: missing } if missing == name)
         }), "{name}: {:?}", checked.diagnostics());

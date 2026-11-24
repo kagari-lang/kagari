@@ -76,21 +76,6 @@ pub enum MethodDefault {
     Native(NativeContract),
 }
 
-impl MethodSignature {
-    fn same_contract(&self, other: &Self) -> bool {
-        self.default == other.default
-            && self.policy == other.policy
-            && self.id == other.id
-            && self.owner == other.owner
-            && self.slot == other.slot
-            && self.name == other.name
-            && self.generic_params == other.generic_params
-            && self.bounds == other.bounds
-            && self.params == other.params
-            && self.return_type == other.return_type
-    }
-}
-
 /// An applied-trait declaration surface, including parents and associated members.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitSignature {
@@ -361,31 +346,6 @@ impl AggregateCatalog {
             result.traits.insert(*id, item.clone());
         }
         Ok(())
-    }
-
-    pub(super) fn same_trait_contracts(&self, other: &Self) -> bool {
-        self.traits.len() == other.traits.len()
-            && self.traits.iter().all(|(id, a)| {
-                other.trait_(id).is_some_and(|b| {
-                    a.conversion_adapter == b.conversion_adapter
-                        && a.generic_params == b.generic_params
-                        && a.supertraits == b.supertraits
-                        && a.associated_types == b.associated_types
-                        && a.associated_type_parameters == b.associated_type_parameters
-                        && a.associated_consts.len() == b.associated_consts.len()
-                        && a.associated_consts.iter().all(|(id, member)| {
-                            b.associated_consts.get(id).is_some_and(|other| {
-                                member.ty == other.ty && member.initializer == other.initializer
-                            })
-                        })
-                        && a.bounds == b.bounds
-                        && a.methods.len() == b.methods.len()
-                        && a.methods
-                            .iter()
-                            .zip(&b.methods)
-                            .all(|(a, b)| a.same_contract(b))
-                })
-            })
     }
 }
 

@@ -398,7 +398,6 @@ mod tests {
         db.replace_core_fixture(iter);
         assert_ne!(db.environment_fingerprint(&cancel).unwrap(), key);
         let body = db.body(sources.clone(), &size, &cancel).unwrap().unwrap();
-        assert_eq!(body.reused_bodies(), 0);
         let missing_count = |kind: &DiagnosticKind| matches!(kind, DiagnosticKind::UnknownName { name } if name == "count");
         assert!(body.diagnostics().iter().any(|d| missing_count(&d.kind)));
         let current = db.snapshot(sources, &cancel).unwrap();

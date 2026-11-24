@@ -57,12 +57,11 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
     sources
         .set("update-reuse.kgr", changed.clone(), SourceLayer::Overlay)
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), &owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().struct_init(old_init).is_none());
+    assert!(current.type_table().struct_init(old_init).is_none());
     let mut fresh_db = test_analysis();
     let declarations = fresh_db
         .declarations(sources.snapshot(), &Default::default())
@@ -79,11 +78,11 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
         .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        reused.definitions(),
+    current.type_table().assert_same_source_facts(
+        current.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.nodes.arena(),
+        current.lowered().module.nodes.arena(),
         fresh.lowered().module.nodes.arena(),
     );
     for text in [
@@ -97,7 +96,6 @@ fn struct_update_facts_remap_rebase_and_invalidate_with_their_base_and_fields() 
             .body(sources.snapshot(), &owner, &Default::default())
             .unwrap()
             .unwrap();
-        assert_eq!(invalidated.reused_bodies(), 0);
         assert!(
             invalidated.diagnostics().is_empty(),
             "{:?}",
@@ -158,7 +156,6 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap()
         .unwrap();
     assert!(body.diagnostics().is_empty());
-    assert_eq!(body.checked_bodies(), 1);
     let old_expr = body
         .lowered()
         .module
@@ -174,12 +171,11 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
     sources
         .set("cache.kgr", changed.clone(), SourceLayer::Overlay)
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().enum_constructor(old_expr).is_none());
+    assert!(current.type_table().enum_constructor(old_expr).is_none());
     let mut fresh_db = test_analysis();
     let fresh_declarations = fresh_db
         .declarations(sources.snapshot(), &Default::default())
@@ -196,11 +192,11 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        reused.definitions(),
+    current.type_table().assert_same_source_facts(
+        current.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.nodes.arena(),
+        current.lowered().module.nodes.arena(),
         fresh.lowered().module.nodes.arena(),
     );
     sources
@@ -214,7 +210,6 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(invalidated.reused_bodies(), 0);
     assert!(
         invalidated
             .diagnostics()

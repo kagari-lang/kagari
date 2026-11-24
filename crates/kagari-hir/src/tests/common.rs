@@ -11,7 +11,6 @@ use crate::{
         applications::validate_signatures,
         check::{check_bodies_controlled, check_signatures, prepare_body_signatures},
         definition_registration,
-        reuse::BodyReuse,
     },
 };
 use kagari_common::identity::{
@@ -55,7 +54,6 @@ pub fn check_module(
     context: &DefinitionContext,
     lowered: &LoweredModule,
     names: &ResolvedNames,
-    reuse: Option<&BodyReuse<'_>>,
 ) -> AnalysisResult<ModuleFacts> {
     let names = names.clone();
     let mut declarations = Declarations::collect_named(
@@ -120,7 +118,6 @@ pub fn check_module(
             constants: None,
             aggregates: &aggregates,
         },
-        reuse,
         &Default::default(),
     )
     .unwrap()

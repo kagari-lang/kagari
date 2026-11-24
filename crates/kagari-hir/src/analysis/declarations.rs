@@ -192,7 +192,6 @@ impl AnalysisDatabase {
 
     /// Publishes a non-older declaration snapshot and prunes stale selected-body entries.
     pub(super) fn publish_declarations(&mut self, snapshot: DeclarationSnapshot) {
-        self.publish_body(&snapshot, None);
         if self
             .declaration_cache
             .as_ref()

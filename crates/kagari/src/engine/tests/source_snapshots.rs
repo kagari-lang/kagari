@@ -23,7 +23,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::io;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::{
     callable::CallableImplementation,
@@ -133,21 +132,11 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
             .module_identity(),
         &second
     );
-    assert_eq!(
-        current_again
-            .file(id)
-            .unwrap()
-            .result()
-            .facts()
-            .typed
-            .reused_bodies(),
-        0
-    );
 }
 
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
-fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
+fn reused_signatures_emit_the_same_artifact_as_fresh_analysis() {
     let engine =
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
     let token = CancellationToken::default();
@@ -169,16 +158,6 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let snapshot = engine.source_snapshot();
     let analysis = engine.analyze(snapshot.clone(), &token).unwrap();
     assert!(analysis.file(id).unwrap().signatures_reused());
-    assert_eq!(
-        analysis
-            .file(id)
-            .unwrap()
-            .result()
-            .facts()
-            .typed
-            .reused_bodies(),
-        2
-    );
     let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
     let fresh_engine =
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap()).unwrap();
@@ -261,13 +240,16 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
         )
         .unwrap();
     let edited = engine.source_snapshot();
-    let current = engine.analyze(edited.clone(), &token).unwrap();
+    let current = engine.analyze(edited, &token).unwrap();
     let old = engine.analyze(original.clone(), &token).unwrap();
     assert!(old.revision() < current.revision());
-    let again = engine.analyze(edited, &token).unwrap();
-    assert!(
-        Arc::ptr_eq(current.file(id).unwrap(), again.file(id).unwrap()),
-        "an older query must not replace the current cache"
+    assert_eq!(
+        old.file(id).unwrap().source().text(),
+        "fn main() -> i32 { 1 }"
+    );
+    assert_eq!(
+        current.file(id).unwrap().source().text(),
+        "fn main() -> i32 { 2 }"
     );
 
     // Supplying new base text cannot silently bypass an editor's overlay.
@@ -317,31 +299,6 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
         engine.compile_snapshot(original, id, &token),
         Err(EmbeddingError::Cancelled)
     ));
-}
-
-#[test]
-fn unchanged_installed_environment_reuses_analysis_results() {
-    let mut builder = KagariEngine::builder().unwrap();
-    let output = io::module(builder.declarations(), |_, _, _| Ok(())).unwrap();
-    builder.install(output).unwrap();
-    let engine = builder.build().unwrap();
-    let id = engine
-        .set_source(
-            "memory://installed-io.kgr",
-            "use std::io::print; fn main() { print(\"ready\"); }".into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    let token = CancellationToken::default();
-
-    let initial = engine.analyze(engine.source_snapshot(), &token).unwrap();
-    let reused = engine.analyze(engine.source_snapshot(), &token).unwrap();
-    assert!(Arc::ptr_eq(
-        initial.file(id).unwrap(),
-        reused.file(id).unwrap()
-    ));
-    let diagnostics = reused.file(id).unwrap().result().diagnostics();
-    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 
 #[test]
@@ -707,7 +664,7 @@ fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
 }
 
 #[test]
-fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results() {
+fn const_budgets_share_validation_and_evaluation_across_query_routes() {
     let engine = KagariEngine::with_native_modules(
         Default::default(),
         standard_library().modules().unwrap(),
@@ -753,7 +710,6 @@ fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results()
         .body(source.clone(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert!(!Arc::ptr_eq(&old_body, &new_body));
     assert!(old_body.diagnostics().is_empty());
     assert!(
         new_body

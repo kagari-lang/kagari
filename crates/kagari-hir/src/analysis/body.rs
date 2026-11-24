@@ -4,18 +4,16 @@
 #[cfg(test)]
 use crate::tests::cancellation::{Checkpoint, checkpoint};
 
-use super::signatures::BodyEnvironment;
 use crate::{
     AnalysisResult,
     analysis::{
         AnalysisDatabase,
-        declarations::DeclarationSnapshot,
         eligibility::BodyEligibility,
         error::AnalysisError,
         ownership,
         signatures::{FileSignatures, SignatureSnapshot},
     },
-    declarations::{DeclarationId, Declarations},
+    declarations::Declarations,
     hir::{
         ids::{BodySelection, FunctionId},
         item::function::FunctionKind,
@@ -26,13 +24,13 @@ use crate::{
         resolved::{ResolvedName, ResolvedNames},
     },
     semantic::body::ModuleFacts,
-    typeck::{BodyInputs, check::check_bodies_controlled, reuse::BodyReuse, table::TypeTable},
+    typeck::{BodyInputs, check::check_bodies_controlled, table::TypeTable},
 };
 
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use {
     kagari_common::{
-        cancellation::{CancellationToken, Cancelled},
+        cancellation::CancellationToken,
         identity::{
             mapping::DefinitionMappingError,
             table::{DefinitionId, DefinitionTable},
@@ -51,8 +49,6 @@ mod tests;
 /// imply every function in the file was checked. Scoped definition IDs resolve through
 /// [`Self::definitions`]; checked types use that same retained definition scope,
 /// not portable identities. Analyzer views provide cursor selection separately.
-/// Unchanged body facts can be shared with a newer signature snapshot; the query's
-/// shared diagnostics and eligibility always use that requested signature context.
 ///
 /// For `fn good() -> i32 { 1 } fn bad() -> i32 { true }`, querying `good` retains
 /// its expression facts and both declarations' signatures, but does not check
@@ -63,22 +59,9 @@ mod tests;
 pub struct FunctionAnalysis {
     signatures: SignatureSnapshot,
     file: Arc<FileSignatures>,
-    facts: Arc<FunctionFacts>,
+    facts: FunctionFacts,
 }
 
-/// Owned semantic facts with non-owning handles to their graph and latest query context.
-/// Neither handle keeps HIR alive. Reuse requires upgrading the matching file; if it has
-/// expired, the next query checks fresh facts instead of interpreting stale HIR IDs.
-#[derive(Debug, Clone)]
-pub(super) struct BodyCacheEntry {
-    facts: Arc<FunctionFacts>,
-    file: Weak<FileSignatures>,
-    result: Weak<FunctionAnalysis>,
-}
-
-/// Immutable owned body facts and their definition identity owner, without HIR ownership.
-/// HIR IDs require the matching file retained by a result or upgraded from the cache.
-/// Refreshing unrelated signature inputs shares this record without copying its tables.
 #[derive(Debug)]
 struct FunctionFacts {
     /// Selected declaration identity in the retained definition table.
@@ -87,7 +70,6 @@ struct FunctionFacts {
     definitions: DefinitionTable,
     /// Local function slot interpreted only against the matching query file's lowering.
     function: FunctionId,
-    environment: BodyEnvironment,
     /// Resolved lexical names for the selected body analysis.
     names: ResolvedNames,
     /// Declaration sites including bindings collected for the selected body.
@@ -163,45 +145,10 @@ impl FunctionAnalysis {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         self.facts.typed.diagnostics()
     }
-
-    /// Returns the number of bodies checked while constructing this result.
-    pub fn checked_bodies(&self) -> usize {
-        self.facts.typed.facts.checked_bodies
-    }
-
-    /// Returns the number of bodies reused while constructing this result.
-    pub fn reused_bodies(&self) -> usize {
-        self.facts.typed.facts.reused_bodies
-    }
-
-    /// Whole-result sharing also requires the complete signature snapshot to match.
-    /// A new context may change shared diagnostics without changing this body's inputs.
-    fn same_signature_snapshot(
-        &self,
-        signatures: &SignatureSnapshot,
-        cancel: &CancellationToken,
-    ) -> Result<bool, Cancelled> {
-        if self.signatures.revision() != signatures.revision()
-            || self.signatures.files.len() != signatures.files.len()
-        {
-            return Ok(false);
-        }
-        for (id, file) in signatures.files.iter() {
-            cancel.check()?;
-            if self
-                .signatures
-                .file(*id)
-                .is_none_or(|old| !Arc::ptr_eq(old, file))
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
 }
 
 impl AnalysisDatabase {
-    /// Checks or reuses a selected function after preparing signature dependencies.
+    /// Checks a selected function after preparing signature dependencies.
     /// The owner must come from this database's definition context. Callers with an
     /// external path first look it up in a declaration snapshot; foreign IDs reject.
     ///
@@ -210,14 +157,6 @@ impl AnalysisDatabase {
     /// including their local function declarations, are also checked. Source
     /// diagnostics remain in the returned analysis; signature diagnostics are available
     /// through its retained [`SignatureSnapshot`].
-    ///
-    /// An unchanged file signature result and equal body environment permit sharing
-    /// body facts. Changes elsewhere refresh the retained signature context; an
-    /// unchanged complete context also permits reusing a still-live result's `Arc`.
-    /// The cache retains owned facts, but only weakly references their graph and query context.
-    /// Compatible imports, types and aggregate contracts may permit body-fact remapping while
-    /// the old file is still alive; if its weak handle expires, the body is checked fresh.
-    /// Edits are not assumed reusable merely because the name matches.
     ///
     /// # Errors
     ///
@@ -257,7 +196,6 @@ impl AnalysisDatabase {
         });
         let Some((file, function)) = target else {
             cancel.check()?;
-            self.publish_body(signatures.declaration_snapshot(), None);
             self.publish_signatures(signatures);
             return Ok(None);
         };
@@ -265,178 +203,59 @@ impl AnalysisDatabase {
             .body_environments(self.const_limits, cancel)?
             .remove(&file.source().id())
             .expect("function environment");
-        let previous_entry = self.body_cache.get_id(owner_id);
-        let previous_file = previous_entry.and_then(|entry| entry.file.upgrade());
-        let previous = previous_entry
-            .zip(previous_file.as_ref())
-            .map(|(entry, file)| (&entry.facts, file));
-        let previous_environment = previous.map(|(old, _)| &old.environment);
-        let previous_types = previous.map(|(old, _)| &old.typed);
-        let result = if let Some((old, _)) = previous.filter(|(_, old_file)| {
-            Arc::ptr_eq(old_file, &file)
-                && *previous_environment
-                    .as_ref()
-                    .expect("previous body environment")
-                    == &environment
-        }) {
-            match previous_entry.and_then(|entry| entry.result.upgrade()) {
-                Some(result) if result.same_signature_snapshot(&signatures, cancel)? => result,
-                _ => Arc::new(FunctionAnalysis {
-                    signatures: signatures.clone(),
-                    file,
-                    facts: old.clone(),
-                }),
-            }
-        } else {
-            let prepared = &file.prepared;
-            let selection = BodySelection::Function(function);
-            let names = resolve_bodies(
-                &prepared.lowered,
-                &prepared.record.names.facts,
+        let prepared = &file.prepared;
+        let selection = BodySelection::Function(function);
+        let names = resolve_bodies(
+            &prepared.lowered,
+            &prepared.record.names.facts,
+            selection,
+            cancel,
+        );
+        let declarations =
+            prepared
+                .record
+                .declarations
+                .clone()
+                .with_bindings(&prepared.lowered, &names, cancel);
+        let typed = check_bodies_controlled(
+            &prepared.lowered,
+            &names,
+            &declarations,
+            BodyInputs {
+                const_limits: self.const_limits,
                 selection,
-                cancel,
-            );
-            let declarations = prepared.record.declarations.clone().with_bindings(
-                &prepared.lowered,
-                &names,
-                cancel,
-            );
-            let reusable = previous
-                .map(|(old, old_file)| -> Result<bool, AnalysisError> {
-                    Ok(old_file
-                        .declaration
-                        .parsed
-                        .physical_diagnostics()
-                        .is_empty()
-                        && file.declaration.parsed.physical_diagnostics().is_empty()
-                        && old.typed.diagnostics().is_empty()
-                        && old_file.diagnostics().is_empty()
-                        && file.diagnostics().is_empty()
-                        && old_file
-                            .prepared
-                            .record
-                            .names
-                            .facts
-                            .imports
-                            .same_bindings(&prepared.record.names.facts.imports)
-                        && old.names.catalog.same_reuse_namespaces(
-                            &prepared.record.names.facts.catalog,
-                            &old.names.items,
-                            &prepared.record.names.facts.items,
-                            cancel,
-                        )?
-                        && old_file
-                            .prepared
-                            .record
-                            .declarations
-                            .imported_types
-                            .same_reuse_inputs(
-                                &prepared.record.declarations.imported_types,
-                                old_file.prepared.record.names.facts.items.unit.as_ref(),
-                                prepared.record.names.facts.items.unit.as_ref(),
-                            )
-                        && previous_environment
-                            .as_ref()
-                            .expect("previous body environment")
-                            .imported_functions
-                            == environment.imported_functions
-                        && old.environment.imported_statics == environment.imported_statics
-                        && old.environment.imported_constants == environment.imported_constants
-                        && previous_environment
-                            .as_ref()
-                            .expect("previous body environment")
-                            .aggregates
-                            .same_contracts(&environment.aggregates))
-                })
-                .transpose()?
-                .unwrap_or(false);
-            let reuse = previous
-                .filter(|_| reusable)
-                .map(|(old, old_file)| BodyReuse {
-                    previous_valid_bodies: &old.typed.facts().valid_bodies,
-                    previous_diagnostics: old.typed.diagnostics(),
-                    previous_lowered: &old_file.prepared.lowered,
-                    previous_types: &previous_types
-                        .as_ref()
-                        .expect("previous body types")
-                        .facts()
-                        .type_table,
-                    old_text: old_file.source().text(),
-                    new_text: file.source().text(),
-                });
-            let typed = check_bodies_controlled(
-                &prepared.lowered,
-                &names,
-                &declarations,
-                BodyInputs {
-                    const_limits: self.const_limits,
-                    selection,
-                    signatures: &prepared.record.signatures,
-                    body_signatures: &environment.signatures,
-                    imported_functions: &environment.imported_functions,
-                    imported_statics: &environment.imported_statics,
-                    imported_constants: &environment.imported_constants,
-                    constants: environment.constants.as_deref(),
-                    aggregates: &environment.aggregates,
-                },
-                reuse.as_ref(),
-                cancel,
-            )?;
-            let environment =
-                ownership::scope(&environment, &self.definitions, cancel)?.into_records();
-            let mut declarations =
-                ownership::scope(&declarations, &self.definitions, cancel)?.into_records();
-            let typed = ownership::scope(&typed, &self.definitions, cancel)?.into_records();
-            let definitions = self.definitions.snapshot();
-            declarations.publish_definitions(definitions.clone());
-            Arc::new(FunctionAnalysis {
-                signatures: signatures.clone(),
-                file,
-                facts: Arc::new(FunctionFacts {
-                    owner: owner_id,
-                    definitions,
-                    function,
-                    environment,
-                    names,
-                    declarations,
-                    typed,
-                }),
-            })
-        };
+                signatures: &prepared.record.signatures,
+                body_signatures: &environment.signatures,
+                imported_functions: &environment.imported_functions,
+                imported_statics: &environment.imported_statics,
+                imported_constants: &environment.imported_constants,
+                constants: environment.constants.as_deref(),
+                aggregates: &environment.aggregates,
+            },
+            cancel,
+        )?;
+        let mut declarations =
+            ownership::scope(&declarations, &self.definitions, cancel)?.into_records();
+        let typed = ownership::scope(&typed, &self.definitions, cancel)?.into_records();
+        let definitions = self.definitions.snapshot();
+        declarations.publish_definitions(definitions.clone());
+        let result = Arc::new(FunctionAnalysis {
+            signatures: signatures.clone(),
+            file,
+            facts: FunctionFacts {
+                owner: owner_id,
+                definitions,
+                function,
+                names,
+                declarations,
+                typed,
+            },
+        });
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
-        self.publish_body(signatures.declaration_snapshot(), Some(result.clone()));
         self.publish_signatures(signatures);
         Ok(Some(result))
-    }
-
-    /// Publishes a selected result for a non-older revision and drops owners absent from declarations.
-    pub(super) fn publish_body(
-        &mut self,
-        declarations: &DeclarationSnapshot,
-        result: Option<Arc<FunctionAnalysis>>,
-    ) {
-        if declarations.revision() >= self.body_revision {
-            self.body_revision = declarations.revision();
-            self.body_cache.retain_ids(|id, _| {
-                declarations
-                    .declaration(&DeclarationId::Definition(id))
-                    .is_some()
-            });
-            if let Some(result) = result {
-                self.body_cache
-                    .insert_id(
-                        result.facts.owner,
-                        BodyCacheEntry {
-                            facts: result.facts.clone(),
-                            file: Arc::downgrade(&result.file),
-                            result: Arc::downgrade(&result),
-                        },
-                    )
-                    .expect("function cache uses the analysis definition scope");
-            }
-        }
     }
 }
 

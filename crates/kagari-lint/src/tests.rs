@@ -9,7 +9,6 @@ use kagari_source::{
 };
 use kagari_stdlib::StandardLibrary;
 use rstest::rstest;
-use std::sync::Arc;
 
 fn analyze(
     files: &[(&str, &str)],
@@ -185,8 +184,8 @@ fn recovered_policy_payload_is_rejected_without_suppressing_findings() {
 }
 
 #[test]
-fn levels_reuse_the_same_analysis_and_do_not_suppress_language_errors() {
-    let (mut database, sources, snapshot, root) = analyze(
+fn changing_lint_levels_does_not_suppress_language_errors() {
+    let (_, _, snapshot, root) = analyze(
         &[("root", "fn broken()->i32{true} fn healthy(){val unused=1;}")],
         100,
     );
@@ -206,13 +205,6 @@ fn levels_reuse_the_same_analysis_and_do_not_suppress_language_errors() {
             .is_empty()
     );
     assert!(snapshot.check_program(root, &Default::default()).is_err());
-    let next = database
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(Arc::ptr_eq(
-        snapshot.file(root).unwrap(),
-        next.file(root).unwrap()
-    ));
 }
 
 #[test]

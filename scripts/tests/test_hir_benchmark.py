@@ -36,13 +36,8 @@ def report(case, inputs, check=False):
         evidence = {"diagnostics": 0}
         if name.startswith("selected"):
             evidence.update(representative_type="i64" if signature else "i32", selected_function="consumer_a::f0",
-                            construction_stats={"first": {"checked_bodies": 1, "reused_bodies": 0}},
-                            construction_stats_scope="result construction, not query work",
                             owner_preparation="declarations only",
                             full_validation_after_measurement=summary(signature), checked_modules=7)
-            if name != "selected":
-                evidence["construction_stats"]["second"] = {"checked_bodies": 1, "reused_bodies": 0}
-                evidence["whole_result_reused"] = not signature
         elif name in ("body_edit", "signature_edit", "lifecycle"):
             evidence.update(old=summary(), new=summary(signature), checked_modules=inputs["source_files"] + 2)
         else:
@@ -53,8 +48,6 @@ def report(case, inputs, check=False):
             evidence["route"] = "declarations -> signatures -> snapshot -> check_program"
         if name in ("warm", "selected_warm"):
             evidence["unchanged_source"] = True
-        if name == "warm":
-            evidence["user_file_results_reused"] = True
         if name in ("body_edit", "signature_edit", "selected_signature_edit", "lifecycle"):
             evidence["edit"] = {"changed_source": "shared.kgr" if dependency else "profile.kgr",
                                 "effective_edit": True, "edit_kind": "signature" if signature else "body",
@@ -127,7 +120,7 @@ class HirBenchmarkTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 results.aggregate(changed)
 
-    def test_timing_metrics_and_semantics_not_optimization_counters(self):
+    def test_timing_metrics_and_semantic_evidence(self):
         run = campaign()
         for invalid in (None, -1, float("nan"), float("inf"), True):
             with self.subTest(metric=invalid):
@@ -143,11 +136,15 @@ class HirBenchmarkTests(unittest.TestCase):
         changed["samples"][0]["reports"]["candidate"]["scenarios"].pop()
         with self.assertRaisesRegex(ValueError, "scenarios"):
             results.aggregate(changed)
-        changed = deepcopy(run)
-        selected = next(row for row in changed["samples"][1]["reports"]["candidate"]["scenarios"] if row["name"] == "selected_warm")
-        selected["evidence"]["whole_result_reused"] = False
-        selected["evidence"]["construction_stats"]["first"]["checked_bodies"] = 42
-        results.aggregate(changed)  # Observation changes alone are not semantic regressions.
+        for selected_query in (True, False):
+            changed = deepcopy(run)
+            selected = next(row["evidence"] for row in changed["samples"][1]["reports"]["candidate"]["scenarios"]
+                            if row["name"] == "selected_signature_edit")
+            evidence = selected if selected_query else selected["full_validation_after_measurement"]
+            evidence["representative_type"] = "i32"
+            error = "selected type mismatch" if selected_query else "type evidence mismatch"
+            with self.assertRaisesRegex(ValueError, error):
+                results.aggregate(changed)
         for field, value in (("new_type", "i32"), ("changed_source", "consumer_a.kgr"), ("old_snapshot_valid", False)):
             changed = deepcopy(run)
             row = next(row for row in changed["samples"][1]["reports"]["candidate"]["scenarios"] if row["name"] == "signature_edit")

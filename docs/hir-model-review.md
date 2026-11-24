@@ -106,7 +106,7 @@ No implementation authorized here; global lock removal and unrelated cache chang
 
 ## Single-run frontend plan
 
-**Status: planned, not implemented.** Make a standalone source compilation the baseline.
+**Status: HC01 implemented; HC02–HC04 pending.** Make a standalone source compilation the baseline.
 A new request computes source facts from its current inputs, not from a previous result.
 Independent `kg build` processes cannot use the existing in-memory reuse paths; they have no
 persistent HIR cache. Long-lived sessions will do more work after edits, and repeat requests
@@ -133,6 +133,13 @@ query an old immutable result; the next request neither modifies nor consults it
 | **HC02 — Check signatures fresh** | [`reuse_signatures`](../crates/kagari-hir/src/typeck/signature_reuse.rs), `previous_analysis` in `DeclaredAnalysis::check_signatures`, `SignatureCache{,Entry}`, `publish_signatures`, signature-reuse statistics and orphaned cross-revision token/namespace/type comparisons. | Build signatures from the current declarations and imported types, then complete aggregate contracts. Preserve signature diagnostics, generic and associated-type facts, and the shared `BodySignatures`/constant prerequisites used within the request. Check an imported signature edit that changes the consumer or its diagnostics. |
 | **HC03 — Prepare source and declarations fresh** | [`DeclarationCache{,Entry}`](../crates/kagari-hir/src/analysis/records.rs), `publish_declarations`, old-result branches in `prepare_declarations`/`prepare_external`, `SourceParseCache` and `prepare_syntax`'s `published` callback. Remove `LoweringInputKey`/`LibrarySourceKey` fields used only for reuse; keep the parse-owned module locator. Remove now-unused cache invalidation and revision watermarks. | Parse each physical document once **per request** and retain that parse for all its inline views. Lower each logical module from that view and attach its current root sidecar before declaration checking. Keep original source extents, physical diagnostic ownership, external input validation, scoped/synthetic IDs and cancellation. Check inline recovery and sidecar changes, including old-snapshot queries. |
 | **HC04 — Validate and measure the standalone route** | Delete dead cache-only APIs, assertions and benchmark counters left by HC01–HC03; do not add aliases. Replace tests concerned solely with removed hits with existing behavioral coverage where possible. | Exercise a fresh source-to-executable route, analyzer reads from a retained result and one source-free or update boundary. Update the HIR guide and benchmark descriptions to reflect the surviving routes. |
+
+HC01 checks both full-file and selected bodies fresh. Focused local coverage samples selected
+body isolation and prerequisites, edited signatures and call targets, cancellation, and retained
+snapshot/binding ownership rather than cache hits. The declaration and signature reuse paths
+remain for HC02–HC03. The pre-change baseline uses `plain` and `dependency_edit` at size 96
+(five timing runs) and a browser build of the minimal source compile/load workload; report the
+matched comparison in HC04.
 
 Keep request-local sharing, parser/checker limits, source and definition provenance, and
 independent verification. `Arc` used to own a returned snapshot is not a cache. Keep existing

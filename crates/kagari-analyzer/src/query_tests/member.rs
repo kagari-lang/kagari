@@ -390,7 +390,7 @@ fn duplicate_variants_remain_queryable_but_cannot_reach_codegen() {
 }
 
 #[test]
-fn typed_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
+fn typed_field_navigation_retains_owners_through_errors_and_source_edits() {
     let text = "struct Left { val value: i32 } struct Right { var value: bool } fn read(a: Left, b: Right) { a.value; b.value = true; } fn bad(a: Left) { a.value = false; }";
     let mut sources = SourceDatabase::default();
     let id = sources
@@ -439,7 +439,6 @@ fn typed_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let updated = second.file(id).unwrap();
-    assert_eq!(updated.result().facts().typed.reused_bodies(), 1);
     for (offset, old) in uses.iter().zip([left, right, left]) {
         let current = updated
             .queries()
@@ -467,17 +466,16 @@ fn typed_field_navigation_retains_owner_and_survives_errors_and_body_reuse() {
     let third = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let reused = third.file(id).unwrap();
-    assert_eq!(reused.result().facts().typed.reused_bodies(), 1);
+    let updated = third.file(id).unwrap();
     for (offset, old) in uses[..2].iter().zip([left, right]) {
-        let current = reused
+        let current = updated
             .queries()
             .definition_at(offset + edit.len() - text.len())
             .unwrap();
         assert_eq!(current.id, old.id);
         assert_eq!(
             current.source_location().unwrap().revision,
-            reused.source().revision()
+            updated.source().revision()
         );
     }
 }

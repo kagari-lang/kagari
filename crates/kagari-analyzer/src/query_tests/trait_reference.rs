@@ -248,7 +248,7 @@ fn imported_trait_headers_keep_distinct_executable_identities() {
 }
 
 #[test]
-fn callable_facts_survive_body_reuse_and_preserve_bound_navigation() {
+fn callable_bounds_keep_navigation_and_check_after_unrelated_body_edits() {
     let text = r#"
 struct Add {val value:i32}
 impl Fn<(i32,)> for Add {type Output=i32; fn call(self,args:(i32,))->i32 {self.value+args[0]}}

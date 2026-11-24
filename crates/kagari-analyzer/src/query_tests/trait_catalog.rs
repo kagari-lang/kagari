@@ -426,12 +426,13 @@ fn ambiguous_methods_have_no_call_target_and_duplicate_bounds_do_not_create_ambi
 }
 
 #[test]
-fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshots() {
+fn imported_method_contract_edits_refresh_consumers_and_preserve_old_snapshots() {
     let mut sources = SourceDatabase::default();
     let library = "pub trait View { fn read(self) -> i32; } fn helper() -> i32 { 1 }";
     insert(&mut sources, "lib", library);
-    let text = "use pkg::lib::View; fn read(x: View) -> i32 { x.read() } fn helper() {}";
+    let text = "use pkg::lib::View; fn read(x: View) -> i32 { x.read() }";
     let root = insert(&mut sources, "root", text);
+    let method = text.find("x.read").unwrap() + 2;
     let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let authoring_before = old
@@ -454,18 +455,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         .unwrap()
         .unwrap();
     assert!(body.diagnostics().is_empty());
-    sources
-        .set(
-            "root",
-            text.replace("fn helper() {}", "fn helper() { val n = 1; }"),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let reused = db
-        .body(sources.snapshot(), owner, &Default::default())
-        .unwrap()
-        .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
+
     sources
         .set(
             "lib",
@@ -478,7 +468,10 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         .unwrap()
         .unwrap();
     assert!(refreshed.diagnostics().is_empty());
-    let _after_body_edit = analyze(&mut db, &sources);
+    assert_eq!(
+        refreshed.queries().type_at(method),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
 
     sources
         .set(
@@ -487,39 +480,22 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
             SourceLayer::Overlay,
         )
         .unwrap();
-    let invalidated = db
+    let changed = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(invalidated.reused_bodies(), 0);
     assert!(
-        invalidated
+        changed
             .diagnostics()
             .iter()
             .any(|d| d.kind.code() == "KG_TYPE_RETURN_TYPE_MISMATCH")
     );
-    let mut fresh_db = test_analysis();
-    let fresh_declarations = fresh_db
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap();
-    let query = invalidated.definitions().resolve(*owner).unwrap().to_path();
-    let fresh_owner = fresh_declarations
-        .file(root)
-        .unwrap()
-        .declarations()
-        .definitions()
-        .lookup(&query)
-        .unwrap();
-    let _fresh = fresh_db
-        .body(sources.snapshot(), &fresh_owner, &Default::default())
-        .unwrap()
-        .unwrap();
-
     assert_eq!(
-        old.file(root)
-            .unwrap()
-            .queries()
-            .type_at(text.find("x.read").unwrap() + 2),
+        changed.queries().type_at(method),
+        Some(TypeId::Builtin(BuiltinType::String))
+    );
+    assert_eq!(
+        old.file(root).unwrap().queries().type_at(method),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 }

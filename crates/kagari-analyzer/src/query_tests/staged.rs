@@ -117,7 +117,6 @@ fn selected_queries_route_only_their_body_and_keep_incomplete_receivers() {
         .body(sources.snapshot(), &owner("good"), &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(good.checked_bodies(), 1);
     let queries = good.queries();
     assert_eq!(
         queries.type_at(text.rfind("answer").unwrap()),
@@ -159,8 +158,6 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
         let mut db = test_analysis();
         let edit = owner(&mut db, &sources, file, "edit");
         let original = query(&mut db, &sources, &edit);
-        let cached = query(&mut db, &sources, &edit);
-        assert!(Arc::ptr_eq(&original, &cached));
         let offset = text.find(target).unwrap() + "p.inner.".len();
         let receiver = original
             .queries()
@@ -179,7 +176,6 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
             )
             .unwrap();
         let moved = query(&mut db, &sources, &edit);
-        assert_eq!(moved.reused_bodies(), usize::from(valid));
 
         assert_eq!(
             moved
@@ -212,7 +208,7 @@ fn assignment_member_receivers_survive_errors_and_snapshot_revisions() {
 }
 
 #[test]
-fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() {
+fn associated_definition_changes_refresh_selected_body_types_and_keep_old_snapshot() {
     let text = "trait Read { type Item; fn read(self) -> Self::Item; } struct N {} impl Read for N { type Item = i32; fn read(self) -> Self::Item { 42 } } fn read<R: Read>(r: R) -> R::Item { r.read() } fn main() -> i32 { read(N {}) }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -233,8 +229,6 @@ fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() 
         .set("associated-edit.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let second = query(&mut db, &sources, &main);
-    assert_eq!(second.checked_bodies(), 1);
-    assert_eq!(second.reused_bodies(), 0);
     assert!(!second.diagnostics().is_empty());
     assert_eq!(
         second.queries().type_at(edit.rfind("read(N").unwrap()),
@@ -243,6 +237,11 @@ fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() 
     assert!(first.diagnostics().is_empty());
     let fresh = query(&mut test_analysis(), &sources, &main);
     assert_eq!(second.diagnostics(), fresh.diagnostics());
+    let call = edit.rfind("read(N").unwrap();
+    assert_eq!(
+        second.queries().type_at(call),
+        fresh.queries().type_at(call)
+    );
 }
 
 #[test]
@@ -255,7 +254,6 @@ fn selected_local_function_reconstructs_static_ancestry_without_checking_parent(
     let mut db = test_analysis();
     let inner = owner(&mut db, &sources, file, "inner");
     let result = query(&mut db, &sources, &inner);
-    assert_eq!(result.checked_bodies(), 1);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
@@ -273,7 +271,7 @@ fn selected_local_function_reconstructs_static_ancestry_without_checking_parent(
             .iter()
             .all(|binding| binding.name != "hidden" && binding.name != "broken")
     );
-    assert!(Arc::ptr_eq(&result, &query(&mut db, &sources, &inner)));
+
     let complete = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();

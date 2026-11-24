@@ -51,8 +51,11 @@ fn local_function_scope_and_callable_contracts(#[case] text: &str) {
             .iter()
             .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
     );
-    assert_eq!(
-        facts.typed.checked_bodies,
-        facts.lowered.module.functions.len()
-    );
+    for function in &facts.lowered.module.functions {
+        assert!(
+            facts.typed.valid_bodies.contains(&function.id),
+            "body was not checked successfully: {} in {text}",
+            function.name
+        );
+    }
 }

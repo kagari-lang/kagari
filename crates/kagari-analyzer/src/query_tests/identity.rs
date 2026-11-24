@@ -506,16 +506,6 @@ fn named_field_identity_survives_slot_reordering_and_remains_module_owned() {
         current.source_location().unwrap().range.start,
         second_text.find("val x").unwrap() + 4
     );
-    assert_eq!(
-        second
-            .file(a)
-            .unwrap()
-            .result()
-            .facts()
-            .typed
-            .reused_bodies(),
-        0
-    );
     assert_eq!(first.declaration(&x.id), Some(x));
 }
 

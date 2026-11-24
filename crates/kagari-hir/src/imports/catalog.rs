@@ -657,25 +657,6 @@ impl NamespaceCatalog {
         self.same_namespace_inputs(other, names, None, cancel, false)
     }
 
-    /// Reuse checked facts across a local lowering only after comparing all
-    /// reachable member bindings. The existing remappers handle local arena IDs;
-    /// foreign namespace identities and targets must still match exactly.
-    pub(crate) fn same_reuse_namespaces(
-        &self,
-        other: &Self,
-        names: &NameTable,
-        other_names: &NameTable,
-        cancel: &CancellationToken,
-    ) -> Result<bool, Cancelled> {
-        let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
-            return Ok(false);
-        };
-        if unit.module != other_unit.module || unit.file != other_unit.file {
-            return Ok(false);
-        }
-        self.same_namespace_inputs(other, names, Some(other_unit), cancel, false)
-    }
-
     /// Compare signature namespace bindings independently of foreign function body revisions.
     /// The caller must also compare imported type surfaces before reusing typed signatures.
     pub(crate) fn same_signature_namespaces(

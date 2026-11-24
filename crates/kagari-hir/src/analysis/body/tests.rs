@@ -1,11 +1,14 @@
 use super::*;
-use crate::{declarations::DeclarationId, tests::test_analysis};
-use kagari_common::identity::{DefinitionPath, ModuleIdentity, PackageId};
+use crate::{
+    declarations::DeclarationId, tests::test_analysis, typeck::table::CallTarget, types::TypeId,
+};
+use kagari_common::identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     identity::FileId,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::scalar::BuiltinType;
 
 fn owner(
     db: &mut AnalysisDatabase,
@@ -59,7 +62,6 @@ fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
     let mut db = test_analysis();
     let good = owner(&mut db, &sources, file, "good");
     let result = query(&mut db, &sources, &good);
-    assert_eq!(result.checked_bodies(), 1);
     assert_eq!(result.eligibility(), BodyEligibility::Unavailable);
     assert!(
         result.diagnostics().is_empty(),
@@ -78,7 +80,7 @@ fn unrelated_applied_bound_errors_stay_in_the_signature_snapshot() {
 }
 
 #[test]
-fn selected_body_cache_refreshes_shared_signature_context() {
+fn selected_body_eligibility_uses_the_current_shared_signatures() {
     let mut sources = SourceDatabase::default();
     for package in ["root", "other"] {
         sources
@@ -102,15 +104,11 @@ fn selected_body_cache_refreshes_shared_signature_context() {
     let original_source = sources.snapshot();
     let mut db = test_analysis();
     let good = owner(&mut db, &sources, root, "good");
-    let original_query = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
     let original = query(&mut db, &sources, &good);
-    let body_facts = Arc::downgrade(&original.facts);
-    let root_lowering = Arc::downgrade(&original.file.prepared.lowered);
-    let root_source = Arc::downgrade(&original.file.prepared.lowered.source);
     assert_eq!(original.eligibility(), BodyEligibility::Complete);
-    assert!(Arc::ptr_eq(&original, &query(&mut db, &sources, &good)));
+    assert!(db.declaration_cache.is_some());
+    assert!(db.signature_cache.is_some());
+    let original_root = original.signature_snapshot().file(root).unwrap();
 
     let mut results = vec![original.clone()];
     for (text, eligibility) in [
@@ -140,12 +138,22 @@ fn selected_body_cache_refreshes_shared_signature_context() {
                 .unwrap()
                 .diagnostics()
         );
-        // Only the query context changed: retain the same immutable body facts.
-        assert!(std::ptr::eq(original.type_table(), updated.type_table()));
-        assert_eq!(updated.checked_bodies(), original.checked_bodies());
-        assert_eq!(updated.reused_bodies(), original.reused_bodies());
-        assert!(!Arc::ptr_eq(&original, &updated));
-        assert!(Arc::ptr_eq(&updated, &query(&mut db, &sources, &good)));
+        assert!(updated.diagnostics().is_empty());
+        updated.type_table().assert_same_source_facts(
+            updated.definitions(),
+            fresh.type_table(),
+            fresh.definitions(),
+            updated.lowered().module.nodes.arena(),
+            fresh.lowered().module.nodes.arena(),
+        );
+        let signatures = db
+            .signatures(sources.snapshot(), &Default::default())
+            .unwrap();
+        assert!(Arc::ptr_eq(updated_other, signatures.file(other).unwrap()));
+        assert!(Arc::ptr_eq(
+            &original_root.prepared.lowered,
+            &signatures.file(root).unwrap().prepared.lowered,
+        ));
 
         let old_request = db
             .body(
@@ -160,7 +168,6 @@ fn selected_body_cache_refreshes_shared_signature_context() {
             old_request.signature_snapshot().revision(),
             original_source.revision()
         );
-        assert!(Arc::ptr_eq(&updated, &query(&mut db, &sources, &good)));
         results.push(updated);
     }
 
@@ -185,148 +192,6 @@ fn selected_body_cache_refreshes_shared_signature_context() {
         "fn helper() -> Missing { 2 }"
     );
     assert_eq!(results[2].eligibility(), BodyEligibility::Complete);
-
-    let old_query = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let old_other = Arc::downgrade(
-        &results[2]
-            .signature_snapshot()
-            .file(other)
-            .unwrap()
-            .prepared
-            .lowered,
-    );
-    let old_result = Arc::downgrade(&results[2]);
-    sources
-        .set(
-            "mem://other",
-            "fn helper() -> i32 { 3 }".into(),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let current_query = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let current_signatures = db
-        .signatures(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert_eq!(
-        current_signatures.file(other).unwrap().source().text(),
-        "fn helper() -> i32 { 3 }"
-    );
-    assert_eq!(old_query.file(other).unwrap().source().text(), valid_other);
-    assert_eq!(
-        results[2]
-            .signature_snapshot()
-            .file(other)
-            .unwrap()
-            .source()
-            .text(),
-        valid_other
-    );
-    assert!(old_other.upgrade().is_some());
-
-    // Advance the full/signature caches without querying B: its body entry must
-    // retain facts, but must not keep the previous whole-project query alive.
-    let good_id = *original.owner();
-    drop(original_query);
-    drop(old_query);
-    drop(original);
-    drop(results);
-    assert!(old_result.upgrade().is_none());
-    assert!(old_other.upgrade().is_none());
-    let cached = db.body_cache.get_id(good_id).unwrap();
-    assert!(cached.result.upgrade().is_none());
-    assert!(Arc::ptr_eq(&cached.facts, &body_facts.upgrade().unwrap()));
-    assert!(Arc::ptr_eq(
-        &root_lowering.upgrade().unwrap(),
-        &current_query.file(root).unwrap().result().facts().lowered
-    ));
-    assert!(Arc::ptr_eq(
-        &root_source.upgrade().unwrap(),
-        &current_signatures
-            .file(root)
-            .unwrap()
-            .prepared
-            .lowered
-            .source
-    ));
-
-    let rebuilt = query(&mut db, &sources, &good);
-    assert!(Arc::ptr_eq(&rebuilt.facts, &body_facts.upgrade().unwrap()));
-    assert_eq!(
-        rebuilt.signature_snapshot().revision(),
-        current_signatures.revision()
-    );
-    assert!(Arc::ptr_eq(
-        rebuilt.signature_snapshot().file(other).unwrap(),
-        current_signatures.file(other).unwrap()
-    ));
-
-    assert!(Arc::ptr_eq(&rebuilt, &query(&mut db, &sources, &good)));
-    let returned = Arc::downgrade(&rebuilt);
-    drop(rebuilt);
-    assert!(returned.upgrade().is_none());
-    let rebuilt = query(&mut db, &sources, &good);
-    assert!(Arc::ptr_eq(&rebuilt.facts, &body_facts.upgrade().unwrap()));
-
-    let old_expr = rebuilt
-        .lowered()
-        .module
-        .nodes
-        .expressions()
-        .find(|(expr, _)| rebuilt.type_table().expr_type(*expr).is_some())
-        .unwrap()
-        .0;
-    drop(current_query);
-    drop(current_signatures);
-    // All persistent caches stay populated. Only the returned query owns its
-    // exact graph/context; cached semantic records cannot keep either alive.
-    assert!(db.declaration_cache.is_some());
-    assert!(db.signature_cache.is_some());
-    assert!(!db.files.is_empty());
-    assert!(Arc::ptr_eq(
-        &root_lowering.upgrade().unwrap(),
-        &rebuilt.file.prepared.lowered
-    ));
-    assert_eq!(rebuilt.source().text(), root_text);
-    assert_eq!(
-        rebuilt
-            .signature_snapshot()
-            .file(other)
-            .unwrap()
-            .source()
-            .text(),
-        "fn helper() -> i32 { 3 }"
-    );
-
-    drop(rebuilt);
-    let cached = db.body_cache.get_id(good_id).unwrap().clone();
-    assert!(cached.result.upgrade().is_none());
-    assert!(cached.file.upgrade().is_none());
-    assert!(root_lowering.upgrade().is_none());
-    assert!(db.files.values().all(|file| file.upgrade().is_none()));
-    assert!(Arc::ptr_eq(&cached.facts, &body_facts.upgrade().unwrap()));
-
-    // The owned facts survive, but without their old graph they cannot supply IDs
-    // to a new lowering. Rebuild from source rather than reviving that context.
-    let rebuilt = query(&mut db, &sources, &good);
-    assert!(!Arc::ptr_eq(&rebuilt.facts, &cached.facts));
-    assert_ne!(rebuilt.lowered().module.nodes.arena(), old_expr.arena());
-    assert!(rebuilt.type_table().expr_type(old_expr).is_none());
-    assert!(root_lowering.upgrade().is_none());
-    assert!(cached.file.upgrade().is_none());
-    assert_eq!(rebuilt.checked_bodies(), 1);
-    assert_eq!(rebuilt.reused_bodies(), 0);
-    assert_eq!(rebuilt.eligibility(), BodyEligibility::Complete);
-    assert!(rebuilt.diagnostics().is_empty());
-
-    assert_eq!(
-        rebuilt.signature_snapshot().revision(),
-        sources.snapshot().revision()
-    );
-    assert!(Arc::ptr_eq(&rebuilt, &query(&mut db, &sources, &good)));
 }
 
 #[test]
@@ -339,15 +204,12 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
     let mut db = test_analysis();
     let good = owner(&mut db, &sources, id, "good");
     let result = query(&mut db, &sources, &good);
-    assert_eq!(result.checked_bodies(), 1);
-    assert_eq!(result.reused_bodies(), 0);
     assert_eq!(result.eligibility(), BodyEligibility::Complete);
     assert!(
         result.diagnostics().is_empty(),
         "{:?}",
         result.diagnostics()
     );
-    assert!(db.files.is_empty());
 
     assert!(
         result
@@ -361,8 +223,6 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
         .find(|d| d.name == "answer")
         .unwrap();
     assert!(matches!(local.id, DeclarationId::Binding(_)));
-    let cached = query(&mut db, &sources, &good);
-    assert!(Arc::ptr_eq(&result, &cached));
     let complete = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -385,7 +245,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
 }
 
 #[test]
-fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
+fn selected_body_facts_and_bindings_follow_edited_source() {
     let mut sources = SourceDatabase::default();
     let text = include_str!("../../../tests/fixtures/analysis/body_parameter_reuse.kgr");
     let id = sources
@@ -409,8 +269,6 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         .set("reuse.kgr", edit.clone(), SourceLayer::Overlay)
         .unwrap();
     let second = query(&mut db, &sources, &good);
-    assert_eq!(second.reused_bodies(), 1);
-    assert_eq!(second.checked_bodies(), 0);
     assert!(second.diagnostics().is_empty());
     assert!(second.declarations().get(&old_local.id).is_none());
     assert_eq!(first.declarations().get(&old_local.id), Some(&old_local));
@@ -454,36 +312,29 @@ fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
         )
         .unwrap();
     let third = query(&mut db, &sources, &good);
-    assert_eq!(third.checked_bodies(), 1);
-    assert_eq!(third.reused_bodies(), 0);
     assert!(!third.diagnostics().is_empty());
     assert_eq!(third.eligibility(), BodyEligibility::Unavailable);
-    assert!(db.files.is_empty());
 }
 
 #[test]
-fn incomplete_member_query_keeps_receiver_and_constants_report_prerequisite_failures() {
+fn selected_body_reports_constant_prerequisite_failures() {
     let mut sources = SourceDatabase::default();
-    let text = "const BAD: i32 = 1 / 0; struct P { val n: i32 } fn member(p: P) { p. } fn unrelated() { missing; }";
+    let text = "const BAD: i32 = 1 / 0; fn selected() -> i32 { 42 } fn unrelated() { missing; }";
     let id = sources
         .set("member.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    let member = owner(&mut db, &sources, id, "member");
-    let result = query(&mut db, &sources, &member);
+    let selected = owner(&mut db, &sources, id, "selected");
+    let result = query(&mut db, &sources, &selected);
 
-    assert_eq!(result.checked_bodies(), 1);
-    assert!(!result.diagnostics().is_empty());
-    assert!(
-        result
-            .diagnostics()
-            .iter()
-            .all(|d| !matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "missing"))
-    );
+    assert!(matches!(
+        result.diagnostics(),
+        [diagnostic] if matches!(&diagnostic.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason } if const_name == "BAD" && reason == "integer division by zero")
+    ));
 }
 
 #[test]
-fn imported_signature_changes_invalidate_a_cached_function_body() {
+fn selected_call_uses_current_imported_signature() {
     let mut sources = SourceDatabase::default();
     for name in ["dep", "root"] {
         sources
@@ -511,10 +362,27 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
     let dep_owner = owner(&mut db, &sources, dependency, "value");
     let root_owner = owner(&mut db, &sources, root, "value");
     assert_ne!(dep_owner, root_owner);
-    let dep_body = query(&mut db, &sources, &dep_owner);
     let first = query(&mut db, &sources, &root_owner);
-    assert!(first.diagnostics().is_empty());
-    assert!(!Arc::ptr_eq(&dep_body, &first));
+    let check_call = |body: &FunctionAnalysis, return_type| {
+        let module = &body.lowered().module;
+        let function = &module.functions[body.function().index()];
+        let call = module
+            .block(function.implementation.script_body().unwrap())
+            .tail_expr
+            .unwrap();
+        let resolution = body.type_table().call_resolution(call).unwrap();
+        let CallTarget::SourceFunction(target) = resolution.target else {
+            panic!("expected a cross-module source call");
+        };
+        assert_eq!(
+            body.definitions().resolve(target).unwrap().to_path(),
+            dep_owner
+        );
+        assert_eq!(
+            resolution.signature.unwrap().return_type,
+            TypeId::Builtin(return_type)
+        );
+    };
     sources
         .set(
             "mem://dep",
@@ -523,12 +391,11 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
         )
         .unwrap();
     let second = query(&mut db, &sources, &root_owner);
-    assert!(!Arc::ptr_eq(&first, &second));
-    assert_eq!(second.checked_bodies(), 1);
-    assert_eq!(second.reused_bodies(), 0);
-    let _call = text.find("dep::value()").unwrap();
-
-    assert!(!second.diagnostics().is_empty());
+    check_call(&second, BuiltinType::Bool);
+    assert!(matches!(
+        second.diagnostics(),
+        [diagnostic] if matches!(&diagnostic.kind, DiagnosticKind::ReturnTypeMismatch { expected, found, .. } if expected == "i32" && found == "bool")
+    ));
     let fresh = query(&mut test_analysis(), &sources, &root_owner);
     second.type_table().assert_same_source_facts(
         second.definitions(),
@@ -538,10 +405,12 @@ fn imported_signature_changes_invalidate_a_cached_function_body() {
         fresh.lowered().module.nodes.arena(),
     );
     assert_eq!(second.diagnostics(), fresh.diagnostics());
+    check_call(&first, BuiltinType::I32);
+    assert!(first.diagnostics().is_empty());
 }
 
 #[test]
-fn same_named_impl_bodies_reuse_their_own_facts() {
+fn selected_same_named_impl_bodies_keep_their_own_field_types() {
     let mut sources = SourceDatabase::default();
     let text = "fn first() -> i32 { 1 } struct P { val n: i32 } struct Q { val n: bool } trait Show { fn show(self) -> i32; } impl Show for P { fn show(self) -> i32 { self.n } } impl Show for Q { fn show(self) -> i32 { if self.n { 7 } else { 8 } } }";
     let id = sources
@@ -551,71 +420,46 @@ fn same_named_impl_bodies_reuse_their_own_facts() {
     let declarations = db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let file_id = id;
-    let methods = declarations
-        .file(id)
-        .unwrap()
-        .declarations()
-        .iter()
-        .filter_map(|d| {
-            let DeclarationId::Definition(id) = &d.id else {
-                return None;
-            };
-            let path = declarations
-                .file(file_id)
-                .unwrap()
-                .declarations()
-                .definitions()
-                .resolve(*id)
-                .unwrap()
-                .to_path();
-            (d.name == "show"
-                && path
-                    .path
-                    .first()
-                    .is_some_and(|p| p.kind == kagari_common::identity::DefinitionKind::Impl))
-            .then_some(path)
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(methods.len(), 2);
-    // Reuse/remapping needs caller-owned old graphs, not a strong cache reference.
-    let mut previous = Vec::new();
-    for method in &methods {
-        let result = query(&mut db, &sources, method);
-        assert_eq!(result.checked_bodies(), 1);
+    let declarations = declarations.file(id).unwrap().declarations();
+    for (method, ty) in [
+        ("show(self) -> i32 { self.n", BuiltinType::I32),
+        ("show(self) -> i32 { if self.n", BuiltinType::Bool),
+    ] {
+        let start = text.find(method).unwrap();
+        let declaration = declarations
+            .iter()
+            .find(|declaration| {
+                declaration.name == "show"
+                    && declaration.source_location().unwrap().range.start == start
+            })
+            .unwrap();
+        let DeclarationId::Definition(id) = declaration.id else {
+            panic!("method definition");
+        };
+        let path = declarations.definitions().resolve(id).unwrap().to_path();
+        assert_eq!(path.path.first().unwrap().kind, DefinitionKind::Impl);
+        let result = query(&mut db, &sources, &path);
+        assert_eq!(*result.owner(), id);
         assert!(
             result.diagnostics().is_empty(),
             "{:?}",
             result.diagnostics()
         );
-        previous.push(result);
-    }
-    sources
-        .set(
-            "methods.kgr",
-            text.replace("{ 1 }", "{ val shifted: [i32] = [1, 2]; shifted[0] }"),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    for (method, old) in methods.into_iter().zip(previous) {
-        let result = query(&mut db, &sources, &method);
-        assert_eq!(old.source().text(), text);
-        assert_eq!(result.checked_bodies(), 0);
-        assert_eq!(result.reused_bodies(), 1);
-        let fresh = query(&mut test_analysis(), &sources, &method);
-        result.type_table().assert_same_source_facts(
-            result.definitions(),
-            fresh.type_table(),
-            fresh.definitions(),
-            result.lowered().module.nodes.arena(),
-            fresh.lowered().module.nodes.arena(),
-        );
-        assert_eq!(result.diagnostics(), fresh.diagnostics());
+        let table = result.type_table();
+        let field_types = result
+            .lowered()
+            .module
+            .nodes
+            .expressions()
+            .filter(|(expr, _)| table.expr_field(*expr).is_some())
+            .map(|(expr, _)| table.expr_type(expr).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(field_types, [TypeId::Builtin(ty)]);
     }
 }
 
 #[test]
-fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
+fn deleted_function_is_only_selectable_in_old_source() {
     let mut sources = SourceDatabase::default();
     let id = sources
         .set(
@@ -636,15 +480,11 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
             SourceLayer::Overlay,
         )
         .unwrap();
-    db.declarations(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(!db.body_cache.get_id(value).is_some());
     assert!(
         db.body(sources.snapshot(), &value, &Default::default())
             .unwrap()
             .is_none()
     );
-    assert!(!db.body_cache.get_id(value).is_some());
     let token = CancellationToken::default();
     token.cancel();
     assert!(db.body(old_source.clone(), &value, &token).is_err());
@@ -653,7 +493,10 @@ fn deleted_function_and_stale_queries_do_not_repopulate_latest_cache() {
         .unwrap()
         .unwrap();
     assert_eq!(stale.source().revision(), old.source().revision());
-    assert!(!db.body_cache.get_id(value).is_some());
+    for body in [&old, &stale] {
+        assert_eq!(*body.owner(), value);
+        assert_eq!(body.eligibility(), BodyEligibility::Complete);
+    }
     assert!(
         db.body(sources.snapshot(), &value, &Default::default())
             .unwrap()

@@ -6,7 +6,6 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_types::scalar::BuiltinType;
-use std::sync::*;
 
 #[test]
 fn imported_struct_initializers_and_nested_mutations_use_nominal_fields() {
@@ -186,13 +185,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     );
     let text = "use pkg::api::make; fn read() -> i32 { make().count }";
     let root = insert(&mut db, "root", text);
-    let unrelated = db
-        .set(
-            "mem://unrelated",
-            "struct Data { var count: bool } fn unrelated() -> i32 { 0 }".into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
+
     let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())
@@ -225,14 +218,7 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
             .facts()
             .imported_functions
     );
-    assert!(!Arc::ptr_eq(
-        first.file(root).unwrap(),
-        second.file(root).unwrap()
-    ));
-    assert!(Arc::ptr_eq(
-        first.file(unrelated).unwrap(),
-        second.file(unrelated).unwrap()
-    ));
+
     assert!(
         second
             .file(root)

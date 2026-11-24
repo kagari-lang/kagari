@@ -535,44 +535,6 @@ impl AggregateCatalog {
         }
         Ok(result)
     }
-
-    pub(crate) fn same_contracts(&self, other: &Self) -> bool {
-        self.same_trait_contracts(other)
-            && self.native_types == other.native_types
-            && self.implementation_constants == other.implementation_constants
-            && self.implementations == other.implementations
-            && self.inherent_methods == other.inherent_methods
-            && self.enumerations.len() == other.enumerations.len()
-            && self.enumerations.iter().all(|(id, a)| {
-                other.enumeration(id).is_some_and(|b| {
-                    a.generic_params == b.generic_params
-                        && a.bounds == b.bounds
-                        && a.variants.len() == b.variants.len()
-                        && a.variants.iter().zip(&b.variants).all(|(a, b)| {
-                            a.id == b.id
-                                && a.slot == b.slot
-                                && a.name == b.name
-                                && a.payload == b.payload
-                        })
-                })
-            })
-            && self.structures.len() == other.structures.len()
-            && self.structures.iter().all(|(id, a)| {
-                other.structure(id).is_some_and(|b| {
-                    a.generic_params == b.generic_params
-                        && a.bounds == b.bounds
-                        && a.fields.len() == b.fields.len()
-                        && a.fields.iter().zip(&b.fields).all(|(a, b)| {
-                            a.id == b.id
-                                && a.slot == b.slot
-                                && a.name == b.name
-                                && a.visibility == b.visibility
-                                && a.writeability == b.writeability
-                                && a.ty == b.ty
-                        })
-                })
-            })
-    }
 }
 
 mod mapping;

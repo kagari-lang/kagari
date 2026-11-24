@@ -10,7 +10,7 @@ fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnaps
 }
 
 #[test]
-fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets() {
+fn selected_method_receivers_follow_their_lowering_and_keep_nominal_targets() {
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("cache.kgr", SOURCE.into(), SourceLayer::Base)
@@ -55,19 +55,18 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
             SourceLayer::Overlay,
         )
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().call_resolution(old_call.0).is_none());
-    let new_call = reused
+    assert!(current.type_table().call_resolution(old_call.0).is_none());
+    let new_call = current
         .lowered()
         .module
         .nodes
         .expressions()
         .find_map(|(id, _)| {
-            reused
+            current
                 .type_table()
                 .call_resolution(id)
                 .filter(|call| matches!(call.target, CallTarget::TraitMethod { .. }))
@@ -94,11 +93,11 @@ fn cached_body_queries_rebase_receivers_without_changing_nominal_method_targets(
         .body(sources.snapshot(), &fresh_owner, &Default::default())
         .unwrap()
         .unwrap();
-    reused.type_table().assert_same_source_facts(
-        reused.definitions(),
+    current.type_table().assert_same_source_facts(
+        current.definitions(),
         fresh.type_table(),
         fresh.definitions(),
-        reused.lowered().module.nodes.arena(),
+        current.lowered().module.nodes.arena(),
         fresh.lowered().module.nodes.arena(),
     );
 }

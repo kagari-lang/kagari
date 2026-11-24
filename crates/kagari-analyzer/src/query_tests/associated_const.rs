@@ -5,7 +5,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::scalar::{BuiltinType, IntegerType};
 
 #[test]
-fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes() {
+fn associated_constant_targets_and_values_follow_source_revisions() {
     let text = "trait Limit { const VALUE: i32 = 21; } struct N {} impl Limit for N {} fn edit() -> i32 { 1 } fn keep<T: Limit>(x: T) -> i32 { <T as Limit>::VALUE }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -56,19 +56,21 @@ fn associated_constant_targets_survive_cached_body_rebasing_and_revision_changes
     sources
         .set("cache.kgr", edited.clone(), SourceLayer::Overlay)
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().associated_const(id).is_none());
-    assert!(
-        reused
-            .lowered()
-            .module
-            .nodes
-            .expressions()
-            .any(|(id, _)| reused.type_table().associated_const(id).is_some())
+    assert!(current.type_table().associated_const(id).is_none());
+    let current_const = current
+        .lowered()
+        .module
+        .nodes
+        .expressions()
+        .find_map(|(id, _)| current.type_table().associated_const(id))
+        .expect("current associated constant target");
+    assert_eq!(
+        current_const,
+        old.type_table().associated_const(id).unwrap()
     );
     sources
         .set(

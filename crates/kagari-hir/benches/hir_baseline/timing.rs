@@ -1,8 +1,6 @@
 //! Independent timing routes; this module is not compiled into the allocator-instrumented target.
 
 use kagari_analyzer::AnalyzerQueries;
-use std::sync::Arc;
-
 use kagari_hir::{
     analysis::{
         body::FunctionAnalysis, declarations::DeclarationSnapshot, eligibility::BodyEligibility,
@@ -115,12 +113,6 @@ fn direct(name: &str, workload: &Workload, setup: &Setup) -> Value {
         assert_eq!(summary, verify_snapshot(&warm, workload, &state.ids, false));
         assert_eq!(first.revision(), warm.revision());
         evidence["unchanged_source"] = json!(true);
-        evidence["user_file_results_reused"] = json!(
-            state
-                .ids
-                .iter()
-                .all(|id| Arc::ptr_eq(first.file(*id).unwrap(), warm.file(*id).unwrap()))
-        );
         let (_, ns) = measure(|| drop((warm, first)));
         metrics.push(("drop_results", ns));
     } else {
@@ -190,10 +182,6 @@ fn verify_selected(result: &FunctionAnalysis, workload: &Workload, signature: bo
     );
 }
 
-fn construction(result: &FunctionAnalysis) -> Value {
-    json!({"checked_bodies": result.checked_bodies(), "reused_bodies": result.reused_bodies()})
-}
-
 fn selected(name: &str, workload: &Workload, setup: &Setup) -> Value {
     let mut state = State::new(workload);
     let (_, install) = measure(|| setup.install(&mut state.db));
@@ -233,8 +221,6 @@ fn selected(name: &str, workload: &Workload, setup: &Setup) -> Value {
     ];
     let mut evidence = json!({
         "diagnostics": 0, "representative_type": "i32", "selected_function": "consumer_a::f0",
-        "construction_stats": {"first": construction(&first)},
-        "construction_stats_scope": "result construction provenance, not work performed by the current query; shared results retain earlier statistics",
         "owner_preparation": "declarations only; no full snapshot before selected queries",
     });
     if name == "selected" {
@@ -262,8 +248,6 @@ fn selected(name: &str, workload: &Workload, setup: &Setup) -> Value {
         ));
         verify_selected(&second, workload, signature);
         verify_selected(&first, workload, false);
-        evidence["construction_stats"]["second"] = construction(&second);
-        evidence["whole_result_reused"] = json!(Arc::ptr_eq(&first, &second));
         if signature {
             let id = state.ids[workload.edit_index];
             let old_signatures = first.signature_snapshot();
@@ -273,7 +257,6 @@ fn selected(name: &str, workload: &Workload, setup: &Setup) -> Value {
             assert_eq!(before.text(), workload.inputs[workload.edit_index].text);
             assert_eq!(after.text(), workload.replacement(true));
             assert_ne!(before.revision(), after.revision());
-            assert!(!Arc::ptr_eq(&first, &second));
             evidence["edit"] = edit_evidence(workload, true);
             evidence["representative_type"] = json!("i64");
         } else {

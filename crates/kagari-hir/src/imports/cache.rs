@@ -7,10 +7,6 @@ use crate::{
     resolver::table::NameTable,
 };
 impl ModuleImportFacts {
-    pub(crate) fn same_bindings(&self, other: &Self) -> bool {
-        self.same_surface(other, false)
-    }
-
     pub(crate) fn same_signature_bindings(&self, other: &Self) -> bool {
         self.same_surface(other, true)
     }

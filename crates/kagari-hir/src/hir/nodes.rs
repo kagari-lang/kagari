@@ -180,14 +180,6 @@ impl HirNodes {
         node
     }
 
-    /// Visits local name records in allocation order with their complete IDs.
-    pub(crate) fn locals(&self) -> impl Iterator<Item = (LocalId, &Local)> {
-        self.locals
-            .iter()
-            .enumerate()
-            .map(|(index, (owner, local))| (LocalId::new(self.arena, *owner, index), local))
-    }
-
     pub(crate) fn origins(&self) -> impl Iterator<Item = &NodeOrigin> {
         self.blocks
             .iter()

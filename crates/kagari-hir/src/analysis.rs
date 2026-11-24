@@ -17,7 +17,6 @@ use crate::imports::solver::SolverLimits;
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
-        body::BodyCacheEntry,
         declarations::DeclarationSnapshot,
         error::AnalysisError,
         inputs::{AnalysisInputs, LibrarySources},
@@ -30,14 +29,12 @@ use crate::{
     declarations::{Declaration, DeclarationId},
     imports::ModuleGraph,
     native::{api::preparation::NativeFiles, render::DeclarationSource},
-    typeck::{ModuleSignatures, const_budget::ConstLimits, reuse::BodyReuse},
+    typeck::{ModuleSignatures, const_budget::ConstLimits},
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        map::{DefinitionContext, DefinitionMap},
-        mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata,
+        map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
         table::DefinitionTable,
     },
 };
@@ -49,18 +46,13 @@ use kagari_source::{
 };
 use kagari_syntax::{ast::module::ModuleSyntax, parser::ParseLimits};
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
-use std::{
-    cell::OnceCell,
-    collections::BTreeMap,
-    sync::{Arc, Weak},
-};
+use std::{cell::OnceCell, collections::BTreeMap, sync::Arc};
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
 
 pub mod error;
 
 pub mod body;
-mod cache;
 pub mod eligibility;
 
 pub mod declarations;
@@ -87,7 +79,6 @@ pub struct FileAnalysis {
 
 impl FileAnalysis {
     /// Whether this result's signature query reused earlier checked facts.
-    /// An unchanged file shares its existing result and this original statistic.
     pub fn signatures_reused(&self) -> bool {
         self.signatures_reused
     }
@@ -131,12 +122,12 @@ impl FileAnalysis {
 ///   snapshot()     -> AnalysisSnapshot: signatures + all file bodies
 /// ```
 ///
-/// The last two entrypoints check or reuse bodies before returning; snapshot position
+/// The last two entrypoints check bodies before returning; snapshot position
 /// queries are reads of prepared facts. Analysis errors describe cancellation, import
 /// solver failure or invalid inputs/identity metadata; ordinary source errors are retained as diagnostics.
 ///
 /// Stage caches retain immutable owned records, with weak handles to live graph/query
-/// views. Full-file bundles are indexed weakly and rechecked after their owners drop.
+/// views. Body facts are checked for each request.
 /// A matching revision alone is insufficient:
 /// imports, reachable namespaces, installed declarations and semantic dependencies also
 /// participate in reuse. Publication checks cancellation and does not replace newer
@@ -155,20 +146,12 @@ pub struct AnalysisDatabase {
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
-    /// Reusable selected-body facts, without strong ownership of whole query contexts.
-    body_cache: DefinitionMap<BodyCacheEntry>,
-    /// Newest source revision admitted to the selected-body cache.
-    body_revision: Revision,
     /// Physical parses survive independently of declaration and HIR result owners.
     source_parse_cache: SourceParseCache,
     /// Owned declaration/syntax records with weak handles to live graphs/queries.
     declaration_cache: Option<DeclarationCache>,
     /// Owned signature records, without retaining their declaration graph views.
     signature_cache: Option<SignatureCache>,
-    /// Live full-file queries only. Expired graph-bearing bundles are rechecked,
-    /// never cloned into a second authoritative persistent facts representation.
-    files: HashMap<FileId, Weak<FileAnalysis>>,
-    latest_revision: Revision,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: HashMap<(FileId, String), FileId>,
     import_environment: ImportEnvironment,
@@ -202,17 +185,13 @@ impl AnalysisDatabase {
             source_root: sources.root().to_owned(),
             #[cfg(test)]
             import_solver_limits: None,
-            definitions: definitions.clone(),
+            definitions,
             parse_limits: Default::default(),
             const_limits: Default::default(),
             max_semantic_diagnostics: DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,
-            body_cache: DefinitionMap::new(definitions),
-            body_revision: Revision::default(),
             source_parse_cache: SourceParseCache::default(),
             declaration_cache: None,
             signature_cache: None,
-            files: HashMap::default(),
-            latest_revision: Revision::default(),
             inline_ids: HashMap::default(),
             import_environment: Default::default(),
             native_modules: vec![],
@@ -235,8 +214,6 @@ impl AnalysisDatabase {
         self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
-        self.body_cache.clear();
-        self.files.clear();
     }
 
     /// Supply presentation origins in the same order as the explicit providers.
@@ -257,23 +234,19 @@ impl AnalysisDatabase {
         Ok(())
     }
 
-    /// Sets the per-analysis diagnostic budget, clearing body/file caches when it changes.
+    /// Sets the per-analysis diagnostic budget.
     pub fn set_max_semantic_diagnostics(&mut self, limit: usize) {
         if self.max_semantic_diagnostics != limit {
             self.environment_fingerprint.take();
             self.max_semantic_diagnostics = limit;
-            self.body_cache.clear();
-            self.files.clear();
         }
     }
 
-    /// Sets constant-evaluation limits, clearing body/file caches when they change.
+    /// Sets constant-evaluation limits.
     pub fn set_const_limits(&mut self, limits: ConstLimits) {
         if self.const_limits != limits {
             self.environment_fingerprint.take();
             self.const_limits = limits;
-            self.body_cache.clear();
-            self.files.clear();
         }
     }
 
@@ -289,11 +262,9 @@ impl AnalysisDatabase {
         self.native_files.take();
         self.declaration_cache = None;
         self.signature_cache = None;
-        self.body_cache.clear();
-        self.files.clear();
     }
 
-    /// Prepares signatures and checks or reuses bodies for every supplied/discovered file.
+    /// Prepares signatures and checks bodies for every supplied/discovered file.
     ///
     /// Returns an immutable result even when source diagnostics exist. Use
     /// [`AnalysisSnapshot::check_program`] to require an error-free dependency closure.
@@ -327,107 +298,44 @@ impl AnalysisDatabase {
             })
             .collect::<BTreeMap<_, _>>();
         let mut environments = signature_snapshot.body_environments(self.const_limits, cancel)?;
-        let previous_files = self
-            .files
-            .iter()
-            .filter_map(|(id, file)| file.upgrade().map(|file| (*id, file)))
-            .collect::<HashMap<_, _>>();
         let mut files = HashMap::default();
         for (id, (file, parsed, scoped_prepared)) in signatures {
             cancel.check()?;
             let prepared = scoped_prepared;
-            let previous_facts = previous_files.get(&id).map(|old| old.result());
             let environment = environments.remove(&id).expect("prepared body environment");
-            let analysis = match previous_files.get(&id) {
-                Some(previous)
-                    if previous.shared_valid == shared_valid
-                        && previous.can_retain(
-                            &prepared,
-                            previous_facts
-                                .as_ref()
-                                .expect("previous scoped facts")
-                                .facts(),
-                            &environment,
-                            cancel,
-                        )? =>
-                {
-                    previous.clone()
-                }
-                _ => {
-                    let signatures_reused = prepared.signatures_reused;
-                    let reusable = previous_files
-                        .get(&id)
-                        .map(|old| {
-                            old.can_reuse_body(
-                                &prepared,
-                                previous_facts
-                                    .as_ref()
-                                    .expect("previous scoped facts")
-                                    .facts(),
-                                &environment,
-                                cancel,
-                            )
-                        })
-                        .transpose()?
-                        .unwrap_or(false);
-                    let reuse = previous_files
-                        .get(&id)
-                        .filter(|_| reusable)
-                        .map(|old| BodyReuse {
-                            previous_valid_bodies: &old.result().facts().typed.valid_bodies,
-                            previous_diagnostics: old.result.records().diagnostics(),
-                            previous_lowered: &old.result.records().facts().lowered,
-                            previous_types: &previous_facts
-                                .as_ref()
-                                .expect("previous scoped facts")
-                                .facts()
-                                .typed
-                                .type_table,
-                            old_text: old.source.text(),
-                            new_text: file.text(),
-                        });
-                    let result = analyze_parsed(
-                        prepared,
-                        &parsed,
-                        AnalysisPolicy {
-                            const_limits: self.const_limits,
-                            max_semantic_diagnostics: self.max_semantic_diagnostics,
-                        },
-                        environment,
-                        reuse.as_ref(),
-                        cancel,
-                    )?;
-                    let metadata = ownership::scope(&result, &self.definitions, cancel)?;
-                    let definitions = metadata.definitions().clone();
-                    let mut records = metadata.into_records();
-                    records
-                        .facts
-                        .declarations
-                        .publish_definitions(definitions.clone());
+            let signatures_reused = prepared.signatures_reused;
+            let result = analyze_parsed(
+                prepared,
+                &parsed,
+                AnalysisPolicy {
+                    const_limits: self.const_limits,
+                    max_semantic_diagnostics: self.max_semantic_diagnostics,
+                },
+                environment,
+                cancel,
+            )?;
+            let metadata = ownership::scope(&result, &self.definitions, cancel)?;
+            let definitions = metadata.definitions().clone();
+            let mut records = metadata.into_records();
+            records
+                .facts
+                .declarations
+                .publish_definitions(definitions.clone());
 
-                    let result = DefinitionMetadata::checked(definitions, records, cancel)?;
-                    Arc::new(FileAnalysis {
-                        shared_valid,
-                        signatures_reused,
-                        source: file,
-                        parsed,
-                        result,
-                    })
-                }
-            };
+            let result = DefinitionMetadata::checked(definitions, records, cancel)?;
+            let analysis = Arc::new(FileAnalysis {
+                shared_valid,
+                signatures_reused,
+                source: file,
+                parsed,
+                result,
+            });
             files.insert(id, analysis);
         }
         #[cfg(test)]
         checkpoint(Checkpoint::Publish);
         cancel.check()?;
         self.publish_signatures(signature_snapshot.clone());
-        if source.revision() >= self.latest_revision {
-            self.latest_revision = source.revision();
-            self.files = files
-                .iter()
-                .map(|(id, file)| (*id, Arc::downgrade(file)))
-                .collect();
-        }
         Ok(AnalysisSnapshot {
             inputs: self.inputs(),
             source: source.clone(),

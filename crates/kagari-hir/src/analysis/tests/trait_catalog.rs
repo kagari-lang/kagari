@@ -2,16 +2,19 @@ use crate::analysis::*;
 use crate::tests::standard::standard_modules;
 use crate::{
     aggregates::traits::MethodDefault,
+    analysis::body::FunctionAnalysis,
     declarations::DeclarationId,
     semantic::signatures::FunctionImplementation,
     tests::{native_fixture as fixture, test_analysis},
+    typeck::table::CallTarget,
+    types::TypeId,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::ty::NominalTy;
+use kagari_types::{scalar::BuiltinType, ty::NominalTy};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources
@@ -101,7 +104,6 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         .files()
         .find(|candidate| candidate.source().module_identity() == &owner)
         .unwrap();
-    let native_file = native.source().id();
     let defaults = || {
         native
             .result()
@@ -135,10 +137,6 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
             )
             .is_some()
     }));
-    let retained = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(Arc::ptr_eq(native, retained.file(native_file).unwrap()));
 
     // Hash is a valid rendered trait requirement, but NativeRead's default body
     // cannot prove it for Self. Signature queries must not check that body.
@@ -293,7 +291,7 @@ fn installed_non_overridable_default_rejects_a_script_replacement() {
 }
 
 #[test]
-fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
+fn adding_a_script_default_satisfies_old_impls_without_changing_method_identity() {
     let mut sources = SourceDatabase::default();
     let text = "trait Action { fn act(self) -> i32; } struct Point {} impl Action for Point {}";
     let root = insert(&mut sources, "root", text);
@@ -319,7 +317,6 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
     let before = &authoring_before.records().facts().aggregates;
     let authoring_after = after.to_unverified(&Default::default()).unwrap();
     let after = &authoring_after.records().facts().aggregates;
-    assert!(!before.same_contracts(after));
     let a = before
         .traits()
         .find(|item| item.declaration.name == "Action")
@@ -403,18 +400,16 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
     let mut sources = SourceDatabase::default();
     let library = "pub trait View { fn read(self) -> i32; } fn helper() -> i32 { 1 }";
     insert(&mut sources, "lib", library);
-    let text = "use pkg::lib::View; fn read(x: View) -> i32 { x.read() } fn helper() {}";
+    let text = "use pkg::lib::View; fn read(x: View) -> i32 { x.read() }";
     let root = insert(&mut sources, "root", text);
     let mut db = test_analysis();
-    let old = analyze(&mut db, &sources);
-    let authoring_before = old
+    let declarations = db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let DeclarationId::Definition(owner) = declarations
         .file(root)
         .unwrap()
-        .to_unverified(&Default::default())
-        .unwrap();
-    let before = authoring_before.records().facts();
-    let DeclarationId::Definition(owner) = &before
-        .declarations
+        .declarations()
         .iter()
         .find(|d| d.name == "read")
         .unwrap()
@@ -423,22 +418,26 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         panic!("function");
     };
     let body = db
-        .body(sources.snapshot(), owner, &Default::default())
+        .body(sources.snapshot(), &owner, &Default::default())
         .unwrap()
         .unwrap();
+    let call = |body: &FunctionAnalysis, return_type| {
+        let module = &body.lowered().module;
+        let function = &module.functions[body.function().index()];
+        let tail = module
+            .block(function.implementation.script_body().unwrap())
+            .tail_expr
+            .unwrap();
+        let call = body.type_table().call_resolution(tail).unwrap();
+        assert!(matches!(call.target, CallTarget::TraitMethod { .. }));
+        assert_eq!(
+            call.signature.unwrap().return_type,
+            TypeId::Builtin(return_type)
+        );
+        call.target
+    };
     assert!(body.diagnostics().is_empty());
-    sources
-        .set(
-            "root",
-            text.replace("fn helper() {}", "fn helper() { val n = 1; }"),
-            SourceLayer::Overlay,
-        )
-        .unwrap();
-    let reused = db
-        .body(sources.snapshot(), owner, &Default::default())
-        .unwrap()
-        .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
+    let target = call(&body, BuiltinType::I32);
     sources
         .set(
             "lib",
@@ -447,23 +446,11 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         )
         .unwrap();
     let refreshed = db
-        .body(sources.snapshot(), owner, &Default::default())
+        .body(sources.snapshot(), &owner, &Default::default())
         .unwrap()
         .unwrap();
     assert!(refreshed.diagnostics().is_empty());
-    let after_body_edit = analyze(&mut db, &sources);
-    assert!(
-        before.aggregates.same_contracts(
-            &after_body_edit
-                .file(root)
-                .unwrap()
-                .to_unverified(&Default::default())
-                .unwrap()
-                .records()
-                .facts()
-                .aggregates
-        )
-    );
+    assert_eq!(call(&refreshed, BuiltinType::I32), target);
     sources
         .set(
             "lib",
@@ -472,10 +459,11 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
         )
         .unwrap();
     let invalidated = db
-        .body(sources.snapshot(), owner, &Default::default())
+        .body(sources.snapshot(), &owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(invalidated.reused_bodies(), 0);
+    assert_eq!(call(&invalidated, BuiltinType::String), target);
+    assert_eq!(call(&body, BuiltinType::I32), target);
     assert!(
         invalidated
             .diagnostics()
@@ -486,7 +474,7 @@ fn imported_method_contract_edits_invalidate_consumers_and_preserve_old_snapshot
     let fresh_declarations = fresh_db
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let query = invalidated.definitions().resolve(*owner).unwrap().to_path();
+    let query = invalidated.definitions().resolve(owner).unwrap().to_path();
     let fresh_owner = fresh_declarations
         .file(root)
         .unwrap()

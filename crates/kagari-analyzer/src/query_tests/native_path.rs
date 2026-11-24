@@ -293,7 +293,6 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let new_file = new.file(root).unwrap();
-    assert_eq!(new_file.result().facts().typed.reused_bodies(), 1);
     let path_fact = |file: &FileAnalysis| {
         let authoring_facts = file.to_unverified(&Default::default()).unwrap();
         let facts = authoring_facts.records().facts();
@@ -368,7 +367,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
 mod queries;
 
 #[test]
-fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
+fn field_write_facts_survive_neighbor_edits_and_readonly_paths_are_diagnostics() {
     let mut declarations = Hosts::new();
     declarations.root(PathAccess::ReadWrite);
     let field = declarations.field(
@@ -445,7 +444,6 @@ fn field_write_facts_survive_body_reuse_and_readonly_paths_are_diagnostics() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = new.file(root).unwrap();
-    assert_eq!(file.result().facts().typed.reused_bodies(), 1);
     let authoring_table = file.to_unverified(&Default::default()).unwrap();
     let table = &authoring_table.records().facts().typed.type_table();
     let place = file

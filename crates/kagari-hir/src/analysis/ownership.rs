@@ -98,7 +98,6 @@ pub(crate) fn recover_invalid_identity(
             constants: None,
             aggregates,
         },
-        None,
         &cancel,
     )?)
 }

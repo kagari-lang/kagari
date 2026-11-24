@@ -159,7 +159,7 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
 }
 
 #[test]
-fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
+fn introducing_and_removing_a_type_collision_updates_selected_body_types() {
     let text = "enum Event { Ready } fn keep() -> Event { Event::Ready }";
     let mut sources = SourceDatabase::default();
     let file = sources
@@ -197,7 +197,6 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(broken.reused_bodies(), 0);
     assert_eq!(
         broken.queries().type_at(text.find("-> Event").unwrap() + 3),
         Some(TypeId::Error)
@@ -218,7 +217,6 @@ fn introducing_and_removing_a_type_collision_invalidates_cached_targets() {
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(repaired.reused_bodies(), 0);
     assert!(
         repaired.diagnostics().is_empty(),
         "{:?}",

@@ -32,7 +32,6 @@ MANIFEST_KEYS = {"schema", "workload", "size", "input_hash", "source_bytes", "so
 MATCH_METADATA = ("machine", "platform", "processor", "logical_cpus", "rustc", "cargo",
                   "profile", "features", "parallelism", "environment", "lock_sha256",
                   "harness_sha256", "tooling_sha256", "cargo_config_sha256", "sample_protocol", "cases")
-OBSERVATIONS = {"construction_stats", "user_file_results_reused", "whole_result_reused"}
 
 
 def require(condition: bool, message: str) -> None:
@@ -119,21 +118,11 @@ def validate_evidence(evidence: dict, name: str, manifest: dict, mode: str) -> d
     edited = name in ("body_edit", "signature_edit", "selected_signature_edit", "lifecycle")
     required = {"diagnostics"}
     if selected:
-        required |= {"representative_type", "selected_function", "construction_stats",
-                     "construction_stats_scope", "owner_preparation", "full_validation_after_measurement",
-                     "checked_modules"}
+        required |= {"representative_type", "selected_function", "owner_preparation",
+                     "full_validation_after_measurement", "checked_modules"}
         require(evidence.get("selected_function") == "consumer_a::f0", "selected identity mismatch")
         require(evidence.get("representative_type") == ("i64" if signature else "i32"), "selected type mismatch")
         summary_evidence(evidence["full_validation_after_measurement"], manifest, signature)
-        stats = evidence["construction_stats"]
-        require(set(stats) == ({"first"} if name == "selected" else {"first", "second"}),
-                "missing construction observations")
-        for counts in stats.values():
-            require(set(counts) == {"checked_bodies", "reused_bodies"}, "invalid construction observations")
-            for value in counts.values():
-                number(value, "construction count", integer=True)
-        if name != "selected":
-            required.add("whole_result_reused")
     elif edited:
         required |= {"old", "new", "checked_modules"}
         summary_evidence(evidence["old"], manifest, False)
@@ -148,8 +137,6 @@ def validate_evidence(evidence: dict, name: str, manifest: dict, mode: str) -> d
     if name in ("warm", "selected_warm"):
         required.add("unchanged_source")
         require(evidence.get("unchanged_source") is True, "unchanged source evidence missing")
-    if name == "warm":
-        required.add("user_file_results_reused")
     if edited:
         required.add("edit")
         dependency = manifest["workload"] == "dependency_edit"
@@ -165,20 +152,16 @@ def validate_evidence(evidence: dict, name: str, manifest: dict, mode: str) -> d
         required |= {"allocation_accounting", "timing_is_speed_evidence"}
         require(evidence.get("timing_is_speed_evidence") is False, "instrumented timing is not speed evidence")
     require(set(evidence) == required, f"incomplete/unexpected {name} evidence")
-    for key in ("whole_result_reused", "user_file_results_reused"):
-        if key in evidence:
-            require(type(evidence[key]) is bool, f"invalid {key} observation")
     if "checked_modules" in evidence:
         number(evidence["checked_modules"], "checked_modules", integer=True)
         summary = evidence.get("summary", evidence.get("new", evidence.get("full_validation_after_measurement")))
         require(evidence["checked_modules"] == summary["logical_user_modules"] + summary["provider_modules"],
                 "checked module evidence mismatch")
-    for key in ("construction_stats_scope", "owner_preparation", "route", "lifetime", "source_setup",
-                "measurement", "residual", "allocation_accounting"):
+    for key in ("owner_preparation", "route", "lifetime", "source_setup", "measurement",
+                "residual", "allocation_accounting"):
         if key in evidence:
             require(isinstance(evidence[key], str) and bool(evidence[key]), f"empty {key}")
-    # Allocation/reuse observations are retained raw but are not semantic equality oracles.
-    return {k: v for k, v in evidence.items() if k not in OBSERVATIONS}
+    return evidence
 
 
 def validate_report(report: dict, manifest: dict, case: dict, check: bool = False) -> tuple[dict, dict]:

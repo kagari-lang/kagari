@@ -260,15 +260,7 @@ fn explicit_enum_navigation_separates_owner_arguments_and_variant_after_errors()
         );
         assert!(!analysis.result().diagnostics().is_empty());
     }
-    assert_eq!(
-        new.file(file)
-            .unwrap()
-            .result()
-            .facts()
-            .typed
-            .reused_bodies(),
-        1
-    );
+
     for (snapshot, has_mismatch) in [(&old, true), (&new, false)] {
         assert_eq!(
             snapshot
@@ -502,7 +494,7 @@ fn struct_update_base_reads_are_resolved_and_captured() {
 }
 
 #[test]
-fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_changes() {
+fn selected_body_queries_keep_constructor_targets_and_detect_payload_changes() {
     let text =
         "enum Event { Data(i32) } fn first() -> i32 { 1 } fn keep() -> Event { Event::Data(7) }";
     let mut sources = SourceDatabase::default();
@@ -531,7 +523,6 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
         .unwrap()
         .unwrap();
     assert!(body.diagnostics().is_empty());
-    assert_eq!(body.checked_bodies(), 1);
     let old_expr = body
         .lowered()
         .module
@@ -547,28 +538,23 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
     sources
         .set("cache.kgr", changed.clone(), SourceLayer::Overlay)
         .unwrap();
-    let reused = db
+    let current = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(reused.reused_bodies(), 1);
-    assert!(reused.type_table().enum_constructor(old_expr).is_none());
-    let mut fresh_db = test_analysis();
-    let fresh_declarations = fresh_db
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap();
-    let query = body.definitions().resolve(*owner).unwrap().to_path();
-    let fresh_owner = fresh_declarations
-        .file(file)
-        .unwrap()
-        .declarations()
-        .definitions()
-        .lookup(&query)
-        .unwrap();
-    let _fresh = fresh_db
-        .body(sources.snapshot(), &fresh_owner, &Default::default())
-        .unwrap()
-        .unwrap();
+    assert!(current.diagnostics().is_empty());
+    assert!(current.type_table().enum_constructor(old_expr).is_none());
+    let current_constructor = current
+        .lowered()
+        .module
+        .nodes
+        .expressions()
+        .find_map(|(id, _)| current.type_table().enum_constructor(id))
+        .expect("current constructor target");
+    assert_eq!(
+        current_constructor,
+        body.type_table().enum_constructor(old_expr).unwrap()
+    );
 
     sources
         .set(
@@ -577,13 +563,12 @@ fn independent_body_queries_rebase_constructor_targets_and_invalidate_payload_ch
             SourceLayer::Overlay,
         )
         .unwrap();
-    let invalidated = db
+    let mismatched = db
         .body(sources.snapshot(), owner, &Default::default())
         .unwrap()
         .unwrap();
-    assert_eq!(invalidated.reused_bodies(), 0);
     assert!(
-        invalidated
+        mismatched
             .diagnostics()
             .iter()
             .any(|d| matches!(d.kind, DiagnosticKind::ArgumentTypeMismatch { .. }))

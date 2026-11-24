@@ -113,7 +113,26 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         b
     );
     let unchanged = snapshot(&mut db, &sources);
-    assert_eq!(unchanged.declaration(&binding_a.id), Some(&binding_a));
+    let same_source_binding = unchanged
+        .file(a)
+        .unwrap()
+        .queries()
+        .definition_at(text.find("n }").unwrap())
+        .unwrap();
+    let DeclarationId::Binding(fresh_binding) = &same_source_binding.id else {
+        panic!("local binding in fresh analysis");
+    };
+    assert_eq!(fresh_binding.body, binding.body);
+    assert_ne!(fresh_binding.analysis, binding.analysis);
+    assert_eq!(
+        same_source_binding.source_location(),
+        binding_a.source_location()
+    );
+    assert!(unchanged.declaration(&binding_a.id).is_none());
+    assert_eq!(
+        unchanged.declaration(&same_source_binding.id),
+        Some(same_source_binding)
+    );
 
     let edited = text.replace("val n = value", "val n = value + 1");
     sources
@@ -139,13 +158,6 @@ fn definitions_are_module_owned_but_bindings_are_analysis_and_body_owned() {
         .unwrap();
     assert_ne!(new_binding.id, binding_a.id);
 
-    // Unchanged source and declarations reuse the same semantic identities.
-
-    let third = db
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert_eq!(third.declaration(&new_binding.id), Some(new_binding));
-    assert!(third.declaration(&function_a.id).is_some());
     sources.bind_module("a.kgr", module("renamed")).unwrap();
     let rebound = snapshot(&mut db, &sources);
     assert!(rebound.declaration(&function_a.id).is_none());

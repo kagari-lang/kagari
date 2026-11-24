@@ -33,7 +33,6 @@ use crate::{
         completion,
         const_budget::ConstBudget,
         const_eval, constraints,
-        reuse::BodyReuse,
         state::TypeCheckState,
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
@@ -423,8 +422,8 @@ pub(crate) fn prepare_body_signatures(
 
 /// Checks constant prerequisites and selected function bodies using completed signature inputs.
 ///
-/// Copies signature facts into the output table, restores compatible body facts where
-/// possible, and records fresh diagnostics/types for remaining bodies. Caller-owned
+/// Copies signature facts into the output table and records diagnostics and types
+/// for the requested bodies. Caller-owned
 /// cancellation and policy limits apply throughout; publication occurs above this layer.
 /// Cancellation is an explicit error on every exit, including constant-only analysis;
 /// temporary recovery placeholders in a stopped checker never become returned facts.
@@ -433,7 +432,6 @@ pub(crate) fn check_bodies_controlled(
     names: &ResolvedNames,
     declarations: &Declarations,
     inputs: BodyInputs<'_>,
-    reuse: Option<&BodyReuse<'_>>,
     cancel: &CancellationToken,
 ) -> Result<AnalysisResult<ModuleFacts>, Cancelled> {
     cancel.check()?;
@@ -443,8 +441,6 @@ pub(crate) fn check_bodies_controlled(
             facts: ModuleFacts {
                 valid_bodies: Default::default(),
                 valid_static_initializers: Default::default(),
-                checked_bodies: 0,
-                reused_bodies: 0,
                 signatures: Arc::default(),
                 consts: Default::default(),
                 const_values: Default::default(),
@@ -464,10 +460,7 @@ pub(crate) fn check_bodies_controlled(
         constants,
         aggregates,
     } = inputs;
-    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered, cancel));
     let mut valid_bodies = HashSet::default();
-    let mut checked_bodies = 0;
-    let mut reused_bodies = 0;
     let mut diagnostics = if matches!(selection, BodySelection::All) {
         signatures.diagnostics.clone()
     } else {
@@ -626,8 +619,6 @@ pub(crate) fn check_bodies_controlled(
                 facts: ModuleFacts {
                     valid_bodies: Default::default(),
                     valid_static_initializers: Default::default(),
-                    checked_bodies: 0,
-                    reused_bodies: 0,
                     signatures: body_signatures.clone(),
                     consts: top_level_index.consts,
 
@@ -692,15 +683,7 @@ pub(crate) fn check_bodies_controlled(
             {
                 continue;
             }
-            if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {
-                if shared_valid {
-                    valid_bodies.insert(function.id);
-                }
-                reused_bodies += 1;
-                continue;
-            }
             let diagnostic_start = diagnostics.len();
-            checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = body_signatures.function(function.id) {
                 env.generics = function.generic_params.clone();
@@ -845,8 +828,6 @@ pub(crate) fn check_bodies_controlled(
             facts: ModuleFacts {
                 valid_bodies,
                 valid_static_initializers,
-                checked_bodies,
-                reused_bodies,
                 signatures: body_signatures.clone(),
                 consts: top_level_index.consts,
 

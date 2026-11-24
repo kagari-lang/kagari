@@ -20,8 +20,6 @@ impl RemapDefinitions for ModuleFacts {
         Ok(ModuleFacts {
             valid_bodies: self.valid_bodies.clone(),
             valid_static_initializers: self.valid_static_initializers.clone(),
-            checked_bodies: self.checked_bodies,
-            reused_bodies: self.reused_bodies,
             signatures: Arc::new(self.signatures.remap_definitions(mapper)?),
             consts: map_hash_entries(
                 self.consts.len(),

@@ -19,7 +19,7 @@ fn main(point: Point) -> Point {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names)
         .into_checked()
         .expect("type checker should accept plain call");
     let function = lowered
@@ -57,7 +57,7 @@ fn records_expression_types_for_resolved_body_expressions() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names)
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
@@ -90,7 +90,7 @@ fn allows_assignment_to_var_local_but_not_val_local_or_param() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &var_local, &names, None)
+    let typed = check_module(&context, &var_local, &names)
         .into_checked()
         .expect("type checker should succeed");
     let function = &var_local.module.functions[0];
@@ -123,7 +123,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &field_assignment, &names, None)
+    let typed = check_module(&context, &field_assignment, &names)
         .into_checked()
         .expect("field assignment should type check");
     let function = &field_assignment.module.functions[0];
@@ -150,7 +150,7 @@ fn main(point: Point) -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &param_field_assignment, &names, None)
+    let typed = check_module(&context, &param_field_assignment, &names)
         .into_checked()
         .expect("var field assignment through parameter should type check");
     let function = &param_field_assignment.module.functions[0];
@@ -176,7 +176,7 @@ fn main() -> i32 {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &index_assignment, &names, None)
+    let typed = check_module(&context, &index_assignment, &names)
         .into_checked()
         .expect("index assignment should type check");
     let function = &index_assignment.module.functions[0];
@@ -198,7 +198,7 @@ fn records_named_match_pattern_binding_type() {
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names)
         .into_checked()
         .expect("type checker should succeed");
     let function = &lowered.module.functions[0];
@@ -235,7 +235,7 @@ fn main() -> i32 { VERSION }
         .unwrap()
         .into_checked()
         .expect("resolver should succeed");
-    let typed = check_module(&context, &lowered, &names, None)
+    let typed = check_module(&context, &lowered, &names)
         .into_checked()
         .expect("type checker should succeed");
     let function = lowered

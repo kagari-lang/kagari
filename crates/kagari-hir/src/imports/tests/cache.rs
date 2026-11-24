@@ -5,7 +5,7 @@ use kagari_source::{
 };
 
 #[test]
-fn alias_target_swap_invalidates_single_function_body_reuse() {
+fn selected_body_follows_the_current_transitive_alias_target() {
     let mut sources = SourceDatabase::default();
     insert(
         &mut sources,
@@ -80,12 +80,11 @@ fn alias_target_swap_invalidates_single_function_body_reuse() {
             .iter()
             .any(|d| matches!(d.kind, DiagnosticKind::ReturnTypeMismatch { .. }))
     );
-    assert_eq!(incremental.reused_bodies(), 0);
     assert!(first.diagnostics().is_empty());
 }
 
 #[test]
-fn local_nominal_namespaces_allow_arena_remapping_after_body_edits() {
+fn local_nominal_namespaces_allow_signature_reuse_after_body_edits() {
     let mut sources = SourceDatabase::default();
     let text = "enum Choice { A, B } struct P { val n: i32 } fn changed() -> i32 { 1 } fn keep(p: P) -> i32 { p.n }";
     let root = insert(&mut sources, "root", text);
@@ -113,6 +112,4 @@ fn local_nominal_namespaces_allow_arena_remapping_after_body_edits() {
         fresh.file(root).unwrap().result().diagnostics()
     );
     assert!(result.signatures_reused());
-    assert_eq!(result.result().facts().typed.reused_bodies, 1);
-    assert_eq!(result.result().facts().typed.checked_bodies, 1);
 }
