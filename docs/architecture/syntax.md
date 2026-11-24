@@ -25,8 +25,9 @@ with their existing owners. Production dependencies are `kagari-common`,
 `ParseOptions { limits }` groups per-file resource limits. One parser accepts
 ordinary definitions and explicit `native fn` / `native type` declarations,
 independent of source provenance. Cancellation is a borrowed argument for one
-operation, not reusable configuration. The Engine's `set_parse_limits` still uses
-`ParseLimits` and invalidates affected analysis caches when those limits change.
+operation, not reusable configuration. The Engine's `set_parse_limits` supplies
+`ParseLimits` to subsequent analysis requests. A limit change also resets prepared
+Native registration inputs, including any retained presentation parses.
 
 Syntax errors and resource exhaustion remain in `Parse::diagnostics()`. Consumers
 such as the CLI, formatter and package loader decide whether diagnostics prevent
@@ -299,7 +300,7 @@ borrow the original bytes; helpers returning `String` allocate. In particular,
 whereas `source_text()` retains exact spelling. Literal text access does not decode
 escapes or remove delimiters; literal decoding belongs to kagari-source.
 
-## Retained logical modules and analysis reuse
+## Retained logical modules and request-local parsing
 
 ```mermaid
 flowchart LR
@@ -320,9 +321,10 @@ starts from `NodeRef::ModuleBody(module.body())`.
 `ModuleLocation` holds a weak reference plus private module ID. Resolution requires
 the exact retained `Parse`; an independently reparsed file is rejected even when
 its source text is identical. A locator establishes no cross-revision identity.
-Analysis owns unchanged-physical-parse reuse. Syntax performs a complete lex and
-parse after a changed source; it supplies no incremental reparse or cross-call
-cache. Retained snapshots continue to use their original source and syntax.
+Analysis lexes and parses each physical source once per request, sharing that
+parse with its inline module views. Syntax supplies no incremental reparse or
+cross-call cache. Retained snapshots continue to use their original source and
+syntax.
 
 Inline views retain physical coordinates: `source()` is the complete file, `text()`
 uses the selected body's full extent, and `content_range()` excludes inline braces.
@@ -446,7 +448,7 @@ path treats successful parsing as semantic acceptance.
 | Lexical backing and trivia | [Lexical table](../../crates/kagari-syntax/src/lexical.rs) |
 | Grammar and field layout | [AST](../../crates/kagari-syntax/src/ast.rs), [grammar](../../crates/kagari-syntax/src/parser/grammar.rs) |
 | Borrowed sites and visits | [Borrows](../../crates/kagari-syntax/src/ast/borrow.rs), [visitor](../../crates/kagari-syntax/src/ast/visit.rs) |
-| Physical reuse/projection | [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs) |
+| Request-local physical parsing and diagnostic projection | [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs) |
 | Recovered roles and lifetimes | [Typed contracts](../../crates/kagari-syntax/tests/typed_fields.rs) |
 | Resource limits | [Limit tests](../../crates/kagari-syntax/src/tests/limits.rs) |
 | Declaration provenance | [Declaration tests](../../crates/kagari-syntax/src/tests/declarations.rs) |

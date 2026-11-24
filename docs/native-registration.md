@@ -395,9 +395,10 @@ Checked Host paths and Opaque receiver loans use independent installed adapters.
 package aliases, dependencies and selected preludes, with producer/package defaults
 normalized before graph construction. Explicit aliases determine package selection;
 dependencies do not grant private access, and coherence uses actual defining owners.
-Explicit scopes are retained by immutable analysis inputs for replay and participate
-in semantic cache/fingerprint invalidation. Runtime `NativeBinding` values and Rust
-storage/access adapters remain valid implementation-side objects, never HIR authority.
+Immutable analysis inputs retain explicit scopes for replay. New requests use the
+current scopes, and scope changes reset the environment fingerprint. Runtime
+`NativeBinding` values and Rust storage/access adapters remain valid
+implementation-side objects, never HIR authority.
 
 Source-enabled engines use the direct route unless the host sets
 `builder.declaration_cache(path)` before `build()`. The SDK still renders

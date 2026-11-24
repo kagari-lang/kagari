@@ -76,9 +76,10 @@ real `NativeBinding` values remain local installation data, never HIR authority.
 [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) retains explicit
 [import scopes](../../crates/kagari-hir/src/imports/environment.rs) alongside declaration
 inputs for independent replay. `AnalysisDatabase::set_import_environment` replaces
-package alias, dependency and prelude selections and invalidates dependent semantic
-caches/fingerprints; an old snapshot keeps its original selections. Static metadata
-and these scopes do not bypass visibility, bounds, coherence or language-shape checks.
+package alias, dependency and prelude selections for subsequent requests and resets
+the provider/settings fingerprint. An old snapshot keeps its original selections.
+Static metadata and these scopes do not bypass visibility, bounds, coherence or
+language-shape checks.
 Script defaults retain ordinary bodies and calls to declared helpers. Source-free
 origins and instruction-checked body records establish internal materialization
 provenance, not semantic authentication. [Runtime Script authentication](../../crates/kagari-runtime/src/native/registry/scripts.rs)
@@ -103,14 +104,15 @@ result. For example, `file.queries().definition_at(offset)` borrows that file's 
 checking more source. See [query views and indexes](../architecture/hir.md#editor-query-views-and-indexes).
 Compiler/SDK production targets do not depend on analyzer; lint owns its own private projections.
 
-`FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether
-their signature query reused earlier checked facts. Unchanged queries share the
-original result and its statistic. Body edits can reuse signatures even when body
-or signature diagnostics exist; positions and type-reference IDs belong to the
-new source revision. The `source_queries` example exercises this behavior.
+A new analysis request computes the stages it needs from its supplied source
+snapshot and current analysis settings, even when the source is unchanged. It
+does not consult earlier source parses, lowerings or checked facts. Native
+registration preparation can retain validated inputs and an explicitly supplied
+presentation parse, but not prior HIR. Reading a retained analysis through
+`.queries()` is not a new analysis request. See the
+[HIR query contract](../architecture/hir.md#query-work-reuse-and-publication).
 
-An engine owns one source database and caches for declaration, signature and full
-analysis queries. `load_source` reads
+An engine owns a source database and an analysis database. `load_source` reads
 disk text, `set_source` supplies host text or an editor overlay, and
 `close_overlay` exposes the latest base text again. Relative file paths resolve
 against the database's captured absolute root. File URIs and local paths share
@@ -118,10 +120,11 @@ identity; virtual source URIs retain their scheme.
 
 Use `engine.bind_module(source_name, ModuleIdentity { package, path })` to bind a
 logical module before compilation. A second source cannot claim the same module.
-Rebinding creates a new revision and invalidates analysis, even when text is
-unchanged. Without an explicit binding, the normalized source name identifies an
-unnamed root in its own `source-file:` package family. `SourceSnapshot::module`
-resolves the binding to its effective source, including an overlay.
+Rebinding creates a new revision even when text is unchanged. Subsequent analysis
+of the new source snapshot uses the new binding. Without an explicit binding,
+the normalized source name identifies an unnamed root in its own `source-file:`
+package family. `SourceSnapshot::module` resolves the binding to its effective
+source, including an overlay.
 
 HIR analysis accepts source input so facts retain file/revision/module ownership.
 `CheckedModule::module_identity()` reports that identity; neither compile nor
@@ -139,8 +142,9 @@ function bindings without executing script code. Artifact emission includes the
 complete program. Loading preflights every member's bytecode and host bindings
 before publication or resource accounting. Binding validation covers every member before an entry function runs.
 `compile_source` supplies base text through this same database, so an active
-overlay still takes precedence. Installed declarations are analysis inputs: changing an interface invalidates
-results derived from the previous analysis environment.
+overlay still takes precedence. Installed declarations are analysis inputs: a new
+request checks against the current declarations, while retained analysis keeps its
+original environment.
 
 `declarations(source_snapshot, cancel)` returns a `DeclarationSnapshot` with
 per-file module names, named declarations and parse/declaration diagnostics.
@@ -175,33 +179,29 @@ make the whole program check successfully. Source diagnostics use
 Signature queries build the shared aggregate catalog after declaration signatures
 are available, then validate applied struct/enum bounds in parameters, returns,
 fields and payloads. Imported templates and facades use the same contracts as body
-checking. Dependency changes recompute these diagnostics; body edits rebase their
-locations, and unchanged results remain shared. Full analysis consumes the checked
-signature result instead of rechecking its applications in every function query.
+checking. Signature facts and diagnostics refer to that request's declarations
+and source locations. Full analysis consumes the checked signature result from
+the same request rather than checking signatures separately for each body.
 
 `AnalysisSnapshot::declaration_snapshot()` and `signature_snapshot()` expose the
-immutable query results consumed by full analysis. These share unchanged file
-results with standalone queries. Old snapshots retain their source locations;
-local bindings created by full analysis never appear in declaration-only results.
-Each successful query publishes its own cache, while cancelled queries and older
-source revisions cannot overwrite newer entries. Standalone function queries
-are available through `body(source, definition,
-cancel)`. This returns an immutable `FunctionAnalysis`, or `None` if the declaration
-has no body in that snapshot. Its analyzer `FunctionQueries` type/receiver view is restricted
-to the selected function, and its binding/declaration facts exclude neighboring local bindings.
+immutable stage results consumed by that full analysis request. Old snapshots
+retain their source locations; local bindings created by full analysis never
+appear in declaration-only results. Cancellation returns an error, not a partial
+result. Standalone function queries are available through
+`body(source, definition, cancel)`. This returns an immutable `FunctionAnalysis`,
+or `None` if the declaration has no body in that snapshot. Its analyzer
+`FunctionQueries` type/receiver view is restricted to the selected function, and
+its binding/declaration facts exclude neighboring local bindings.
 Raw local IDs belong to that result's lowering; retained binding handles
 cannot be resolved in a different analysis.
 
-Function queries resolve and check module constants as prerequisites, then only
-the selected function body. Their diagnostics cover those constants and that body;
-parse/declaration/signature diagnostics remain on the retained signature snapshot.
-They do not produce checked modules and cannot bypass full compilation or language
-semantic validation. Exact cached results retain their original source/signature
-snapshot. Unchanged user and impl bodies can reuse remapped facts after other body
-edits, while local binding identities are recreated for the new analysis. Header
-and dependency changes invalidate reuse. Deleted declarations and stale queries
-cannot repopulate a newer cache. Full analysis batches bodies through the same
-resolver and type checker; it continues to validate the complete dependency closure.
+Function queries prepare constant prerequisites and check the selected function
+and its module's runtime static initializers, without checking unrelated ordinary
+function bodies. Prerequisite and body diagnostics belong to the result;
+parse/declaration/signature diagnostics remain on its retained signature snapshot.
+Selected results do not produce checked modules or bypass full-program validation.
+Full analysis batches bodies through the same resolver and type checker; compilation
+requires valid facts for the complete reachable dependency closure.
 
 Embedding diagnostic ranges contain file identity, document revision and byte
 range. Hosts must reject stale ranges before applying editor actions. UTF-8 and
@@ -389,10 +389,10 @@ identity. They must not be retained as bare arena indices across analyses.
 Raw HIR expression, block, statement, place, pattern, local, parameter and type
 reference IDs also carry an opaque `LoweringId`. Their bare-index constructors are
 not public. Obtain them from the owning lowering; `index()` alone is not identity.
-An unchanged shared lowering retains this identity, while fresh lowering has a distinct
-one even when source text/revision is identical. Existing `arena` fields/accessors refer to
-that identity, not an allocator. Semantic
-table lookups do not resolve foreign IDs. Low-level node and source-map access
+A retained lowering keeps this identity. A new request has a distinct lowering
+identity even for identical source text and revision. Existing `arena` fields/accessors refer to
+that identity, not an allocator. Semantic table lookups do not resolve foreign
+IDs. Low-level node and source-map access
 treats a foreign ID as a compiler invariant violation before indexing. Local IDs
 also carry `HirOwner`, distinguishing a function/constant `BodyOwner` from shared
 declaration type references. Lowering assigns that owner, including for missing
@@ -400,16 +400,15 @@ and synthetic nodes; it is not inferred from source spans. Node/source-map acces
 checks the stored owner, and name resolution rejects cross-body edges and bindings.
 An impl receiver can reference a declaration-owned
 type while its parameter and expressions belong to the method's function body.
-Cache reuse explicitly rebases local IDs; arena IDs are not declaration identities
-and do not enter executable artifacts. Analysis-scoped binding handles still carry
-their own body/analysis identity. HIR storage is shared at module granularity, while
+Arena IDs are not declaration identities and do not enter executable artifacts.
+Analysis-scoped binding handles still carry their own body/analysis identity. HIR storage is shared at module granularity, while
 local IDs explicitly name the body that owns each node. `BodyOwner` is defined in
 `kagari_hir::hir::ids` and is shared by lowering and semantic binding owners.
 
 `FieldId` and `VariantId` contain their lowering arena, owning struct/enum and
 declaration-order slot, exposed through `arena()`, `owner()` and `slot()`. They
 cannot be constructed from public integers. Member lookup rejects foreign IDs;
-signature reuse remaps field type keys into the current arena. A variant's nominal
+checked field types use the request's current arena. A variant's nominal
 declaration path contains its enum owner and a `Variant` name/occurrence segment,
 so reordering uniquely named variants changes slots without changing declaration
 identity. Source maps retain exact member-name ranges. Analyzer's
@@ -424,10 +423,9 @@ Signature checking visits every payload annotation, preserving Error facts for
 unknown/missing types and usable facts for later members. `SignatureQueries::type_at`
 queries those annotations before body analysis. Full analysis retains their type
 declaration targets for navigation. The shared aggregate catalog includes nominal
-enum/variant signatures and payload types for reachable source dependencies;
-payload contract changes invalidate dependent body reuse. Signature reuse after
-body edits remaps payload references with the other declaration type references.
-Public enum ABI metadata consumes these checked types.
+enum/variant signatures and payload types for reachable source dependencies. Body
+checking uses these current payload contracts, and public enum ABI metadata
+consumes the same checked types.
 
 For qualified enum constructors, name resolution retains the resolved owner and
 member name; imported owners refer to the same checked import/type bindings used
@@ -438,9 +436,8 @@ count and types; argument errors retain the target and enum result type. Unknown
 variants retain their known enum owner and report a diagnostic. Arguments are
 still checked when the member is absent. Navigation on the qualified callee uses
 the retained variant declaration, including across source facades; unrelated
-unresolved arguments do not navigate to the enclosing constructor. Body reuse
-remaps expression keys while preserving nominal targets. These facts are available
-in independent function queries as well as full analysis.
+unresolved arguments do not navigate to the enclosing constructor. These facts
+are available in independent function queries as well as full analysis.
 
 IR consumes these facts to emit generic enum operations with nominal layouts;
 linking encodes module-local enum and variant slots. Source, standard and registered
@@ -456,16 +453,15 @@ A same-named user enum has its own nominal identity and cannot become a core typ
 `TypeTable::propagation` records checked Try.branch and FromResidual.from_residual
 calls, signatures, the enclosing return type and actual ControlFlow member IDs.
 Lowering consumes those facts and evaluates the operand once. Generic bounded
-projections are normalized after substitution; cached body queries preserve the
-nominal method/member identities while remapping expression keys. Standard
+projections are normalized after substitution. Standard
 Option/Result/ControlFlow propagation is implemented by authored core Script
 bodies and needs no stdlib registration.
 
 `AnalysisSnapshot::declaration(id)` finds a named declaration at that snapshot's
-revision, but rejects a local binding from a different analysis. An unchanged cached
-analysis retains its local identities; source text or analysis-environment changes create new ones.
-The original snapshot remains usable after edits. See the runnable
-`crates/kagari/examples/source_queries.rs` example.
+revision, but rejects a local binding from a different analysis. Local binding
+identities belong to the returned analysis, not to a file revision. The original
+snapshot remains usable after edits. See the runnable
+[`source_queries` example](../../crates/kagari/examples/source_queries.rs).
 
 ## Design Goals
 
@@ -1319,9 +1315,9 @@ code generation; recovery never grants mutation permission.
 `member_receiver_type` queries both field-read expressions and field-write places,
 selecting the narrowest matching HIR range. Nested writes, unknown field names and
 incomplete trailing-dot targets retain a known receiver where analysis recovered
-one. Full-file and per-function queries share this implementation. Repeating an
-unchanged query uses its cached snapshot; source movement rebases query positions
-without changing the results retained by an earlier snapshot.
+one. Full-file and per-function query views share this implementation. Repeating
+an editor query against the same result reads the same facts; querying a fresh
+result after an edit uses the new positions without changing the earlier result.
 
 ## Typed async calls, scheduling and native waits
 

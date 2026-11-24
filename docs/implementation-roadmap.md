@@ -710,7 +710,7 @@ analyzer `.queries()` views and demand-built editor indexes, and private lint pr
 `Module.nodes` stores module-wide nodes; semantic `BodyOwner`, `BodyRoot` and `CheckedBodyInput`
 names remain unchanged. `LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures`
 clarify existing roles. The external-arena/direct-reference migration was withdrawn, not completed.
-Cache policy is unchanged: owned semantic records do not keep weakly indexed HIR graphs alive.
+The later HC01–HC04 change removes cross-request source-stage reuse; snapshots still own their facts.
 The completed execution plan is removed; Git history retains its phase ledger.
 
 **Local evidence:** 144 analyzer library, 19 lint and four stdio tests pass.
@@ -736,11 +736,11 @@ SO00–SO03 is implemented and locally validated. Record slots now issue HIR IDs
 records carry their origins, with optional exact name and static-initializer ranges. Local and
 generic records own names and binder bounds, and each trait method ID selects an owner-relative
 slot. Structured input retains scoped attribution and goes through definition-reference validation.
-Reuse still matches owners and ordered ranges. See [HIR storage and IDs](architecture/hir.md#storage-and-ids).
-[Reverse lookup and remapping scans](hir-model-review.md#deferred-reverse-lookup-and-remapping-scans)
-remain deferred. The [visibility follow-up](hir-model-review.md#hir-visibility-follow-up) records
-candidate API restrictions; the origin identity fix rejects foreign IDs in source-backed records
-without changing those APIs.
+See [HIR storage and IDs](architecture/hir.md#storage-and-ids).
+[HIR reverse lookup](hir-model-review.md#deferred-hir-reverse-lookup) remains deferred. The
+[visibility follow-up](hir-model-review.md#hir-visibility-follow-up) records candidate API
+restrictions; the origin identity fix rejects foreign IDs in source-backed records without
+changing those APIs.
 
 Structure, workspace formatting, workspace all-target Clippy and diff checks pass. Final
 focused validation has 12 passing test executions covering HIR admission and reuse, structured
@@ -779,27 +779,29 @@ where to remove the shared HIR writer and separate executable identities from so
 Implementation remains pending.
 
 [Crate-wide HIR ownership and sharing](hir-model-review.md#crate-wide-ownership-and-sharing-review)
-will inventory authoritative data owners, redundant strong paths, weak caches and borrowed views.
+will inventory authoritative data owners, redundant strong paths and borrowed views.
 This is a pending review, not an activated migration or a retention-policy change.
 
 [Generic substitution and trait resolution](hir-model-review.md#generic-substitution-and-trait-resolution)
 records the current inference, normalization and proof paths, the rustc comparison and a proposed
 shared applicability boundary. It is a design review, not an activated implementation phase.
 
-**Source preparation cleanup:** [parse and lowering reuse contracts](architecture/hir.md#query-work-reuse-and-publication)
-now distinguish exact physical parse inputs, logical module discovery and source lowering identity.
-Changing only an authored library sidecar rebuilds its HIR even when an old parse and lowering both
-remain available. Retention, semantic invalidation and snapshot publication policies are unchanged.
-All 22 selected HIR source preparation, declaration-cache and packaged-core cases pass, along with
-structure, workspace formatting, workspace all-target Clippy and diff checks. Full workspace tests
-and feature/platform matrices remain CI-only.
+**Single-run frontend (HC01–HC04):** Source requests now parse, lower, collect declarations and
+check signatures/bodies at the requested depth without consulting an earlier result.
+[Request-local sharing and snapshot ownership](architecture/hir.md#query-work-reuse-and-publication)
+are unchanged: inline modules share one physical parse per request, and old results remain readable.
+Validated Native registration inputs remain reusable, not their HIR. Focused local tests cover
+selected body isolation/eligibility, imported signature edits, inline diagnostic ownership,
+sidecars, cancellation, compiler handoff, retained analyzer queries and source-free execution.
+Structure, formatting, workspace all-target Clippy and diff checks pass; full workspace and
+feature/backend/platform matrices remain CI-only.
 
-**Pending:** [single-run frontend plan](hir-model-review.md#single-run-frontend-plan) (HC01–HC04)
-removes retained source-stage reuse and measures fresh source compilation separately from editor
-rechecks. Keep request-local sharing and published snapshots. Defer incremental compilation,
-incremental parsing and cross-edit reuse until the [fresh compile/load target](#fast-compilation-and-eager-startup)
-is met and a measured workload justifies them. LSP scheduling, broader Native products and NC
-restoration retain their separate follow-up owners.
+[Matched measurements](performance-baseline.md#single-run-hir-frontend-macos) show no material
+change to fresh HIR or minimal browser compile/load on the tested Mac. The browser candidate is
+271.6 ms median, below the 500 ms target on this workload. Repeat full snapshots with a retained
+old result are substantially slower. Revisit cross-edit analysis only with a measured editor
+workload and a separately scoped design; incremental parsing, disk caches, LSP scheduling, the
+immutable compiler handoff and broader Native work remain separate.
 
 ### HIR hash collection policy
 

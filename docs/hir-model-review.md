@@ -27,17 +27,11 @@ observations and diagnostic/debug/reload origins. Lint projections are private t
 compiler, SDK and HIR production targets do not depend on analyzer. No new LSP capability,
 references/rename index or scheduling model is implied.
 
-### Cache policy is separate
-
-Current caches retain owned declaration/signature/body records but only weak graph/query
-handles; full-file bundles are weakly indexed. Without a live matching graph, queries lower/check
-afresh. Native preparation retains validated registration/source/parse, not graph-local HIR.
-Body facts remain separate from query context: sharing a body cannot retain stale dependency
-validity or eligibility. See [cache ownership](architecture/hir.md#query-work-reuse-and-publication).
-
-HR04–HR08 did not change this policy. The [single-run frontend plan](#single-run-frontend-plan)
-now supersedes the strong-cache follow-up: remove retained source-stage reuse first. Revisit
-incremental analysis only after the fresh compilation target is met and a workload justifies it.
+Each source-analysis request computes fresh facts. Within a request, stages share their
+inputs; already returned snapshots retain their exact facts and source. Validated Native
+registration inputs are separate from retained source-stage results. See
+[request ownership](architecture/hir.md#query-work-reuse-and-publication) and the
+[measured tradeoff](performance-baseline.md#single-run-hir-frontend-macos).
 
 `LoweringId`, `ResolvedTypeTarget` and internal `PreparedSignatures` name current roles;
 `VisibleBinding`/`CompletionCandidate` name analyzer products. `FileAnalysis`/`AnalyzedModule`,
@@ -54,22 +48,19 @@ This is an ownership review, not an `Arc` count or a cache-capacity change.
 | Starting point | Ownership question |
 | --- | --- |
 | [`PreparedSource`](../crates/kagari-hir/src/analysis/source_preparation.rs) and [module assembly](../crates/kagari-hir/src/analysis/declarations.rs) | Keep the parse and lowering paired in a named product rather than unpacking and reconstructing the pair. Their independent lifetimes are intentional. |
-| [`FileSignatures`](../crates/kagari-hir/src/analysis/signatures.rs) | Its declaration and prepared signatures both retain the same lowering. Give the live result one lookup path without losing the cache's old-record/old-lowering checks. |
+| [`FileSignatures`](../crates/kagari-hir/src/analysis/signatures.rs) | Its declaration and prepared signatures both retain the same lowering. Give the live result one lookup path without losing the exact lowering/declaration pairing. |
 | [`FileAnalysis`](../crates/kagari-hir/src/analysis.rs) | It stores `source` separately from `result.facts().lowered.source`. Check whether the separate strong reference owns any independent lifetime or identity. |
 | [`FunctionAnalysis` and `FunctionFacts`](../crates/kagari-hir/src/analysis/body.rs) | Keep shareable body facts distinct from the current request's signature context and eligibility. |
 
-Map each product's authoritative owner, strong retention paths, weak cache entries and read-only
-borrowers. Cover source/parse/HIR, declarations/imports, signatures/body facts, scoped definition
-metadata, snapshots and checked compiler input. Trace a retained old snapshot through a new edit
-and a cache entry whose matching HIR has expired; document what each handle keeps alive. Prefer
+Map each product's authoritative owner, strong retention paths and read-only borrowers. Cover source/parse/HIR, declarations/imports, signatures/body facts, scoped definition
+metadata, snapshots and checked compiler input. Trace a retained old snapshot through a new edit and document what each handle keeps alive. Prefer
 `&T` for read-only access and `Arc<T>` only where independent ownership is required. Audit pointer
 identity checks before removing or relocating handles.
 
 Review output: one ownership map and a bounded retain/remove/merge proposal, coordinated with
 [flow and naming](#analysis-flow-and-naming-review). Preserve in-request parse sharing,
-old-snapshot validity, scoped identity and checked compiler admission. Assess retained graphs
-against the [single-run frontend plan](#single-run-frontend-plan), not as a reason to preserve
-caches scheduled for removal. No whole-crate `Arc` removal or storage redesign is implied.
+old-snapshot validity, scoped identity and checked compiler admission. No whole-crate `Arc` removal
+or storage redesign is implied.
 
 ## Immutable HIR-to-compiler handoff
 
@@ -103,75 +94,6 @@ Acceptance: no writable HIR handle through checked outputs; repeated compilation
 checked input does not extend its source identity scope. Sample declared/intrinsic interface
 calls, source-free verification, lazy statics and retained closures/Futures across reload.
 No implementation authorized here; global lock removal and unrelated cache changes are out of scope.
-
-## Single-run frontend plan
-
-**Status: HC01–HC03 implemented; HC04 pending.** Make a standalone source compilation the baseline.
-A new request computes source facts from its current inputs, not from a previous result.
-Independent `kg build` processes cannot use the existing in-memory reuse paths; they have no
-persistent HIR cache. Long-lived sessions will do more work after edits, and repeat requests
-will check again unless the caller reads an already-held result. The
-[retained-session baseline](performance-baseline.md#persistent-hir-baseline-windows-2026-11-07)
-shows why this tradeoff must be measured separately from first compilation.
-
-```text
-Current source snapshot + library inputs + analysis policy
-    -> parse and lower -> declarations/imports -> signatures -> bodies
-    -> immutable facts and diagnostics -> checked admission -> compiler
-```
-
-The shorter `declarations`, `signatures` and selected `body` requests stop at their existing
-boundaries and use the same stages. There is no `previous` input to source-stage computation
-and no cache feature, fallback implementation or duplicate frontend. A caller can keep and
-query an old immutable result; the next request neither modifies nor consults it.
-
-### Implementation phases
-
-| Phase | Remove | Keep and verify |
-| --- | --- | --- |
-| **HC01 — Check bodies fresh** | [`BodyReuse`](../crates/kagari-hir/src/typeck/reuse.rs), `TypeTable::restore_function`, `FileAnalysis::{can_retain, can_reuse_body}`, the full-file `Weak` index and the selected-body `BodyCacheEntry`/publication paths. Remove previous-result parameters, reuse counters and now-unused predicates in both full and selected routes. | `check_bodies_controlled` checks the requested bodies with current signatures and constants. Keep positive body eligibility, diagnostics, and selected-body queries that do not check unrelated bodies. Read old snapshots after an edit and compare current facts with a fresh database; check call targets/types, not pointer identity. |
-| **HC02 — Check signatures fresh** | [`reuse_signatures`](../crates/kagari-hir/src/typeck/signature_reuse.rs), `previous_analysis` in `DeclaredAnalysis::check_signatures`, `SignatureCache{,Entry}`, `publish_signatures`, signature-reuse statistics and orphaned cross-revision token/namespace/type comparisons. | Build signatures from the current declarations and imported types, then complete aggregate contracts. Preserve signature diagnostics, generic and associated-type facts, and the shared `BodySignatures`/constant prerequisites used within the request. Check an imported signature edit that changes the consumer or its diagnostics. |
-| **HC03 — Prepare source and declarations fresh** | [`DeclarationCache{,Entry}`](../crates/kagari-hir/src/analysis/records.rs), `publish_declarations`, old-result branches in `prepare_declarations`/`prepare_external`, `SourceParseCache` and `prepare_syntax`'s `published` callback. Remove `LoweringInputKey`/`LibrarySourceKey` fields used only for reuse; keep the parse-owned module locator. Remove now-unused cache invalidation and revision watermarks. | Parse each physical document once **per request** and retain that parse for all its inline views. Lower each logical module from that view and attach its current root sidecar before declaration checking. Keep original source extents, physical diagnostic ownership, external input validation, scoped/synthetic IDs and cancellation. Check inline recovery and sidecar changes, including old-snapshot queries. |
-| **HC04 — Validate and measure the standalone route** | Delete dead cache-only APIs, assertions and benchmark counters left by HC01–HC03; do not add aliases. Replace tests concerned solely with removed hits with existing behavioral coverage where possible. | Exercise a fresh source-to-executable route, analyzer reads from a retained result and one source-free or update boundary. Update the HIR guide and benchmark descriptions to reflect the surviving routes. |
-
-HC01 checks both full-file and selected bodies fresh. Focused local coverage samples selected
-body isolation and prerequisites, edited signatures and call targets, cancellation, and retained
-snapshot/binding ownership rather than cache hits. The declaration and signature reuse paths
-were left for their own phases. HC02 removes exact signature hits and cross-revision remapping,
-while keeping declaration publication after successful, cancellation-checked requests until HC03.
-Focused coverage checks current imported signature facts and constraints, diagnostic provenance and
-retained results. HC03 removes the remaining source parse/declaration reuse, including weak
-Native lowering reuse (validated Native metadata and presentation parses remain reusable inputs).
-Its local sample covers logical inline inputs and physical diagnostics, external sidecar and
-source-view validation, import-solver failure and cancellation. The pre-change baseline uses `plain` and `dependency_edit` at size 96
-(five timing runs) and a browser build of the minimal source compile/load workload; report the
-matched comparison in HC04.
-
-Keep request-local sharing, parser/checker limits, source and definition provenance, and
-independent verification. `Arc` used to own a returned snapshot is not a cache. Keep existing
-Native provider input preparation (`NativeFiles`), which retains validated registration inputs,
-not old checked user graphs. Do not remove definition import/remapping used by Native input,
-artifact or reload boundaries. The separate [immutable compiler handoff](#immutable-hir-to-compiler-handoff)
-owns removal of the existing definition-writer escape; this plan does not change codegen or reload.
-
-### Acceptance and performance gate
-
-- No source-stage cache or previous-result parameter remains in the analysis pipeline. Checking
-  edited inputs with or without a retained old result gives equivalent diagnostics and checked
-  facts, with each result's own source locations. Cancelled work returns no partial result.
-- Before changes, capture a matched baseline for the [HIR benchmark](frontend-benchmarks.md#hir-workloads-and-query-routes):
-  fresh checked `plain` and `dependency_edit`, plus a representative retained/edited request to
-  expose the tradeoff. After the cut, remeasure equivalent operations, not cache-hit counters.
-  Also measure the actual fresh source-to-load workload from the
-  [compile/load target](implementation-roadmap.md#fast-compilation-and-eager-startup).
-  Keep toolchain, profile, workload and cache state explicit. No speedup is assumed.
-- Run focused tests per phase, plus structure, formatting, workspace all-target Clippy and diff
-  checks. Full-workspace tests and backend/platform matrices stay in CI.
-- Treat any remaining first-compile gap as a profiling task on the simplified pipeline. The
-  existing **500 ms compile/load target** is unchanged; do not use warm-session numbers to meet
-  it. Defer disk caches, cross-edit semantic reuse, incremental parsing and a query framework
-  until the cold target is met and there is a measured need. This cleanup is not a claim that
-  performance already meets the target.
 
 ## Analysis flow and naming review
 
@@ -218,7 +140,7 @@ declaration-only, signature-only and selected-body queries retain their existing
 
 Before implementation, agree on a stage input/output diagram, an existing-type retain/merge/rename
 map and a file-ownership map. Preserve recoverable diagnostics, positive completion evidence,
-source-free input, scoped identities, checked admission and existing cache/retention contracts.
+source-free input, scoped identities, checked admission and snapshot retention.
 This is not authorization to redesign storage, introduce a pipeline framework or change semantics.
 
 
@@ -424,31 +346,23 @@ at linking, outside HIR. The [boundary contracts](native-model-design.md#9-front
 describe these owners and preserved validations, not pending migration. Broader provider/prebuild
 products stay deferred.
 
-## Deferred reverse lookup and remapping scans
+## Deferred HIR reverse lookup
 
 HIR IDs select records and their origins directly. A general span-to-node query would return
 candidates, since distinct records can cover the same range. Existing editor indexes are
-derived by the analyzer from the matching source and semantic facts.
+derived by the analyzer from the matching source and semantic facts. The cross-edit body and
+signature remapping scans are removed; they are not part of this follow-up.
 
-Body reuse knows the target function. Each function that reaches remapping still scans five
-module-wide node collections in each lowering (expressions, locals, places, patterns and type
-references). It filters on the matching owner and function extent, then pairs entries in slot
-order using relative ranges. Signature reuse scans the old and new type-reference collections
-once per attempt and pairs ordered IDs by owner and projected range. Both preserve repeated
-occurrences. See [body remapping](../crates/kagari-hir/src/typeck/table.rs) and
-[signature remapping](../crates/kagari-hir/src/typeck/signature_reuse.rs).
-
-General reverse lookup and scan reduction remain deferred after SO00–SO03. A later body-reuse
-review can evaluate enumeration from the known function to its ordered node IDs. Evaluate the
-cost on a representative edit workload and preserve owner, relative-range and repeated-occurrence
-checks.
+The selected-body route still locates a scoped function definition by checking per-file
+[declaration mappings](../crates/kagari-hir/src/analysis/body.rs). If measurement warrants it,
+evaluate a lookup owned by the current request or retained snapshot, not a cross-request cache.
+No module storage migration is selected.
 
 ## HIR visibility follow-up
 
 Origin validation follows the IDs carried by each record, not the owning module's input
-kind. This is scoped identity validation; it does not define a new mixed-origin policy.
-`typeck::reuse` and `BodyReuse` are crate-visible; `environment_matches` and `restore`
-are restricted to `typeck`. The remaining visibility candidates are separate from the origin fix:
+kind. This is scoped identity validation; it does not define a new mixed-origin policy. The
+remaining visibility candidates are separate from the origin fix:
 
 - **Internal helpers:** `CheckedAnalysis::to_unverified` has only HIR admission test callers; keep `FileAnalysis::to_unverified` separate because analyzer/compiler
   tests use it. `ModuleSignatures::type_bounds` and `statics` have only HIR callers.

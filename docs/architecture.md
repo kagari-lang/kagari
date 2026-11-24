@@ -209,10 +209,10 @@ exact bodies while ordinary inner calls select current implementations.
 
 Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.
-Inline units share immutable source content, line indexing and an attached physical
-parse while retaining independent module identities and HIR arenas. The
-[HIR query contract](architecture/hir.md#query-work-reuse-and-publication) owns
-logical traversal, diagnostic projection and physical parse validity.
+Inline units share immutable source content, line indexing and one physical
+parse per analysis request while retaining independent module identities and HIR
+arenas. See the [HIR query contract](architecture/hir.md#query-work-reuse-and-publication)
+for logical traversal, diagnostic projection and physical parse validity.
 `SourceDatabase::replace_captured` publishes the complete batch and package scopes
 atomically, preserves unchanged file IDs/revisions, and keeps diagnostic origins
 separate from stable logical keys. Invalid or cancelled batches leave old inputs
@@ -225,8 +225,9 @@ the root path is empty. Installed native aliases remain separately registered in
 Complete package membership and direct dependency edges determine body checking and
 trait candidates. Module traversal uses a package hub rather than all-to-all member
 edges. Source visibility still controls name lookup independently of closure membership.
-Namespace/type/callable comparisons guard incremental reuse when bytes, bindings or
-exact selections change. Native provider contracts remain separate analysis inputs.
+Each request computes its namespaces, types and callable facts from the captured
+inputs at the requested analysis depth. Native provider contracts remain separate
+analysis inputs.
 Checked Programs also own the public namespace graph and canonical function
 declarations, plus a separate root `main` capability. Module aliases
 retain finite graph edges, including cycles; lookup bounds path length. Public generic
@@ -357,14 +358,15 @@ observers and execution/cancellation state are independent. A fresh runtime does
 not duplicate mutable Rust state deliberately captured by a native callback;
 applications needing different captures must prepare different registrations.
 
-HIR analysis databases can fork their query state while sharing immutable results
-and an append-only definition identity context. Existing input/revision/dependency
-checks still govern reuse. The SDK retains a native-only analysis baseline after
-validating generated declarations. `KagariEngine::new_session(config)` starts with
-empty user sources and this baseline; it does not copy another session's user
-files, host declarations, parser limits or later query settings. Baselines belong
-to their exact provider set and origin metadata, not a process-wide cache keyed
-by module names. Their lifetime is bounded by the owning engines/sessions.
+The SDK retains a native-only analysis baseline at engine construction.
+`KagariEngine::new_session(config)` starts with empty user sources and a clone of
+that baseline, not another session's user files or later settings. Analysis clones
+share an append-only `DefinitionContext` and can share `NativeFiles` inputs:
+validated adopted registrations and any explicitly supplied presentation parses.
+They do not carry previous HIR or checked source facts. Each request prepares fresh
+lowerings and checks the requested stages; a retained snapshot stays readable
+through its own immutable records. See the
+[HIR query contract](architecture/hir.md#query-work-reuse-and-publication).
 
 ## Source namespaces and import ownership
 
@@ -403,19 +405,18 @@ Import, expression and type path prefixes retain physical source sites for tooli
 executable lowering consumes qualified checked declarations and graph dependencies,
 not syntax provenance. Source-free artifact loading and native backends do not
 consume the HIR catalog. Signature projections follow declarations reachable from
-the local scope and use independently checked callee signatures. Cache reuse checks
-reachable namespace surfaces and the relevant body/signature inputs; local arena
-reuse still goes through the existing explicit remappers. Older snapshots retain
-their immutable catalogs and continue answering old queries.
+the local scope and use the checked callee signatures prepared in that request.
+Older snapshots retain their immutable catalogs and continue answering old queries
+without participating in new analysis.
 
 Checked imported constants are source-owned prerequisites, not alias-owned
 initializer syntax. During body-environment preparation, the ordinary constant
 checker/evaluator runs for each declaring module before statics and function
 bodies. [`CheckedConstants`](../crates/kagari-hir/src/typeck/constant_facts.rs)
 retains types, scalar values, the type table and diagnostics for that exact
-lowering. Body checking reuses those facts instead of evaluating the initializers
-again. There is no interpolation-specific evaluator or new cross-module
-constant-initializer dependency model.
+lowering. Body checking shares those facts within the request instead of
+evaluating the initializers again. There is no interpolation-specific evaluator
+or separate cross-module constant-initializer dependency model.
 
 [`ImportedConstants`](../crates/kagari-hir/src/imports/constants.rs) projects only
 reachable declarations whose complete SourceUnit matches the prepared owner.
@@ -426,21 +427,17 @@ Declaration, so aliases share canonical identity and navigation. Definition
 remapping visits both source keys and declaration sites; scalar payloads are not
 reinterpreted from spelling.
 
-Full-file and per-body reuse compare imported constant facts alongside the other
-semantic dependencies, not just import names or signatures. For example, changing
-`pub const CODE: i32 = 7` to `9` must invalidate a consumer's checked value even
-when its `use ...::CODE as code` binding is unchanged. New analysis sees 9 while
-retained snapshots keep 7 and navigation still targets the declaring constant.
-The source revision/arena and existing explicit remapping rules bound reuse;
-there is no process-wide cache keyed by the alias.
+Both full and selected-body analysis evaluate constants from the request's inputs.
+For example, changing `pub const CODE: i32 = 7` to `9` makes the new analysis see 9
+although the consumer's `use ...::CODE as code` binding is unchanged. A retained
+snapshot still sees 7 and navigates to its matching declaring constant.
 
 Import solving is dependency-driven: namespace observations and reverse watchers
 schedule affected modules. At quiescence the solver closes pending dependencies,
 rejects self-supporting cyclic derivations and publishes only complete graphs.
 Cancellation, exhaustion and non-convergence are distinct failures. The
 [HIR guide](architecture/hir.md#an-alias-through-a-public-glob) explains the proof
-and publication boundaries. Inline AST reuse and compact module handles remain
-open in [the review](review.md); no universal resolution speedup is claimed.
+and publication boundaries. No universal resolution speedup is claimed.
 
 ## Compilation Pipeline
 
@@ -817,7 +814,7 @@ already-used engine's registrations is a separate lifecycle decision.
 
 ```text
 bundled standard modules + application native modules
-  -> Engine registration -> checked declaration snapshot
+  -> Engine registration -> validated declaration inputs
        +-> default: ModuleDecl -> direct HIR -> shared checking with user source
        +-> explicit declaration_cache: render -> checked parsed declaration views
        `-> runtime-local installation: Rust entries and storage bindings
@@ -861,7 +858,8 @@ explicit scope is supplied. Explicit aliases win over dependency-derived spellin
 prelude candidates obey ordinary access and implicit-binding tiers. Coherence uses
 actual defining identities, not an engine-owned or external-source privilege.
 [AnalysisInputs](../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes
-for replay, and semantic setters invalidate dependent caches/fingerprints.
+for replay. Later requests use the current scopes; changing them also resets the
+provider/settings fingerprint.
 
 The source-enabled SDK still renders declaration documents for
 `native_declaration_sources()`. By default analysis uses structured input, not these
@@ -1417,7 +1415,7 @@ does not imply new native backend coverage.
 
 `DefinitionPath` is the exact owned package/module/kind/name/occurrence locator
 used by authoring inputs, fingerprints, debugging and explicit cross-context
-queries. Published native declarations, HIR caches, checked MIR/bytecode and
+queries. Published native declarations, HIR snapshots, checked MIR/bytecode and
 runtime metadata use `identity::table::DefinitionId`: an eight-byte Copy handle
 with private process-local table and node indices. Bare handles have no Serde
 codec. Owners retain immutable checked `DefinitionTable` snapshots; builders
@@ -1500,7 +1498,7 @@ Specialization seeds aggregate layout and implementation queues in exact definit
 order. Associated layout dependencies, callable requirements and collected Host
 type declarations use that same semantic ordering; numeric ID-key order is only
 internal storage order. This keeps layout/native slots and emitted bytes stable
-across fresh analysis and retained snapshot reuse without changing source expression
+independent of scoped ID allocation order, without changing source expression
 traversal or evaluation order.
 
 Portable KBC/MIR data uses canonical exact tables and four-byte local references.
@@ -2963,9 +2961,10 @@ comparison. A final Script method supplied by a Native registration without its 
 fails closed; origins, signatures or product-supplied digests cannot replace it.
 Native materializations preserve applied bounds, ordered requirements, access policy
 and concrete results for independent linking against Runtime implementations. These
-checks require neither HIR nor source parsing. SDK preparation checks closed source-independent providers before cache
-publication and source-dependent providers with user source. Signature queries remain
-body-free; invalid or cancelled analysis publishes no checked body.
+checks require neither HIR nor source parsing. SDK preparation checks closed
+source-independent providers at engine construction and source-dependent providers
+with user source. Signature queries remain body-free; cancelled analysis returns
+no partial result, and recovery facts cannot admit invalid bodies to compilation.
 
 The dependency direction is contract -> ABI, never ABI -> contract. Neither has
 syntax/HIR or frontend build dependencies. Semantic type-to-representation lowering

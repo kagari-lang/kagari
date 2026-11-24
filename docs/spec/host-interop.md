@@ -335,17 +335,19 @@ The std namespace is reserved. Ambiguous function/module paths and unspellable
 declaration paths are rejected. Unknown imports and duplicate import aliases
 produce source diagnostics instead of disappearing during lowering.
 
-Native declaration inputs participate in analysis caching and body reuse.
-Snapshots retain their checked declarations, signatures, documentation and scoped
-definition IDs; a definition from another context cannot resolve by coincident index.
+Validated Native registration metadata and any supplied presentation parses can
+be shared across requests. Each request lowers and checks the declarations it
+needs against current inputs. Snapshots retain their checked declarations,
+signatures, documentation and scoped definition IDs; a definition from another
+context cannot resolve by coincident index.
 Analyzer's `FileQueries::source_function_at`, opened with `file.queries()` after importing
 `kagari_analyzer::AnalyzerQueries`, returns the ordinary callable target at a
 free-function callee or import without executing code, including through source
 facades. Definition and member queries use the same checked declaration identities.
-Changing the catalog invalidates semantic reuse while unchanged source can reuse
-its parsed CST. Correct neighboring functions remain queryable after import or
-call errors. Host calls require installed bindings and are excluded
-from scalar constant evaluation.
+New analysis uses the current catalog and parses ordinary source afresh, even if
+its text is unchanged. Correct neighboring functions remain queryable after import
+or call errors. Host calls require installed bindings and are excluded from scalar
+constant evaluation.
 
 The source call boundary supports scalar and nested Tuple, Array, Map, Set, Option
 and Result signatures. Key/element eligibility follows the declared
@@ -699,7 +701,6 @@ source declaration location. These recovery facts do not supply an executable
 path or make an invalid program loadable. Nested chains lower to one `ReadPath`, evaluating
 the root exactly once. IR validates the selected contract against required host
 types; bytecode carries the required field declaration and linked path record.
-Reusing an unchanged function body remaps its path root to the new analysis arena.
 
 Source field assignments and compound assignments use checked writable path
 declarations. HIR records the target's root place and contract; readonly paths
@@ -708,7 +709,7 @@ captures the root before evaluating the RHS, then emits SetPath or ModifyPath.
 The runtime validates and reads the current target after RHS evaluation and prepares
 the update before committing the target and dirty record. Arithmetic failure or
 target removal by the RHS prevents the final write while retaining completed RHS
-effects. Body reuse remaps write-root place IDs as well as read-root expression IDs.
+effects.
 For every read, set, modify and view instruction, linking also checks dynamic
 argument count and register representations against the bound descriptor's index
 parameters. An incompatible instruction rejects the whole program before publication;

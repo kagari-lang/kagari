@@ -16,7 +16,7 @@ the documentation conventions.
 | Where do node IDs find their data? | [Storage and IDs](#storage-and-ids), then the matching `Module` or `HirNodes` collection. |
 | Where is the field record for `point.y`? | [AggregateCatalog](../../crates/kagari-hir/src/aggregates.rs) traces lookup from a receiver type and field name, then from a resolved field ID. |
 | How does a source expression acquire a type and a selected call? | [One function through the tables](#one-function-through-the-tables), then `ModuleFacts` and `TypeTable`. |
-| Which work does an editor query trigger or reuse? | [Editor query views and indexes](#editor-query-views-and-indexes), then [semantic query reuse](#query-work-reuse-and-publication). |
+| What does a new analysis request compute, and what can a retained result answer? | [Analysis requests and retained results](#query-work-reuse-and-publication), then [editor query views and indexes](#editor-query-views-and-indexes). |
 | What does the compiler receive? | [Checked handoff](#checked-handoff-and-registered-inputs), then the runnable `CheckedCompilation` rustdoc example. |
 | Why do definition references need visitors? | [Storage and IDs](#storage-and-ids): validation of scoped references and explicit import of reusable facts are different capabilities. |
 
@@ -34,7 +34,7 @@ keeps workloads, measurement boundaries and limitations separate from API guaran
 | `declarations`, `resolver`, `imports` | Declaration identities, lexical bindings and cross-module namespaces. |
 | `aggregates`, `semantic` | Shared nominal/signature contracts and immutable published body facts. |
 | `typeck` | Temporary inference and constraint state produces those facts and positive completion evidence. |
-| `analysis`, `program` | Staged analysis, snapshots, reuse, diagnostics, cancellation publication and complete checked dependency closures. |
+| `analysis`, `program` | Request-local analysis, immutable snapshots, diagnostics, cancellation and complete checked dependency closures. |
 | Analyzer library | Demand-built position/navigation indexes, calls, documentation and completion over matching semantic results. |
 | Lint | Usage summaries and attribute-policy scopes over semantic identities and positive eligibility. |
 | `compile_input` | Admits matching declaration environments, body roots/facts and provenance for the compiler. |
@@ -55,9 +55,8 @@ ordinary Rust modules. Public semantic cases remain in the crate's `tests/`
 tree. Production directories no longer mix in flat sibling `*_tests.rs` files;
 this organization preserves access to private contracts without widening APIs.
 
-The body node tables are still physically shared at module granularity. Logical body
-views enforce owner boundaries; they do not promise per-function allocation or
-fine-grained incremental invalidation. Those are separate storage/query decisions.
+The body node tables are physically shared at module granularity. Logical body
+views enforce owner boundaries without requiring per-function allocation.
 
 ## Storage and IDs
 
@@ -115,15 +114,16 @@ Each Param stores its ID, name, type syntax and origin. Resolver bindings and ch
 signatures impose Val rather than reading configurable parameter writeability; object-field
 mutation remains distinct from rebinding the parameter.
 
-Cloning/reusing one lowering retains its `LoweringId`; fresh lowering creates a new one.
+Retaining one lowering preserves its `LoweringId`; a new analysis request creates
+fresh lowerings even for identical source.
 Existing `arena` fields/accessors name this identity, not a bump allocator. The graph uses
 ordinary owned `Vec`/`String` storage; no external-arena or borrowed-HIR redesign is involved.
 `SourceUnit` additionally records a context-owned module handle, file key and
 revision. For a source-less registration the current graph retains an empty
 `SourceFile` at a `kagari-registration://...` logical key; it is not a physical
 source document or declaration surface. Even when file/revision/arena are identical,
-a handle from an independent context is foreign. Reusing a lowering in that context
-requires rebuilding its graph. [NodeOrigin](../../crates/kagari-hir/src/hir/origin.rs)
+a handle from an independent context is foreign. Source graphs are built in the
+request's definition context. [NodeOrigin](../../crates/kagari-hir/src/hir/origin.rs)
 retains a byte range for source or a scoped declaration ID for structured registration.
 Analyzer derives reference-token/path sites from authored syntax. Structured origins yield no
 source span.
@@ -154,15 +154,15 @@ values; this does not transfer a namespace catalog or authorize cross-arena look
 Whole analyzed/prepared/declaration bundles retain source node tables, name tables and
 semantic input versions. They expose reference validation and editable scoped
 extraction, not arbitrary representation conversion or whole-bundle import. Their
-reusable constituent facts are the remapping boundary. Selected-body queries accept
-scoped IDs and use the analysis context for cache keys; callers with an external
-path explicitly look it up in the relevant declaration snapshot first. Source,
-revision and dependency checks still govern reuse.
+reusable constituent facts are the remapping boundary. A selected-body query
+accepts a scoped definition ID, validates it against the database's definition
+context and finds the declaration in the new request's facts. Callers with an
+external path look it up in a declaration snapshot from that context first.
 
 ## Hash collection policy
 
 [HIR collection aliases](../../crates/kagari-hir/src/collections.rs) own the hasher choice for
-HIR's `HashMap` and `HashSet`, including name/type keys, semantic indexes and analysis caches.
+HIR's `HashMap` and `HashSet`, including name/type keys and semantic indexes.
 They currently use `rustc-hash` 2.1.3's Fx aliases; no feature or per-engine switch is introduced.
 Public HIR collection types use the same aliases. Future hasher selection belongs at this owner,
 not in scattered semantic modules. This is not a new collection implementation: FxHashMap/FxHashSet
@@ -255,10 +255,8 @@ Resolution predeclares block functions, then freezes declaration-time `ActiveSco
 frames temporarily within the resolver. A selected local body resolves its ancestor chain
 without type-checking ancestors or unrelated bodies. Crossing a named function owner excludes enclosing
 value bindings; signatures use only the local's own generic context. Completion
-and navigation use the same lexical ownership. Changed-revision signature/body
-reuse is conservatively disabled for a logical module containing locals on either
-side of the edit; exact-revision caches and unaffected modules retain normal reuse.
-Finer dependency invalidation remains R8.
+and navigation use the same lexical ownership. Each request lowers and checks
+named locals at the requested analysis depth, like other declarations.
 
 A local function value records ordinary checked specialization/application facts.
 `identity::<i32>` retains a PathExpr generic application in Name.explicit_type;
@@ -431,21 +429,20 @@ qualification.
 signatures, constant results and node-keyed facts through read-only accessors.
 Writers are internal to HIR.
 [FunctionAnalysis](../../crates/kagari-hir/src/analysis/body.rs)
-pairs the current query's signature snapshot with shared immutable selected-body
-facts: the function, matching lowering/definition table, environment, bindings,
-diagnostics and result. `eligibility()` uses positive body evidence and the current
+pairs the request's signature snapshot and matching file with immutable
+selected-body facts: the function, definition table, bindings, diagnostics and
+checked result. `eligibility()` uses positive body evidence and the current
 snapshot's shared-input validity, independently of diagnostic display truncation.
 Unrequested/bodyless functions return no selected result, recovery returns facts
 with unavailable completion evidence, and cancellation returns an error before
 publication. A complete selected function is not proof that its entire dependency
 closure is executable.
 
-Cancellation has three owners. Analysis checks requests and cache publication;
-signature/body stages return `Result<_, Cancelled>`; long algorithms retain their
-own internal checkpoints. Cache namespace comparisons propagate cancellation as
-an error rather than treating it as a cache miss. The private body checker shares
-one counter across ordinary statement/expression visits, polling every 64 visits,
-and retains an observed stop flag. Solver cancellation also sets that flag.
+Cancellation has three owners. Analysis checks the request at stage boundaries
+and before returning a result; signature/body stages propagate cancellation;
+long algorithms retain their own internal checkpoints. The private body checker
+shares one counter across ordinary statement/expression visits, polling every 64
+visits, and retains an observed stop flag. Solver cancellation also sets that flag.
 `finish` rejects stopped work before any recovery placeholder can escape as a
 returned fact. Trait candidate/depth limits, inference rounds and constant budgets
 still count every semantic step independently of polling.
@@ -454,11 +451,11 @@ Declaration identity forwarding polls at the ID leaf instead of repeating the
 same read in both enclosing records and their branch. Mapping still validates
 every target and rejects duplicate keys; the shared identity API is unchanged.
 Deterministic cancellation tests interrupt ordinary visits, solver constraints,
-trait candidates, constant evaluation, namespace comparison and full/selected
-publication. They require the previous cached result to retain its identity and
-source, and bound ordinary visited nodes after a request. This is a progress
-bound, not a wall-clock latency guarantee; destruction and a concurrent request
-after the final check still follow cooperative cancellation semantics.
+trait candidates, constant evaluation and full/selected result publication. They
+check that retained results remain readable and bound ordinary node visits after
+cancellation. This is a progress bound, not a wall-clock latency guarantee;
+destruction and a concurrent request after the final check still follow
+cooperative cancellation semantics.
 
 [compile_input](../../crates/kagari-hir/src/compile_input.rs) owns the
 HIR-to-compiler handoff. `CheckedCompilation` borrows an already checked complete dependency
@@ -494,10 +491,9 @@ so neither arm value executes and `grow(x)` creates no concrete instance. Source
 checking still diagnoses both values independently. The checked-body query validates
 the match owner and arm index; elaboration retains only reachable arms, and MIR
 consumes that sequence without independently deciding arm reachability. The
-short-lived memo is tied to one immutable body; it does not publish solver state or
-cross-revision cache entries. Expanded operations retain explicit evaluated
-prefixes, selected calls/conversions and structured branches, rather than a flat
-execution schedule.
+short-lived memo is tied to one immutable body; it does not publish solver state.
+Expanded operations retain explicit evaluated prefixes, selected calls/conversions
+and structured branches, rather than a flat execution schedule.
 
 The source compiler accepts only this admitted complete closure. Its
 [elaborator](../../crates/kagari-compiler/src/source/elaborate.rs) expands one
@@ -679,11 +675,10 @@ Import normalization, traversal and syntactic dependency-prefix matching consume
 segments directly. Joined text belongs only at diagnostic payloads or necessary
 existing text lookup boundaries; text callers adapt to the shared traversal rather
 than defining another resolver. Syntactic facade dependencies remain distinct from
-canonical target/provenance edges and failed/pending lookup observations. Reuse
-compares written segments alongside kind, visibility, dependencies and outcomes;
-equal canonical targets alone do not authorize reuse across source revisions or
-HIR arenas. Retained snapshots keep their matching records, origins and immutable catalogs;
-see [query reuse and publication](#query-work-reuse-and-publication).
+canonical target/provenance edges and failed/pending lookup observations. Retained
+snapshots keep their matching records, origins and immutable catalogs; new requests
+resolve imports from their current inputs. See
+[analysis requests and retained results](#query-work-reuse-and-publication).
 
 The segment separation follows Rust HIR's
 [Path](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.Path.html)
@@ -753,8 +748,8 @@ category. While a `use api::*` may still contribute a name, the solver keeps a
 temporary barrier in its draft state. If lookup has no strong candidate and the
 glob could supply that name, lookup stays pending rather than reporting it
 missing or selecting a glob or implicit candidate. Published `NameTable`s contain
-only settled bindings and outcomes, including errors; neither readers nor cache
-equality need to consult these barriers.
+only settled bindings and outcomes, including errors. Readers do not consult
+these temporary barriers.
 
 At quiescence it closes the union of pending dependencies, releases justified
 reservations and resumes propagation. Finite acyclic derivations prevent aliases
@@ -762,8 +757,8 @@ from proving themselves through cyclic forwarding; equal-target origins remain
 available for navigation. Publication requires a drained queue and no pending
 candidate or directive. Exact bounded state history detects repetition; a separate
 input-sized work bound reports exhaustion. These are distinct from cancellation
-and ordinary unresolved source diagnostics. No failed draft enters analysis caches;
-old snapshots retain their immutable catalog.
+and ordinary unresolved source diagnostics. A failed draft does not become a
+returned graph; old snapshots retain their immutable catalogs.
 
 Draft candidates retain the full LookupOutcome, so ambiguity and access failures
 cannot become absence. Each selected candidate carries a finite derivation of
@@ -771,7 +766,7 @@ real `(DirectiveId, NameNamespace)` keys; lookup excludes a derivation containin
 its own directive/category. Type and Value are distinct here: a Value lookup may
 legitimately use a Type alias from the same import. Prefix/glob proofs compose;
 equal-target origins remain available, with the shortest valid derivation retained.
-Proofs are solver evidence, not definition identity or cache equivalence. Binding provenance
+Proofs are solver evidence, not definition identity. Binding provenance
 and physical locations are separate: source-less structured re-exports retain directives and
 resolved targets but have no leaf/root source sites. Only source-backed records contribute
 physical candidate locations; a zero-width source recovery site is still a real range.
@@ -780,7 +775,7 @@ The work limit counts module evaluations and produced binding contributions,
 derived from input modules, use leaves and seeded spellings. An eight-entry
 history compares exact facts, observations, queue and closed keys rather than
 trusting hash equality. Cancellation, exhaustion and non-convergence preserve
-bounded physical import sites and never publish successful graph/cache entries.
+bounded physical import sites without returning a successful graph.
 
 At the call site, lexical resolution checks local bindings before module names:
 
@@ -859,7 +854,7 @@ coordinates, separately from a declaration's copied/native physical location.
 [SourceSites](../../crates/kagari-analyzer/src/sites.rs) recovers reference-token boundaries
 from the exact retained syntax and whole-node HIR origins, preserving UTF-8/CRLF and inline
 coordinates. [NavigationIndex](../../crates/kagari-analyzer/src/navigation.rs) derives type,
-expression and import prefixes after semantic settlement/remapping. Shared catalog lookups
+expression and import prefixes from the settled semantic facts. Shared catalog lookups
 must agree with selected targets; a lexical shadow cannot acquire module provenance merely
 because the spelling matches. Type/Value categories and equal-target glob origins survive.
 Cancellation returns no partially built navigation index.
@@ -885,39 +880,48 @@ it also owns checked compiler/reload admission. No speedup is claimed.
 
 ## Query work, reuse and publication
 
-The [frontend benchmark guide](../frontend-benchmarks.md#hir-workloads-and-query-routes)
-measures these entry points through independent staged, direct, warm, edited and
-selected-body routes, plus snapshot retention/release. It owns commands and
-measurement caveats; [recorded results](../performance-baseline.md) are
-revision-specific evidence, not additional query or reuse guarantees.
-
-[AnalysisDatabase](../../crates/kagari-hir/src/analysis.rs) owns mutable caches;
-returned snapshots retain immutable source and facts through `Arc`. These are the
-actual entrypoint dependencies, not phases repeated by every position query:
+[AnalysisDatabase](../../crates/kagari-hir/src/analysis.rs) owns the inputs,
+settings and scoped identities for analysis. Each new request parses and lowers
+its source inputs and computes the declarations, signatures and bodies required
+by that entry point. It does not consult a previous source parse, HIR lowering or
+semantic result, even when the input snapshot is unchanged and the caller still
+holds the previous result. The exception is the supplied presentation parse that
+can be retained as a [Native registration input](#native-declaration-inputs-and-origins),
+not a prior analysis product.
 
 ```text
-declarations(source) -> prepare_declarations -> publish DeclarationSnapshot
-signatures(source)   -> prepare_signatures
-                         `-> prepare_declarations
-                      -> publish SignatureSnapshot + declarations
-body(source, owner)  -> prepare_signatures -> selected function + constant prerequisites
-                      -> publish FunctionAnalysis + signatures
-snapshot(source)     -> prepare_signatures -> check/reuse ALL file bodies
-                      -> publish AnalysisSnapshot + signatures
+declarations(source) -> parse, lower, resolve imports and declare -> DeclarationSnapshot
+signatures(source)   -> declarations -> check signatures and aggregates -> SignatureSnapshot
+body(source, owner)  -> signatures -> check prerequisites and selected function -> FunctionAnalysis
+snapshot(source)     -> signatures -> check prerequisites and all file bodies -> AnalysisSnapshot
 
 result.queries().type_at / definition_at / completion -> analyzer reads facts + derives indexes
 snapshot.check_program(root) -> validate reachable checked source closure
 ```
 
+Stages share their results within the request. A `SignatureSnapshot` owns its
+`DeclarationSnapshot`; a full snapshot
+or selected-body result retains its matching signature snapshot. Body checking
+shares normalized `BodySignatures` and checked constant prerequisites within the
+request. The selected route checks constants and the selected module's runtime
+static initializers as prerequisites, not unrelated ordinary function bodies.
+Returning a usable selected body does not admit the whole dependency closure.
+
+Holding an old result keeps its source, lowering, diagnostics and definition-table
+prefix alive and readable. For example, calling `.queries().type_at(offset)` on a
+retained file after an edit still reads that file's old facts and coordinates.
+Calling `snapshot` again reads its supplied inputs instead, and allocates new
+lowering-local IDs. Shared ownership through `Arc` does not make the retained
+result a cache entry. See the [benchmark routes](../frontend-benchmarks.md#hir-workloads-and-query-routes)
+for measurement boundaries; recorded results apply to their measured revisions.
+
 Read [declaration queries](../../crates/kagari-hir/src/analysis/declarations.rs),
 [signature queries](../../crates/kagari-hir/src/analysis/signatures.rs) and
 [selected body queries](../../crates/kagari-hir/src/analysis/body.rs) in that
-order. Internal `PreparedSignatures` carries signature-stage preparation, not an editor
-session or public query view. Declarations include parse/lowering and import resolution;
-signatures check type annotations and aggregate contracts; bodies add local bindings, expression
-types and selected operations. Syntax errors can still leave useful facts and
-diagnostics. Cancellation is an error, checked before publishing completed results.
-Older requests do not replace newer published revision caches.
+order. Internal `PreparedSignatures` carries signature-stage preparation, not an
+editor session or public query view. Source errors can still leave useful facts
+and diagnostics. Cancellation is an error, checked before returning a completed
+result; an interrupted request does not return a partial snapshot.
 
 Internal traversal can still return temporary values while stopping. In
 [block lowering](../../crates/kagari-hir/src/lower/stmt.rs), cancellation stops the
@@ -932,69 +936,36 @@ checker's facts. For `val f = || { return 1; }; 2`, the closure's return belongs
 its own context and `2` remains the enclosing block's tail; cancelling analysis
 must not publish a partial type for `f` as though divergence had been proved.
 
-Selected-body reuse separates the query context from its body payload. If an
-unrelated signature becomes invalid while the selected file and body environment
-remain unchanged, a new result shares the existing body facts but retains the new
-signature snapshot and reports unavailable eligibility, just like a fresh query.
-Previously returned results keep their original context. Reusing the entire result
-requires the same source revision and identical retained signature files, including
-the complete file set; rebuilding map containers alone does not invalidate it.
-Refreshing context does not rerun body checking or copy its tables. The selected-body
-cache strongly owns semantic facts but keeps only weak handles to their file graph and
-last returned query. Returned queries own their exact file/signature context. Reuse upgrades
-the matching old graph temporarily; if it has expired, checking starts fresh rather than
-interpreting cached IDs against a new lowering. The cache alone pins no HIR graph.
+[Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
+parses each physical source document once per request under its applicable parse
+limits, discovers logical modules and assigns parser diagnostics. It then lowers
+each logical module from a `ModuleLocation` paired with the exact parse that owns
+it. Offline library input attaches its current static sidecar to the root before
+sharing the lowering; inline children do not inherit that sidecar. Static metadata
+does not grant installation authority.
 
-Declaration/signature caches share authoritative owned records with live query views, keeping
-only weak graph/query handles. Signature records retain their checked imported types and
-updated definition prefix, not the earlier declaration-stage environment. Full-file results
-are weakly indexed; their expired bundles are rechecked. Native preparation strongly caches
-validated adopted registrations and any explicitly supplied source/parse, then reconstructs
-fresh graph-local attachments. Structured inputs require neither rendering nor parsing;
-source-backed inputs reuse their retained parse. Neither database caches nor database clones strongly retain HIR. Reuse
-requires a live exact old graph; retaining IDs/records alone cannot establish compatibility.
-With no retained result, the next standalone query rebuilds/checks graphs. This is the current
-cache policy, not a requirement of HIR ownership. The completed responsibility/identity
-cleanup preserves owned category tables and this retention behavior. Further retention
-changes require a [separate workload-driven decision](../hir-model-review.md#cache-policy-is-separate).
-
-Source preparation has three steps: get the physical parse, discover logical modules and
-assign parser diagnostics, then get each module's lowering. Discovery does not access a
-parse or HIR cache. Two separate input contracts govern reuse:
-
-| Result | Exact input and retention contract |
-| --- | --- |
-| Physical parse | The exact immutable `Arc<SourceFile>` and `ParseLimits`. The parse owner prefers a matching published parse, then its latest cache, and parses only on a miss. Equal text or revision alone does not establish copied-source provenance. |
-| Source lowering | The logical `FileId`, `ModuleLocation` and optional root library sidecar identity. `ModuleLocation` compares the original parse and its module slot, not a byte range. Lowering reuses a matching live weak entry; otherwise it builds the HIR and attaches metadata before sharing it. |
-
-Library sidecars use an immutable inventory identity and entry slot, held weakly by the
-key. Child modules do not inherit a root's sidecar. This makes sidecar changes independent
-of parse reuse and does not grant library installation authority. Structured registrations
-remain on their separate input path. Declaration, signature and body reuse still check their
-own semantic inputs.
-
-Completed syntax publication does not publish semantic success. A retained published parse
-can still match after a newer syntax batch succeeds but semantic analysis is cancelled;
-older requests cannot replace newer parse cache contents. Preparation uses explicit mutable
-database access with no `RefCell` or additional strong HIR retention.
+The database retains `inline_ids`, keyed by parent `FileId` and inline module
+name, so rediscovery can preserve a synthetic file ID without reusing an arena.
+It also retains the append-only `DefinitionContext`; returned snapshots retain
+immutable table prefixes, not a view that grows as new definitions are interned.
+The provider/settings fingerprint describes inputs, not checked results.
 
 [`SourceFile`](../../crates/kagari-source/src/source.rs) distinguishes `SourceExtent::Whole`
 from `Inline { origin, range }`. For a whole source, `origin_id()` returns its own `FileId`.
 An inline source keeps a synthetic `FileId` and the physical origin and byte range, even
-when nested. Inline modules share physical text, line indexing and one retained parse;
-their module and lowering identities remain distinct. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
-uses discovered `ModuleBlock` views directly, without looking up their byte ranges again
-or reparsing. Position queries retain original UTF-8/CRLF offsets.
+when nested. Inline modules share physical text, line indexing and the request's
+physical parse; their module and lowering identities remain distinct. Lowering
+uses the discovered module views without finding the child again by byte range
+or reparsing its text. Position queries retain original UTF-8/CRLF offsets.
 
 `FileDeclarations::syntax`, `FileSignatures::syntax` and `FileAnalysis::syntax` return
 `Option<ModuleSyntax>`: a matching root-or-inline view for source-backed inputs, or
 `None` for structured registrations. [ModuleSyntax](../../crates/kagari-syntax/src/ast/module.rs)
 item/descendant traversal includes child headers and excludes child bodies.
-Attributes, documentation and lint use that boundary; signature/body surface
-comparisons use logical extents and explicitly translate physical offsets.
+Attributes, documentation and lint use that boundary.
 An independently supplied inline source must match a body extent in its retained
-text. Analysis rejects inconsistent extents with InvalidSourceRange; the low-level
-lower_module convenience documents this caller invariant.
+text. Analysis rejects inconsistent extents with `InvalidSourceRange`; the
+low-level `lower_module` convenience documents this caller invariant.
 
 Physical parser limits apply once, including recovery. Missing closing braces do
 not discard the final token; unparsed error-node suffixes are not reparsed as child
@@ -1005,35 +976,11 @@ direct into_codegen and check_program reject invalid source even when the visibl
 error belongs to another logical module. Program checks collect physical errors
 once per origin/revision and retain each module's semantic errors.
 
-Analysis pairs syntax locators with the exact retained parse; old locators never
-resolve against a newer revision. New physical revisions rebuild child lowerings;
-sharing syntax does not weaken source-unit/context-prefix checks. Existing foreign
-namespace revision/arena checks can still force body rechecking after an inline
-edit, even when signature surfaces match. Finer invalidation remains separate.
-
-| Change | Actual reuse boundary |
-| --- | --- |
-| Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
-| Body-only edit | Changed source receives fresh node tables and a lowering identity. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and matching owners and ordered relative ranges permit it. |
-| Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
-| Semantic input/policy change | Replacing declarations, external sidecars or explicit import scopes invalidates dependent semantic caches and the environment fingerprint. Parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Runtime binding replacement is validated at its own installation boundary. |
-
-[File cache predicates](../../crates/kagari-hir/src/analysis/cache.rs),
-[signature remapping](../../crates/kagari-hir/src/typeck/signature_reuse.rs) and
-[body remapping](../../crates/kagari-hir/src/typeck/reuse.rs) own these checks.
-Retaining an old snapshot remains safe because its IDs still refer to its old
-arena/definition tables; remapped facts must use the new owners.
-
-Imported type inputs also carry this unit's refined trait surfaces, so local alias
-and supertrait resolution observe the same preparation as foreign imports. For
-signature/body remapping, `ImportedTypes::same_reuse_inputs` permits fresh navigation
-revision/ranges only for surfaces belonging to the exact old and new local units,
-with the same module/file, declaration identity and semantic contract. Namespace,
-native representation, associated arities, methods, members, supertraits and alias
-checks remain. Foreign addresses, explicit type/variant resolutions and canonical
-alias templates retain exact comparison; an inherited foreign trait is not local
-merely because its contract is unchanged. Current declarations supply navigation,
-and whole-file/unchanged-query sharing still requires exact revision/arena equality.
+A syntax locator belongs to its exact retained parse, not merely a file revision
+or a byte range. Sharing that parse among inline views does not weaken source-unit
+or definition-prefix checks. Imported type inputs also carry the current unit's
+refined trait surfaces, so local alias and supertrait resolution use the same
+preparation as foreign imports. Navigation uses the matching declaration sites.
 
 ## Native declaration inputs and origins
 
@@ -1050,12 +997,14 @@ ordinary user source ----------------> parse and lower ----------+
 [Structured lowering](../../crates/kagari-hir/src/native/structured.rs) records
 `DefinitionId` to HIR-item correspondence during allocation. The default
 `AnalysisDatabase::set_native_modules` path does not render declarations or invoke
-the parser. [PreparedRegistration](../../crates/kagari-hir/src/native/api/preparation.rs)
-retains owned inputs and only weak handles to live lowerings; rebuilding an expired
-graph allocates fresh node tables rather than reusing old graph-local maps.
-Explicit `set_native_sources` instead checks supplied complete documents against
-registration, parses/lowers them and attaches the corresponding static contracts.
-Rendering is an optional presentation mechanism, not mandatory declaration authority.
+the parser. [`NativeFiles`](../../crates/kagari-hir/src/native/api/preparation.rs)
+retains validated registrations adopted into the analysis definition context and,
+for explicit `set_native_sources`, the supplied documents and their parses checked
+against registration. Every request constructs fresh HIR from these inputs and
+attaches the matching static contracts. `NativeFiles` retains no prior HIR, even
+weakly. It is reset when providers, supplied views, library inputs or parse limits
+change, not on user edits. Rendering is optional presentation, not declaration
+authority.
 
 ### Callable and type ownership
 
@@ -1146,7 +1095,8 @@ type uses. Dependencies grant reachability, never private member access. Selecte
 implicit bindings; multiple selections conflict. Coherence uses actual defining
 identities, not registration/external origin privileges. Immutable
 [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes
-for replay; scopes and non-syntactic contracts participate in invalidation/fingerprints.
+for replay. Scopes and non-syntactic contracts are inputs to each request and to
+the provider/settings fingerprint.
 
 These inputs support common analysis and checked compiler admission without an
 execution registry. Successful analysis alone is not a checked complete program;
@@ -1193,7 +1143,10 @@ diagnostics and retains each module once, including cycles/diamonds. Its order i
 deterministic, not a topological execution order. Compilation admission borrows this
 closure to produce `CheckedCompilation`; a checked single module alone is not a
 compiler input. HIR does not generate bytecode, verify MIR or run functions/static
-initializers.
+initializers. Fresh analysis does not change the compiler handoff: checked facts
+are immutable, but `CheckedCompilation::definition_context()` still supplies the
+append-only allocator for generated compiler identities. Removing that writer
+access belongs to the separate [immutable compiler handoff](../hir-model-review.md#immutable-hir-to-compiler-handoff).
 
 [Native input ownership](#native-declaration-inputs-and-origins) distinguishes direct
 registrations, optional checked source views and offline declarations. Follow
@@ -1285,7 +1238,8 @@ index; the optimization changes preparation cost, not candidate order or budgets
 depth limits and cancellation token. Searches check cancellation even when there
 are no candidates, and distinguish no unique match from cancellation or exhaustion.
 Application/body checking reports exhaustion as a compilation limit, while analysis
-owners reject cancellation before publishing signatures, snapshots or body caches.
+owners reject cancellation before returning completed signature, snapshot or body
+results.
 Lowering retains instantiated caller assumptions and propagates cancellation and
 search exhaustion as distinct errors. Local method lookup in `TypeTable` maps the
 catalog's selected implementation to a local function; it does not run another

@@ -61,7 +61,7 @@ interning a DefinitionId is not proof of a declaration, application, trait bound
 Exact type references skip spelling selection, never category, arity, bounds, dependency or access
 checks. They retain a selected exposure route: a public re-export can expose a public declaration
 inside a private module without exposing its defining path. Ambiguous public routes need explicit
-selection; a retained route disappearing invalidates reuse rather than choosing another identity.
+selection; a previously selected route is not authority if it disappears from the current scope.
 
 A new public session/reservation/body-builder framework remains a possible future authoring design,
 not part of this implementation. Any such framework must reserve actual owners before filling
@@ -331,12 +331,12 @@ supplied and otherwise derives producer/package defaults before graph constructi
 package aliases take precedence over dependency-derived spellings. Missing targets and conflicting
 prelude selections reject; dependencies grant reachability, never private member access.
 [AnalysisInputs](../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes and declaration
-inputs for replay, and semantic setters invalidate dependent caches/fingerprints. These inputs
-include actual dependency declarations and complete owned Script bodies, not copied expected
-traits or a live implementation registry. ModuleGraph, NamespaceCatalog and
+inputs for replay. Scope changes reset the environment fingerprint, and new requests use the
+current inputs. These include actual dependency declarations and complete owned Script bodies,
+not copied expected traits or a live implementation registry. ModuleGraph, NamespaceCatalog and
 [ModuleImportFacts](../crates/kagari-hir/src/imports.rs) derive the resolved graph, bindings and
-reachability from those inputs and the declarations. Reusing the graph does not make its computed
-dependency list an independent source of truth.
+reachability from those inputs and the declarations within each request. The derived graph is not
+an independent source of dependency declarations.
 
 Package aliases resolve to existing package/module identities. Prelude contributions use the
 existing `BindingOrigin::Prelude` and `NameEntry.implicit`; package bindings use
@@ -370,7 +370,7 @@ struct NameEntry {
 }
 ```
 
-These indexes add no privileged declarations; rebuild or reuse them against matching core inputs.
+These indexes add no privileged declarations. Each request derives them from its current inputs.
 
 **Checked declarations.** BodySignatures/TypedFunction and AggregateCatalog resolve declared types,
 binders, bounds, fields, trait/impl relationships, language roles and static Native contracts.
@@ -424,7 +424,7 @@ struct ResolvedCall {
     signature: Option<AppliedCallSignature>,
 }
 
-// Selected-field projection; reuse statistics remain analysis support.
+// Selected-field projection of checked body facts.
 struct ModuleFacts {
     signatures: Arc<BodySignatures>,
     consts: HashMap<ConstId, TypeId>,
@@ -453,11 +453,10 @@ struct CheckedModule<'a> {
 ```
 
 Recovered/selected-body facts alone do not authorize compilation. Views check input ownership and
-completion, not implementation availability or installed adapters. AnalysisDatabase snapshots,
-query indexes, fingerprints, caches, reuse statistics and analyzer/lint projections support these
-results; their validity includes semantic environment, identity scope, source revision, selected
-analysis scope and relevant settings. Provider-only changes grant no static authority. Editor
-indexes remain analyzer-owned.
+completion, not implementation availability or installed adapters. Retained snapshots and
+analyzer/lint projections preserve or read these results in their original semantic environment,
+identity scope, source revision, analysis scope and settings. Provider-only changes grant no static
+authority. Editor indexes remain analyzer-owned.
 
 The word "derived" does not require rerunning analysis for every consumer, storing every fact twice,
 or discarding provenance. Share immutable results and their matching owners. Resolved call/member
@@ -467,7 +466,7 @@ intrinsics can retain their semantic operation category without carrying a runti
 
 Not every remaining Rust structure is a retained checking result. Inference variables, worklists,
 recursion guards and local solver assumptions are temporary checking workspace; cancellation,
-limits and snapshot/cache machinery support analysis. Source revisions and optional origins are
+limits and snapshot ownership support analysis. Source revisions and optional origins are
 retained input/provenance, not inferred from TypeTable. None of these creates another semantic
 source of truth. Physical layouts, ABI/result adapters, actual Rust implementations, final links,
 live services and Runtime generations belong outside this model and are supplied/validated later.
@@ -482,7 +481,7 @@ linking's outcome, not those facts. Optional source sites can differ across inpu
 static privileges and diagnostic rules cannot.
 
 Every retained semantic field must therefore identify its authoritative core input and the rule
-that derives it. A view/cache must identify the result and validity context it reuses. Facts needed
+that derives it. A view must identify the result and validity context it reads. Facts needed
 to preserve a guarantee have an actual core owner, rather than an unreviewed side map or removal
 under the label "derived". This is the ownership criterion for the implemented A–E boundaries,
 not authorization for another HIR storage, query-engine, provider or build-product redesign.
@@ -863,7 +862,7 @@ eligibility use [actual defining ownership](../crates/kagari-hir/src/aggregates/
 [Compiler admission](../crates/kagari-hir/src/compile_input/program.rs) requires a checked complete
 dependency closure, positive body evidence and supported executable operations, not input origin
 or binding availability. [Lint](../crates/kagari-lint/src/lib.rs) uses the root package's analysis
-scope rather than registration status; semantic caches compare actual inputs.
+scope rather than registration status.
 
 ### B. Remove duplicate registration contracts from the compiler handoff
 
@@ -930,8 +929,9 @@ route; it does not select replacement access semantics.
 
 Conversion relationships must name actual accessible targets; extra supertraits/bounds unsupported
 by intrinsic derivation reject. [Immutable analysis inputs](../crates/kagari-hir/src/analysis/inputs.rs)
-retain explicit scopes for replay; [fingerprints](../crates/kagari-hir/src/analysis/input_fingerprint.rs),
-cache invalidation and reuse account for scopes and non-syntactic contracts. Optional source
+retain explicit scopes for replay. New requests use the current scopes and non-syntactic
+contracts, which are also reflected in the
+[environment fingerprint](../crates/kagari-hir/src/analysis/input_fingerprint.rs). Optional source
 presentation and registration/source correspondence grant no additional static authority.
 
 ### F. Adapt producers and consumers across the pipeline

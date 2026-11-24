@@ -20,6 +20,4 @@ pub(crate) struct SignatureRecord {
     pub(crate) names: Arc<AnalysisResult<DeclarationNames>>,
     pub(crate) declarations: Declarations,
     pub(crate) signatures: Arc<AnalysisResult<ModuleSignatures>>,
-    /// Diagnostics after this boundary are recomputed against completed aggregates.
-    pub(crate) local_signature_diagnostics: usize,
 }

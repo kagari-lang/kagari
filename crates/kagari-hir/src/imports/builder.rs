@@ -462,9 +462,6 @@ fn add_declarations(
             }
         }
     }
-    for item in &module.module.impls {
-        names.insert_impl(item.id);
-    }
     let mut associated = BTreeMap::<String, (SourceItem, Visibility, NameTable)>::new();
     for item in &module.module.structs {
         cancel.check()?;

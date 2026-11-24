@@ -38,7 +38,7 @@ stateful cleanup scenarios.
 | Pure algorithms and numeric boundaries | Rust tables or narrowly parameterized cases | Independent reference values, bit patterns, allowed sets and traps |
 | Lowering, IR, bytecode and artifact admission | Constructed inputs and focused Rust assertions | Typed operands, effects, forged-input rejection and source-free validation |
 | Multimodule and package acquisition | Fixture trees plus Rust graph/filesystem scenarios | Locks, fingerprints, namespaces and retained snapshots |
-| Incremental analysis, caches and scoped identity | Explicit Rust scenarios | Reuse, invalidation, owner identity and old-snapshot isolation |
+| Analysis across input changes and scoped identity | Explicit Rust scenarios | Current-input facts, owner identity and old-snapshot isolation |
 | GC, roots, handles and resources | Explicit Rust scenarios; external source where useful | Foreign/stale rejection, accounting and release order |
 | Host borrowing, conversion and reentry | Explicit Rust and compile-fail scenarios | Scoped access, alias rules, unwinding and synchronous reentry |
 | Async, cancellation, statics and reload | Explicit Rust scenarios; external source where useful | Poll/drop/wake order, publication, version choice and cleanup |
@@ -483,10 +483,12 @@ acceptance remains CI-owned.
 Ordinary SDK tests can use
 [`test_support/execution.rs`](../crates/kagari/src/test_support/execution.rs).
 Its standard baseline initializes once in the SDK library test harness. A short mutex
-protects copying the native-only analysis baseline; compilation and execution
-take place outside it in a fresh `KagariEngine::new_session`. This is not a pool
-of previously used engines. Registration, provider replacement, source-origin,
-cache invalidation and custom captured-state tests construct their own engine.
+protects copying the native-only analysis baseline, which shares validated
+registration inputs, not prior HIR or checked source facts. Compilation and
+execution take place outside the lock in a fresh `KagariEngine::new_session`.
+This is not a pool of previously used engines. Registration, provider replacement,
+source-origin, analysis-settings and custom captured-state tests construct their
+own engine.
 
 For a single source case, the runner performs these steps:
 
@@ -623,8 +625,8 @@ does not collect timing campaigns or enforce performance budgets.
 ## Source-tool acceptance
 
 Formatter syntax, comment attachment and layout tests live in `kagari-format`;
-rule/level/partial-fact cases live in `kagari-lint`. HIR owns eligibility/reuse
-contracts, package tests own recovery/completeness, and CLI tests own argument,
+rule/level/partial-fact cases live in `kagari-lint`. HIR owns eligibility and
+snapshot isolation, package tests own recovery/completeness, and CLI tests own argument,
 reporting and writeback behavior. Select affected filters locally. The
 `toolchain` executable includes one representative workspace that proves formatter
 idempotence, side-effect/order preservation through SDK execution, CLI/SDK checking

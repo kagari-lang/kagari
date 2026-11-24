@@ -1,6 +1,5 @@
 //! Tiered module bindings; lexical bindings remain in body scopes.
 use crate::{
-    hir::ids::ImplId,
     imports::{
         BindingCandidate, BindingOrigin, LocalName, NameEntry, SourceUnit,
         bindings::{LookupOutcome, PerNamespace},
@@ -55,8 +54,6 @@ pub struct NameTable {
     pub(crate) unit: Option<SourceUnit>,
     /// Ordered local spellings and all tiered binding candidates.
     pub(crate) entries: BTreeMap<LocalName, PerNamespace<NameEntry>>,
-    /// Local implementation handles retained for surface/cache comparison.
-    impls: Vec<ImplId>,
 }
 
 impl NameTable {
@@ -173,14 +170,5 @@ impl NameTable {
                 LookupResult::Ambiguous(_) => NameResolution::Ambiguous,
                 _ => NameResolution::Unresolved,
             })
-    }
-
-    pub(crate) fn insert_impl(&mut self, id: ImplId) {
-        self.impls.push(id);
-    }
-
-    /// Returns the number of local implementation handles retained by this table.
-    pub fn impl_count(&self) -> usize {
-        self.impls.len()
     }
 }

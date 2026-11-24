@@ -30,6 +30,60 @@ It includes all 19 original/forms timings and arithmetic machine-code attributio
 [BO13-BO16](#bo13-bo16-scalar-loops-windows-2026-10-27) records the preceding bytecode
 improvement. Earlier i7 measurements below remain revision-specific evidence.
 
+## Single-run HIR frontend, macOS
+
+HC01–HC04 remove retained source analysis reuse. Compare baseline `2f73c4cce` with the
+completed HC04 source. For HIR timing, apply only the candidate's counter-free
+`crates/kagari-hir/benches/hir_baseline/timing.rs` and `scripts/hir_benchmark_results.py`
+to the baseline. Build both revisions successively at the same absolute path. The benchmark
+runner verifies matching manifests, harness/build settings and semantic evidence before pairing.
+Use the [HIR benchmark runner](frontend-benchmarks.md#hir-archives-and-comparisons) separately
+on the baseline and then on the candidate with `--baseline` pointing to the first archive:
+
+```text
+uv run python scripts/benchmark_hir.py --mode timing --workload plain --workload dependency_edit --size 96 --runs 5 --output target/hc04-before
+uv run python scripts/benchmark_hir.py --mode timing --workload plain --workload dependency_edit --size 96 --runs 5 --baseline target/hc04-before --output target/hc04-abba
+```
+
+Apple M1 Max, 10 logical CPUs, 32 GiB, macOS 26.6.2 (25G83), AC power, normal power
+mode; Rust/Cargo 1.100.0 (rustc `0ef1bc386`, LLVM 23.1.5), uv 0.12.19. Locked default
+release profile, default features and build parallelism, warm build caches. Five serial
+AB/BA pairs per workload with one discarded suite warmup per process, no OS cache flush.
+The two HIR `checked` blocks are summed per sample; they exclude input setup, reporting,
+validation walks and teardown, and do not execute or load code.
+
+| HIR operation, size 96 | Baseline ms | Candidate ms | Median paired ratio |
+| --- | ---: | ---: | ---: |
+| Plain: fresh snapshot + checked admission | 952.28 [947.16–964.96] | 946.53 [944.11–957.89] | 0.993× |
+| Dependency edit: fresh snapshot + checked admission | 373.68 [373.24–384.91] | 371.22 [370.39–372.36] | 0.993× |
+| Plain: repeat snapshot with old result held | 64.79 [64.56–65.49] | 939.36 [935.76–945.75] | 14.450× |
+| Plain: snapshot after body edit | 77.32 [76.74–77.39] | 940.34 [935.71–945.80] | 12.162× |
+| Dependency edit: repeat snapshot with old result held | 75.37 [75.05–75.76] | 364.95 [364.00–371.79] | 4.860× |
+| Dependency edit: snapshot after signature edit | 352.81 [351.52–364.69] | 364.90 [364.31–366.14] | 1.034× |
+| Dependency edit: first selected-body request | 63.80 [63.66–64.10] | 63.99 [63.83–64.40] | 1.003× |
+| Dependency edit: selected body after signature edit | 68.05 [67.70–69.05] | 63.97 [63.85–64.22] | 0.942× |
+
+Browser compile/load is a separate end-to-end measurement. Build each immutable source WASM
+product with [`node site/scripts/wasm-products.mjs`](../site/scripts/wasm-products.mjs) and serve
+both from loopback. Default web source features, `wasm32-unknown-unknown`, locked release,
+wasm-bindgen 0.2.129, no wasm-opt; Node 22.20.0, Playwright 1.64.1, Chrome 158.0.8127.88.
+Use `fn main()->i32{42}` and the [direct source preparation timing boundary](#direct-source-preparation-2026-10-21).
+Alternate the two products five times in one headless Chrome process, fresh browser context
+per sample, no discarded warmup. Time first session construction and `BrowserSession.compile`
+separately after WASM initialization; compile includes load. Execute twice outside timing and
+assert `i32(42)`; both products pass the same source-free artifact admission control.
+
+| Browser operation | Baseline median [min–max], ms | Candidate median [min–max], ms |
+| --- | ---: | ---: |
+| First compile/load | 271.5 [270.9–272.9] | 271.6 [270.9–272.8] |
+| Fresh session construction + compile/load | 739.4 [736.7–743.5] | 738.9 [738.1–740.5] |
+
+The minimal compile/load target (500 ms, excluding construction) is met by both products on this
+machine. The baseline-only run before implementation measured 289.6 ms; that between-run shift
+exceeds the pre/post difference in the alternating run. The measurements do not establish a fresh
+compilation speedup. The substantial retained full-snapshot regression is expected when earlier
+results are not used by new requests. Reading the already-held result is a different operation.
+
 ## RR05 parked-root admission and collector characterization, macOS 2026-11-14
 
 These are RR05 local acceptance measurements with the explicit NC/CI limits below.
@@ -1279,7 +1333,7 @@ changed both consumers' inferred type from `i32` to `i64`, and preserved the old
 snapshot's `i32`. Body edits additionally asserted old/new lowered literal and
 checked scalar facts, not just changed source metadata.
 
-Cached body facts do not eliminate query preparation. Current `snapshot` and `body`
+Cached body facts did not eliminate query preparation. The measured `snapshot` and `body`
 prepare declarations/signatures and body environments before deciding whether
 retained file/body facts are compatible. See the
 [query ownership contract](architecture/hir.md#query-work-reuse-and-publication),

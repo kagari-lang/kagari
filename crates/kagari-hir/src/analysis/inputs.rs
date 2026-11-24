@@ -59,7 +59,7 @@ impl LibrarySources {
 
 /// Captured providers, their identity scopes, presentation origins and query limits.
 ///
-/// This contains no query caches, mutable identity context or executable callbacks.
+/// This contains no analysis results, mutable identity context or executable callbacks.
 /// Restoring creates a fresh context; ordinary declaration import maps each retained
 /// provider scope into it. Independent offline exports retain real source and
 /// static sidecars, not registration authority; they use ordinary source checking.
@@ -88,7 +88,7 @@ impl AnalysisDatabase {
         self.invalidate_library_queries();
     }
 
-    /// Captures only immutable inputs, independently of this session's cached facts.
+    /// Captures only immutable inputs, independently of any returned results.
     pub fn inputs(&self) -> Arc<AnalysisInputs> {
         Arc::new(AnalysisInputs {
             source_root: self.source_root.clone(),

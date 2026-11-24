@@ -246,7 +246,7 @@ pub(crate) struct BodyEnvironment {
     pub imported_statics: ImportedStatics,
     /// Validated scalar values selected by source imports.
     pub imported_constants: ImportedConstants,
-    /// Source-matched prerequisites reused rather than rechecking constant initializers.
+    /// Constant prerequisites already checked within this request.
     pub constants: Option<Arc<CheckedConstants>>,
     /// Aggregate and implementation contracts visible to this file.
     pub aggregates: AggregateCatalog,

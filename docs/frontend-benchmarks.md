@@ -135,19 +135,28 @@ sources and edit revisions. The input hash includes length-framed filenames,
 original and edited text, generation recipe and route names. Read the manifest
 rather than treating the size label as bytes or total provider-inclusive functions.
 
-[Timing routes](../crates/kagari-hir/benches/hir_baseline/timing.rs) keep different
-public entry points independent; see [HIR query ownership](architecture/hir.md#query-work-reuse-and-publication).
+The [timing routes](../crates/kagari-hir/benches/hir_baseline/timing.rs) exercise
+separate [public analysis requests](../crates/kagari-hir/src/analysis.rs). Each request
+prepares the current source and declarations and checks as far as its entry point
+requires, even on the same database with unchanged source or a retained result.
+Parses and checking prerequisites can be shared within a request. The database can
+reuse validated Native registration inputs (including optional presentation parses),
+not prior lowered or checked results. Reading an already-held snapshot does not start
+a request; an old snapshot keeps its original facts and source locations after an edit.
 
 | Route | Measured work and preparation |
 | --- | --- |
-| `staged` | Install providers, then declarations, signatures after declarations, snapshot after signatures, `check_program`, result release and database release on one database. Later phases benefit from earlier preparation. |
-| `snapshot` | Direct cold-database snapshot, without preliminary declaration/signature queries; install and teardown are separate. |
-| `checked` | Independent direct snapshot plus `check_program` and teardown. The check validates the reachable checked closure, not execution or code generation. |
-| `warm` | Preparation snapshot, then an unchanged snapshot on the same database with the first result retained; report file-result sharing separately. |
-| `body_edit` / `signature_edit` | Retain old snapshot, update source, query edited snapshot, check the new program and release results/database. Preparation and source edit are separate metrics. |
-| `selected` | Declaration-only preparation and owner lookup, then `body` for `consumer_a::f0`. No full snapshot prewarms this query. |
-| `selected_warm` / `selected_signature_edit` | Prepare the selected result, then query it unchanged or after the dependency signature edit, retaining the first result. Full snapshot/program validation happens only after the selected measurements. |
-| `lifecycle` | Install, old snapshot/program check, body edit, new snapshot/program check, release old aliases, release new aliases, release analysis database. |
+| `staged` | Install providers; measure `declarations`, `signatures` and `snapshot` as separate fresh requests on one database. Retain the results through `check_program`; release results and database in separate blocks. |
+| `snapshot` | Direct full analysis on a fresh database, without preliminary declaration/signature requests; install and teardown are separate. |
+| `checked` | Independent direct snapshot plus `check_program` and teardown. Admission checks the reachable closure of the existing snapshot; it does not reanalyze source, generate code or execute it. |
+| `warm` | Retain the first snapshot and request a fresh snapshot of unchanged source on the same database. This measures repeat analysis, not a read from the retained result. |
+| `body_edit` / `signature_edit` | Retain the old snapshot, update source, analyze it fresh, check the new program and release results/database. Preparation and source edit are separate metrics. |
+| `selected` | Measure declaration-only preparation and owner lookup, then release the declaration snapshot. Request `body` for `consumer_a::f0`: fresh analysis through signatures and checking of the selected body and its prerequisites, not a full body check. |
+| `selected_warm` / `selected_signature_edit` | Retain the first selected result, then make a fresh selected-body request with unchanged source or after the dependency signature edit. |
+| `lifecycle` | Install, old snapshot/program check, body edit, fresh snapshot/program check, release old aliases, release new aliases, release analysis database. |
+
+For all selected routes, full snapshot and program admission are validation only and
+run after the selected-query measurements.
 
 All timing sizes include staged, snapshot, checked and warm routes. At size 96,
 plain adds body edit and lifecycle, generic adds lifecycle, and dependency edits
@@ -161,35 +170,39 @@ retained old result still reports `i32`. A body-only edit changes the literal fr
 1 to 9 without changing the signature; plain/generic lifecycle edits change the
 first `x + 0` to `x + 9`. Assertions check actual source/revision changes, diagnostics,
 function/module counts, representative types, edited lowered literals and checked
-scalar facts, and old-result validity. These are
-analysis benchmarks; they do not execute the changed arithmetic.
+scalar facts, and old-result validity. These are analysis benchmarks; they do not
+execute the changed arithmetic.
 
-Selected-result construction counts are provenance of the returned result, not
-necessarily work done by the current query: a shared result can retain its earlier
-counts. Reuse observations remain in raw reports but are not cross-image semantic
-equality requirements in the [result validator](../scripts/hir_benchmark_results.py).
+The [result validator](../scripts/hir_benchmark_results.py) checks diagnostics,
+function/module counts and representative types, plus checked-closure size where
+admission runs. Edit and repeat routes report edit/retention or unchanged-source
+evidence as applicable. Selected routes report the function identity, its type and
+the full validation summary. Reports include no analysis-reuse counters or pointer
+identity observations.
 
 ## Timing, retention and cache interpretation
 
 Shared catalog initialization is reported separately as `provider_setup_ns`.
-Source database setup and empty analysis database creation precede measured query
-blocks; provider installation into each database is measured separately. Correctness
-walks and JSON reporting are outside timing blocks. Cold means **fresh analysis
-database**, not cold OS caches: timing processes warm code/allocator state, the
-catalog is shared within the process, and there is no OS cache flushing.
+Source database setup and empty analysis database creation precede the measured
+blocks; provider installation into each database is timed separately. Each
+source-analysis block includes taking the current source snapshot and running that
+request. The driver times source edits and `check_program` separately where they occur.
+Correctness walks and JSON reporting are outside timing blocks. Cold means **fresh
+analysis database**, not cold OS caches: timing processes warm code and allocator
+state, the catalog is shared within the process, and there is no OS cache flushing.
 
 `lifecycle/measured_sum_ns` is the sum of nine measured operation blocks, **not
-contiguous wall time**. Validation runs between blocks. Likewise, the staged route
-is conditioned on its earlier phases, not a decomposition of an independently timed
-direct snapshot. Do not sum medians or subtract independent routes to claim an
-end-to-end latency or isolated checker cost.
+contiguous wall time**. Validation runs between blocks. Staged metric names such as
+`signatures_after_declarations` and `snapshot_after_signatures` describe order, not
+incremental work or a decomposition of a direct snapshot. Do not sum medians or
+subtract independent routes to claim end-to-end latency or isolated checker cost.
 
 The [shared lifecycle](../crates/kagari-hir/benches/hir_baseline/scenarios.rs) keeps
 old/new snapshots and checked programs together, then drops all explicit old aliases,
 all explicit new aliases, and finally the analysis database. Its memory checkpoints
 are `baseline`, `old_snapshot`, `both_snapshots`, `old_released`, `new_released` and
-`database_released`. Database caches can retain facts after callers release their
-results; a small result-drop delta does not prove those facts have been freed.
+`database_released`. Releasing the result owners does not release inputs still owned
+by the analysis database or the surrounding source setup.
 
 The [allocation target](../crates/kagari-hir/benches/hir_baseline/memory.rs) records
 process-cumulative successful requests, requested bytes, frees, freed bytes and live
@@ -209,11 +222,12 @@ this checkpoint does not mean every process owner has been released.
 
 ## HIR archives and comparisons
 
-The Windows 2026-11-07 baseline was recorded before relocation from `examples/` to
-`benches/`. Changed harness paths, tooling and target fingerprints invalidate those
-old HIR runner archives for current comparisons. Retain their historical results;
-regenerate a baseline only for the next performance campaign, with no compatibility
-reader or full rerun for relocation alone.
+Archives made with a different HIR harness or runner, including reports with
+analysis-reuse counters, cannot be paired or used for saved-only comparisons with
+current runs, even if their input manifests match. Keep them as historical evidence.
+For a new matched campaign, run the same harness and runner on the pre-change source
+to freeze a new baseline. A build-only freeze with input manifests is not a sampled
+baseline.
 
 After freezing a baseline, make the intended production change without changing
 the dependency lock, harness, inputs or measurement environment, then run:
@@ -241,9 +255,10 @@ Selection/sample options do not apply to `--compare`; it uses saved cases and mo
 Both paths require matching machine/toolchain/environment, resolved build profiles
 and features, Cargo configuration fingerprints, lockfile, harness/tooling hashes,
 sample protocol and case inventory. Manifests and substantive semantic evidence
-must agree. Production source hashes may differ, but source/toolchain/environment
-changes during a campaign are rejected. Invalid, incomplete or mutated archives
-are not performance evidence.
+must agree. Build both revisions at the same absolute checkout path: Cargo's resolved
+configuration includes local package IDs with absolute paths. Production source
+hashes may differ, but source/toolchain/environment changes during a campaign are
+rejected. Invalid, incomplete or mutated archives are not performance evidence.
 
 Archives retain both target images with SHA-256, source fingerprints before/after,
 Git revision/status and dirty-diff hash, harness/tooling fingerprints, Cargo artifact

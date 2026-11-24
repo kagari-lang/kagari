@@ -68,8 +68,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   HR00–HR08 implementation is complete on owned ID-linked tables; required acceptance remains
   open. The [HIR guide](architecture/hir.md#editor-query-views-and-indexes) owns analyzer query
   views, demand-built indexes and the compiler/lint boundary. The arena/reference migration
-  is withdrawn and cache policy is unchanged. [Review notes](hir-model-review.md) retain only
-  separate inline-identity/cache follow-ups.
+  is withdrawn. [New analysis requests](architecture/hir.md#query-work-reuse-and-publication)
+  prepare source and check the requested stages afresh; retained immutable results remain queryable.
 - [Native frontend boundary contracts](native-model-design.md#9-frontend-and-linking-boundary-remediation):
   phases 1–3 are implemented. Structured and parsed declarations use common binding-free HIR and
   checking; ordinary Script bodies replace dedicated default recipes, and Native implementations

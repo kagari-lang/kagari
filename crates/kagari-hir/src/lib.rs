@@ -254,8 +254,7 @@ impl CheckedAnalysis {
 /// Internal signature-stage bundle passed to body checking.
 ///
 /// Pairs the exact lowering with shared owned signature records. The record's local
-/// diagnostic boundary separates reusable diagnostics from the suffix recomputed against
-/// completed aggregates; signature reuse must not preserve stale cross-module diagnostics.
+/// diagnostics are retained when the signature stage adds checks against completed aggregates.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedSignatures {
     lowered: Arc<lower::LoweredModule>,
@@ -338,15 +337,10 @@ impl PreparedSignatures {
             );
         }
         cancel.check()?;
-        if &self.record.signatures.diagnostics()[self.record.local_signature_diagnostics..]
-            == diagnostics.as_slice()
-        {
+        if diagnostics.is_empty() {
             return Ok(None);
         }
         let mut result = self.record.signatures.as_ref().clone();
-        result
-            .diagnostics
-            .truncate(self.record.local_signature_diagnostics);
         result.diagnostics.extend(diagnostics);
         Ok(Some(Arc::new(result)))
     }
@@ -383,7 +377,6 @@ impl DeclaredAnalysis {
         Ok(PreparedSignatures {
             lowered: self.lowered,
             record: Arc::new(SignatureRecord {
-                local_signature_diagnostics: signatures.diagnostics().len(),
                 names: self.record.names.clone(),
                 declarations,
                 signatures,

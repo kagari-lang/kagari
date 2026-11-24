@@ -1,4 +1,4 @@
-//! Scoped cache publication and recovery for unrepresentable source identities.
+//! Scoped result validation and recovery for unrepresentable source identities.
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     aggregates::AggregateCatalog,
@@ -22,7 +22,7 @@ use {
     kagari_source::source::SourceFile,
 };
 
-/// Validate fixed-ID records against the analysis prefix before cache publication.
+/// Validate fixed-ID records against the analysis prefix before returning them.
 pub(super) fn scope<T: DefinitionReferences + Clone>(
     record: &T,
     context: &DefinitionContext,

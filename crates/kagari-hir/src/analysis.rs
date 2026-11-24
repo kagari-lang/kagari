@@ -226,7 +226,7 @@ impl AnalysisDatabase {
     }
 
     /// Limits are query inputs. Existing immutable snapshots retain their facts;
-    /// subsequent queries must not reuse a differently limited parse or body.
+    /// subsequent requests use the new limits.
     pub fn set_parse_limits(&mut self, limits: ParseLimits) {
         if self.parse_limits == limits {
             return;

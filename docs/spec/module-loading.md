@@ -86,14 +86,19 @@ Source-free execution does not fetch current package versions or compare against
 an ambient checkout. Invalid artifacts never execute; choosing to rebuild instead
 belongs to host/tool policy.
 
-## Module Cache
+## Source Analysis and Build Products
 
-Analysis may reuse immutable syntax and checked query products under their source,
-selection and provider validity contracts. [Package build inputs](packages.md#build-inputs-and-updates)
-define complete closure/environment identity and affected-root reporting. Current
-CLI shared storage addresses emitted products but does not skip source checking or
-compilation. Future persisted compilation caches must also account for actual
-compiler revisions/options and continue executable validation.
+Each analysis request parses and lowers current source inputs and checks the stages
+it requests, without consulting previous source parses or semantic results. Inline
+modules share the physical parse within the request, and retained snapshots remain
+queryable without a new request. Validated Native registration inputs, including
+any supplied presentation parses, can be retained independently.
+
+[Package build inputs](packages.md#build-inputs-and-updates) define complete
+closure/environment identity and affected-root reporting. Current CLI shared storage
+addresses emitted products but does not skip source checking or compilation. Future
+persisted compilation caches must also account for actual compiler revisions/options
+and continue executable validation.
 
 ## CLI Loading
 
@@ -189,5 +194,6 @@ Module loading is complete when:
 - imports resolve deterministically through package roots and host-provided dependencies
 - duplicate module paths are rejected
 - invalid artifacts and mismatched installed contracts are rejected before execution
-- loader cache invalidation respects source, dependency, compiler, runtime, and host registry fingerprints
+- stored product selection respects build-input fingerprints, and loading independently
+  checks [artifact compatibility](artifacts.md#compatibility-rules) against runtime and installed contracts
 - CLI loading and embedding loading share the same semantics

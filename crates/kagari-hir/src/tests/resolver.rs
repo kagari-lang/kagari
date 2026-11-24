@@ -196,7 +196,7 @@ fn main() -> i32 { VERSION }
 }
 
 #[test]
-fn collects_module_trait_impl_and_type_namespaces() {
+fn collects_module_trait_and_type_namespaces() {
     let lowered = common::lower_ok(
         r#"
 mod gameplay;
@@ -250,5 +250,5 @@ fn main() -> i32 { 1 }
             .lookup("main", NameNamespace::Value)
             .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
     );
-    assert_eq!(resolved.items.impl_count(), 1);
+    assert_eq!(resolved.items.lookup("show", NameNamespace::Value), None);
 }

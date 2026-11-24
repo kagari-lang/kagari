@@ -427,8 +427,9 @@ aliases, explicit dependencies and selected preludes. Producer/package defaults 
 normalized before graph construction; an explicit module scope replaces those
 defaults. Accessible prelude bindings enter the ordinary implicit tier, and multiple
 selected preludes conflict. [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs)
-retains explicit scopes for replay; semantic setters invalidate dependent caches and
-fingerprints. Coherence follows actual declaration/receiver ownership, not input origin.
+retains explicit scopes for replay. Subsequent analysis uses the current scopes,
+and changes reset the environment fingerprint. Coherence follows actual
+declaration/receiver ownership, not input origin.
 
 Native operation slots retain order and duplicates, receiver, applied trait/member
 and method type arguments. They are not interchangeable with admission bounds.
