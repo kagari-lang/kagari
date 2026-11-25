@@ -1325,6 +1325,8 @@ The [Native boundary contracts](native-model-design.md#9-frontend-and-linking-bo
 [embedding](spec/embedding-api.md) describe the resulting owners. Completed implementation steps
 are not a second pending queue.
 
+**Next: HIR declaration inputs (not started).** The [design](hir-declaration-inputs-design.md) specifies structured Host declarations for compilation and generated `.kgr` alone for editor Host APIs. The [execution plan](hir-declaration-inputs-plan.md) owns sequencing and acceptance, from the common HIR entrypoint through source-free linking, Host execution, editor refresh and retirement of `ExternalModule`.
+
 LoweredModule retains source, module and input kind. Module.nodes uses HirNodes, and records carry their origins. Explicit common import
 scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
 Native signatures have one static kind without installed entries. Real Script expressions/default

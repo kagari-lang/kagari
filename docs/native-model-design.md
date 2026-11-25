@@ -765,7 +765,7 @@ accompanies the declaration files; it is not a second binary semantic input requ
 Direct structured lowering and explicit offline declaration analysis are implemented; see the
 [HIR input contracts](architecture/hir.md#native-declaration-inputs-and-origins). Build export,
 directory publication/configuration and watch/refresh integration remain deferred. Their export
-encoding must preserve the current static sidecars, not only pretty declaration signatures.
+boundary is narrowed by the proposed [HIR declaration input design](hir-declaration-inputs-design.md): generated `.kgr` must preserve caller-visible semantics without delivering static sidecars to the editor. The current sidecar route remains implemented until that replacement is validated.
 
 ### Production versus installation
 
