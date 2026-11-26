@@ -1,14 +1,62 @@
 use super::*;
 use crate::{
+    analysis::AnalysisDatabase,
     compile_input::body::{BodyRoot, bindings::BindingId},
     hir::ids::{FunctionId, HirOwner, ParamId},
-    resolver::resolved::ResolvedName,
+    program::ProgramCheckError,
     tests::test_analysis,
     types::TypeId,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_types::scalar::BuiltinType;
 use std::sync::Arc;
+
+#[test]
+fn fieldless_source_host_is_neither_a_schema_nor_a_struct_constructor() {
+    let cancel = Default::default();
+    let mut sources = SourceDatabase::default();
+    let mut database = AnalysisDatabase::default();
+    let marker = "pub native host type Player;";
+    let file = sources
+        .set("marker.kgr", marker.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = database.snapshot(sources.snapshot(), &cancel).unwrap();
+    let checked = snapshot.check_program(file, &cancel).unwrap();
+    let player = &checked.root().lowered.module.native_types[0];
+    assert!(player.is_host);
+    let Err(AdmissionError::MissingHostSchema(path)) =
+        CheckedCompilation::from_program(&checked, &cancel)
+    else {
+        panic!("a source marker must not supply a schema")
+    };
+    assert_eq!(
+        &path.module,
+        checked.root().lowered.source.module_identity()
+    );
+    assert_eq!(path.path.last().unwrap().name, "Player");
+
+    sources
+        .set(
+            "marker.kgr",
+            format!("{marker}\nfn mint() -> Player {{ Player {{}} }}"),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let snapshot = database.snapshot(sources.snapshot(), &cancel).unwrap();
+    let Err(ProgramCheckError::Diagnostics(errors)) = snapshot.check_program(file, &cancel) else {
+        panic!("a Host type must not have a script constructor")
+    };
+    assert!(
+        errors.iter().any(|error| matches!(
+            &error.diagnostic.kind,
+            DiagnosticKind::InvalidStructInitializer { struct_name, .. } if struct_name == "Player"
+        )),
+        "{errors:?}"
+    );
+}
 
 #[test]
 fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
@@ -292,6 +340,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     assert!(matches!(
         CheckedModule::admit(
             &incomplete,
+            &program,
             &Default::default(),
             &mut SourceBudget::new(&Default::default())
         ),
@@ -328,6 +377,7 @@ fn admitted_bodies_keep_owner_arena_and_completion_evidence_together() {
     assert!(matches!(
         CheckedModule::admit(
             &inconsistent,
+            &program,
             &Default::default(),
             &mut SourceBudget::new(&Default::default())
         ),

@@ -2,6 +2,7 @@
 use crate::declaration::path::{
     HostIndexSegmentDeclaration, HostPathContract, HostPathDeclaration, HostPathInput,
     HostPathSegmentContract, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
+    NativePathOperation,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -11,6 +12,28 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
+
+impl RemapDefinitions for NativePathOperation {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            kind: self.kind,
+            path: self.path.remap_definitions(mapper)?,
+        })
+    }
+}
+
+impl DefinitionReferences for NativePathOperation {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        self.path.visit_definition_ids(visit, cancel)
+    }
+}
 
 impl RemapDefinitions for HostPathDeclaration {
     fn remap_definitions(
@@ -146,8 +169,9 @@ impl RemapDefinitions for HostPathInput {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
-            Self::Field { owner } => HostPathInput::Field {
-                owner: (owner).remap_definitions(mapper)?,
+            Self::Field { owner, mutable } => HostPathInput::Field {
+                owner: owner.remap_definitions(mapper)?,
+                mutable: *mutable,
             },
             Self::Index {
                 slot,
@@ -173,7 +197,7 @@ impl DefinitionReferences for HostPathInput {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
-            Self::Field { owner } => {
+            Self::Field { owner, .. } => {
                 (owner).visit_definition_ids(visit, cancel)?;
             }
             Self::Index {

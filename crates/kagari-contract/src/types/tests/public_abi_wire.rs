@@ -16,6 +16,7 @@ use kagari_types::{
         Param, TraitDef, TypeDef, TypeDefKind, VariantDef, conversion::ConversionAdapter,
         host::HostCallPolicy,
     },
+    language::binding,
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
@@ -37,7 +38,6 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         (DefinitionKind::Trait, "View"),
         (DefinitionKind::Trait, "Parent"),
         (DefinitionKind::Trait, "Key"),
-        (DefinitionKind::Enum, "Data"),
         (DefinitionKind::Function, "factory"),
         (DefinitionKind::Impl, "Impl"),
     ];
@@ -122,6 +122,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         declaration: item,
         bounds: vec![nominal.clone()],
     };
+    let result = context.intern(&binding::result_declaration()).unwrap();
     let trait_def = TraitDef {
         associated_consts: vec![AssociatedConstDef {
             declaration: constant,
@@ -137,9 +138,13 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         conversion_adapter: Some(ConversionAdapter {
             method,
             error: item,
-            result: ids["Data"],
+            result,
         }),
     };
+    let parameters = [0, 1].map(|position| GenericParam {
+        owner: result,
+        position,
+    });
     let value = ConstDef {
         name: "DEFAULT".into(),
         ty: integer.clone(),
@@ -149,16 +154,23 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         PublicItem::Function(function.clone()),
         PublicItem::Const(value.clone()),
         PublicItem::Type(TypeDef {
-            name: "Data".into(),
+            name: "Result".into(),
             kind: TypeDefKind::Enum,
-            generic_params: vec![],
+            generic_params: parameters.to_vec(),
             bounds: vec![],
             fields: vec![],
-            variants: vec![VariantDef {
-                reports_failure: true,
-                name: "Value".into(),
-                payload: vec![integer.clone()],
-            }],
+            variants: vec![
+                VariantDef {
+                    name: "Ok".into(),
+                    reports_failure: false,
+                    payload: vec![parameters[0].as_type()],
+                },
+                VariantDef {
+                    name: "Err".into(),
+                    reports_failure: true,
+                    payload: vec![parameters[1].as_type()],
+                },
+            ],
         }),
         PublicItem::Type(TypeDef {
             name: "State".into(),

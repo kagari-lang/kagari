@@ -76,7 +76,7 @@ impl<'call> ConversionContext<'call> {
             .scope(&self.runtime.resources, |cx, roots| {
                 ExecutionRoots::with(roots, cx, |slots| {
                     Ok((|| -> Result<_, CheckError> {
-                        if !async_arguments(slots, pack, resources)? {
+                        if !async_arguments(slots, pack, resources, &self.runtime.host_borrows)? {
                             return Err(RuntimeError::from(
                                 TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
                             )

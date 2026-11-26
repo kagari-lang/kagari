@@ -15,7 +15,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
+        DefinitionKind, DefinitionPath,
         map::DefinitionMap,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
@@ -23,11 +23,14 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::path::HostPathDeclaration,
-    declaration::{TypeDefKind, module::ModuleDecl},
+    declaration::{TraitDef, TypeDefKind, module::ModuleDecl, path::HostPathDeclaration},
     language::binding::future_declaration,
 };
-use std::{collections::BTreeMap, iter, slice, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    iter, slice,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone)]
 pub struct NativeModule {
@@ -37,6 +40,10 @@ pub struct NativeModule {
     catalog: DeclarationCatalog,
     installed_required: DeclarationCatalog,
     authored_required: Option<DeclarationCatalog>,
+    required_source_traits: Arc<BTreeSet<DefinitionPath>>,
+    // An explicit pin also constrains that owner if loaded without this importer.
+    // Inferred uses constrain only programs containing the importing provider.
+    explicit_owner_pins: Arc<BTreeSet<DefinitionPath>>,
     pub(super) authored_seed: Option<DeclarationCatalog>,
     storage: Arc<DefinitionMap<NativeStorage>>,
     path_bindings: Arc<DefinitionMap<Vec<HostPathAdapter>>>,
@@ -48,6 +55,7 @@ impl NativeModule {
         bindings: Vec<(DefinitionId, NativeBinding)>,
         storage: BTreeMap<DefinitionId, NativeStorage>,
         path_bindings: Vec<(HostPathDeclaration, HostPathAdapter)>,
+        explicit_owner_pins: BTreeSet<DefinitionPath>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
         let context = providers.types.context();
@@ -55,10 +63,7 @@ impl NativeModule {
             .collect_definitions(context)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         providers.validate_module_shape(&declaration)?;
-        let mut providers = providers.clone();
-        for (id, contract) in &declaration.trait_references {
-            providers.insert(*id, contract.clone())?;
-        }
+
         let mut owned = DeclarationCatalog::declared([&declaration], context)?;
         let mut path_bindings = path_bindings;
         let mut indexed_paths = DefinitionMap::new(context.clone());
@@ -83,7 +88,7 @@ impl NativeModule {
                 "unknown or duplicate manual path binding",
             ));
         }
-        owned.copy_rust_types(&providers)?;
+        owned.copy_rust_types(providers)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
             let CallableImplementation::Native(binding) = declaration.function.implementation
@@ -115,15 +120,21 @@ impl NativeModule {
             ));
         }
         let mut available = owned.clone();
-        available.merge(&providers)?;
+        available.merge(providers)?;
         available.validate_paths()?;
         available.validate_module_declarations(&declaration)?;
         // Owned traits and implementation bounds are common to every binding.
         // A binding extends this closed seed only with its own signature/proofs.
+        let mut required_source_traits = explicit_owner_pins.clone();
+
         let base =
             available.dependency_closure(owned.traits.ids(), iter::empty(), [&declaration])?;
-        let dependencies =
-            available.module_dependencies(&base, &declaration, entries.values().flatten())?;
+        let dependencies = available.module_dependencies(
+            &base,
+            &declaration,
+            &mut required_source_traits,
+            entries.values().flatten(),
+        )?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
         checked.copy_rust_types(&available)?;
@@ -213,6 +224,8 @@ impl NativeModule {
             catalog: checked,
             installed_required,
             authored_required,
+            required_source_traits: Arc::new(required_source_traits),
+            explicit_owner_pins: Arc::new(explicit_owner_pins),
             authored_seed: providers.nonempty_authored_contracts(),
             storage: Arc::new(indexed_storage),
             path_bindings: Arc::new(indexed_paths),
@@ -231,6 +244,38 @@ impl NativeModule {
     /// This does not transfer installation or binding verification evidence.
     pub fn to_declaration(&self) -> DefinitionMetadata<ModuleDecl> {
         self.declaration.as_ref().clone()
+    }
+
+    /// Canonical trait paths that this importer's executable must carry, even without calls.
+    /// Pass identities, not the installation's expected ABIs, to compiler contract emission.
+    pub fn required_source_traits(&self) -> &BTreeSet<DefinitionPath> {
+        &self.required_source_traits
+    }
+
+    /// Return the independently verified owner ABI for a mandatory importer path.
+    ///
+    /// The returned definition table scopes all identities in the ABI. Paths outside
+    /// `required_source_traits()` are rejected, even if present in the authoring catalog.
+    pub fn required_source_trait_contract(
+        &self,
+        path: &DefinitionPath,
+    ) -> NativeResult<DefinitionMetadata<TraitDef>> {
+        if !self.required_source_traits.contains(path) {
+            return Err(RuntimeError::metadata_conflict(format!(
+                "not a mandatory source trait for {}: {path:?}",
+                self.declaration().identity
+            )));
+        }
+        let required = self.authored_required.as_ref().ok_or_else(|| {
+            RuntimeError::metadata_conflict("missing verified source trait requirements")
+        })?;
+        let (_, abi) = retained_source_trait(required, path)?;
+        DefinitionMetadata::checked(
+            required.definitions(),
+            abi.clone(),
+            &CancellationToken::default(),
+        )
+        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
     }
 
     pub fn catalog(&self) -> DeclarationCatalog {
@@ -324,11 +369,17 @@ impl NativeModule {
             }
         }
         registry.catalog.merge(&owned)?;
+        let mut expected = BTreeSet::new();
         if let Some(required) = &self.authored_required {
-            registry.record_authored_requirements(
-                &self.declaration().identity,
-                imports.import(required)?,
-            )?;
+            let required = imports.import(required)?;
+            for path in self.required_source_traits() {
+                let (id, abi) = retained_source_trait(&required, path)?;
+                if self.explicit_owner_pins.contains(path) {
+                    registry.pin_source_trait(id, abi)?;
+                }
+                expected.insert(id);
+            }
+            registry.record_authored_requirements(&self.declaration().identity, required)?;
         }
         registry.owned_traits.extend(owned.traits.ids());
         let referenced = self
@@ -338,9 +389,7 @@ impl NativeModule {
                 &CancellationToken::default(),
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        for (id, contract) in &referenced.records().trait_references {
-            registry.catalog.insert(*id, contract.clone())?;
-        }
+
         let definitions = referenced
             .records()
             .collect_definitions(registry.catalog.types.context())
@@ -349,16 +398,16 @@ impl NativeModule {
         let owner = definitions
             .lookup_root(&referenced.records().identity)
             .expect("collected native module root");
-        if let Some(installed) = registry.trait_references.get_id(owner) {
-            if installed != &referenced.records().trait_references {
+        if let Some(installed) = registry.required_source_traits.get_id(owner) {
+            if installed != &expected {
                 return Err(RuntimeError::metadata_conflict(
                     "conflicting source trait reference owner",
                 ));
             }
         } else {
             registry
-                .trait_references
-                .insert_id(owner, referenced.records().trait_references.clone())
+                .required_source_traits
+                .insert_id(owner, expected)
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         }
         let path_ids = registry
@@ -431,4 +480,20 @@ impl NativeModule {
             .definition(DefinitionKind::Trait, name, self.definitions())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
     }
+}
+
+fn retained_source_trait<'a>(
+    required: &'a DeclarationCatalog,
+    path: &DefinitionPath,
+) -> NativeResult<(DefinitionId, &'a TraitDef)> {
+    required
+        .traits
+        .context()
+        .lookup(path)
+        .and_then(|id| required.traits.get_id(id).map(|abi| (id, abi)))
+        .ok_or_else(|| {
+            RuntimeError::metadata_conflict(format!(
+                "missing verified source trait contract: {path:?}"
+            ))
+        })
 }

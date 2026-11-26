@@ -29,7 +29,6 @@ struct ExpressionSite {
 #[derive(Debug, Default)]
 struct TypeSite {
     name: Option<Span>,
-    terminal: Option<Span>,
     path: Vec<(String, Span)>,
 }
 
@@ -57,9 +56,6 @@ fn segments<'a>(names: impl Iterator<Item = Ast<'a, Name>>) -> Vec<(String, Span
 fn type_site(path: Option<Ast<'_, Path>>, terminal: Option<Ast<'_, Name>>) -> TypeSite {
     TypeSite {
         name: path
-            .map(|path| path.body_span())
-            .or_else(|| terminal.map(|name| name.body_span())),
-        terminal: path
             .and_then(|path| path.segments().last())
             .or(terminal)
             .map(|name| name.body_span()),
@@ -320,17 +316,6 @@ impl<'a> SourceSites<'a> {
                 .origin
                 .source_span()?))?
             .name
-    }
-
-    pub(crate) fn type_terminal_span(&self, id: TypeRefId) -> Option<Span> {
-        self.types
-            .get(&key(self
-                .lowered
-                .module
-                .type_ref(id)
-                .origin
-                .source_span()?))?
-            .terminal
     }
 
     pub(crate) fn type_path(&self, id: TypeRefId) -> &[(String, Span)] {

@@ -1,0 +1,13 @@
+use game::{Player, Stats};
+
+pub fn replace(target: Player, replacement: Stats) {
+    target.baseline = replacement;
+}
+
+pub fn write_current(target: Player) {
+    target.current.hp = 2;
+}
+
+pub fn write_baseline(target: Player) {
+    target.baseline.hp = 2;
+}

@@ -1,6 +1,6 @@
 use demo::make;
 
-trait Readable<T> {
+pub trait Readable<T> {
     fn get(self) -> T;
 }
 

@@ -128,23 +128,24 @@ fn embedding_host_path_module(path_access: PathAccess) -> NativeModule {
         }
         builder.bind_path(&path, adapter).unwrap();
     }
+    let make_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let make = builder
         .define_function(
             FunctionDecl::new("player")
                 .returns(player.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(make_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             make,
-            host::callback(|cx, _| {
+            host::callback(make_policy, |cx, _| {
                 let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
                 let root = cx.runtime_mut().host_root_value(root).unwrap();
                 cx.import(&root)

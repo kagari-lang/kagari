@@ -57,30 +57,32 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     let standard = standard_library().declarations();
     let mut builder = ModuleBuilder::new("demo", standard.catalog()).unwrap();
     let shape = composite(standard);
+    let make_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            may_call_host_services: true,
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let make = builder
         .define_function(
             FunctionDecl::new("make")
                 .returns(shape.clone())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        may_call_host_services: true,
-                        may_trap: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(make_policy.clone()),
         )
         .unwrap();
+    let echo_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: Default::default(),
+    };
     let echo = builder
         .define_function(
             FunctionDecl::new("echo")
                 .parameter("value", shape.clone())
                 .returns(shape)
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: Default::default(),
-                }),
+                .host_policy(echo_policy.clone()),
         )
         .unwrap();
     let trace = Arc::new(Mutex::new(Vec::new()));
@@ -88,7 +90,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     builder
         .bind(
             make,
-            host::callback(move |context, _| {
+            host::callback(make_policy, move |context, _| {
                 calls.lock().unwrap().push("make");
                 let owner = context.runtime().execution_root().unwrap();
                 let payload = owner
@@ -111,7 +113,7 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
     builder
         .bind(
             echo,
-            host::callback(move |context, args| {
+            host::callback(echo_policy, move |context, args| {
                 calls.lock().unwrap().push("echo");
                 context.runtime_mut().collect_garbage().unwrap();
                 Ok(args[0])
@@ -218,20 +220,23 @@ fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes(
 fn offline_composite_signatures_reject_nested_source_mismatches() {
     let mut builder =
         ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
+    let take_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: Default::default(),
+    };
     let take = builder
         .define_function(
             FunctionDecl::new("take")
                 .parameter("value", Type::tuple([array(), Type::bool()]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: Default::default(),
-                }),
+                .host_policy(take_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             take,
-            host::callback(|_, _| panic!("invalid source cannot invoke a host callback")),
+            host::callback(take_policy, |_, _| {
+                panic!("invalid source cannot invoke a host callback")
+            }),
         )
         .unwrap();
     let engine = KagariEngine::with_native_modules(
@@ -257,15 +262,16 @@ fn offline_composite_signatures_reject_nested_source_mismatches() {
 fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_operands() {
     let mut builder =
         ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
+    let take_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: Default::default(),
+    };
     let take = builder
         .define_function(
             FunctionDecl::new("take")
                 .parameter("value", array())
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: Default::default(),
-                }),
+                .host_policy(take_policy.clone()),
         )
         .unwrap();
     let count = Arc::new(Mutex::new(0));
@@ -273,7 +279,7 @@ fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_opera
     builder
         .bind(
             take,
-            host::callback(move |context, args| {
+            host::callback(take_policy, move |context, args| {
                 let owner = context.runtime().execution_root().unwrap();
                 *calls.lock().unwrap() += 1;
                 context

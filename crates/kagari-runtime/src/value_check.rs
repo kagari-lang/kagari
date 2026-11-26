@@ -84,7 +84,7 @@ pub(crate) fn entry_arguments(
                     resources.poll_closed()?;
                 }
                 let value = argument.get(cx)?;
-                if !ValueProperties::of(cx, value)?.storable {
+                if !ValueProperties::of(cx, value)?.retainable {
                     return Ok(false);
                 }
                 let expected =

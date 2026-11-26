@@ -2,10 +2,12 @@
 
 pub mod core_source;
 mod environment;
-pub mod external;
+#[cfg(test)]
+pub(crate) mod external;
 mod input_fingerprint;
 pub mod inputs;
 pub(crate) mod records;
+pub(crate) mod registered_fields;
 pub(crate) mod source_preparation;
 
 use crate::imports::environment::ImportEnvironment;
@@ -17,17 +19,14 @@ use crate::imports::solver::SolverLimits;
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
-        declarations::DeclarationSnapshot,
-        error::AnalysisError,
-        inputs::{AnalysisInputs, LibrarySources},
-        signatures::SignatureSnapshot,
-        source_preparation::ParsedModule,
+        declarations::DeclarationSnapshot, error::AnalysisError, inputs::AnalysisInputs,
+        signatures::SignatureSnapshot, source_preparation::ParsedModule,
     },
     analyze_parsed,
     collections::HashMap,
     declarations::{Declaration, DeclarationId},
     imports::ModuleGraph,
-    native::{api::preparation::NativeFiles, render::DeclarationSource},
+    native::api::preparation::NativeFiles,
     typeck::{ModuleSignatures, const_budget::ConstLimits},
 };
 use kagari_common::{
@@ -44,7 +43,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceSnapshot},
 };
 use kagari_syntax::{ast::module::ModuleSyntax, parser::ParseLimits};
-use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
+use kagari_types::declaration::module::ModuleDecl;
 use std::{cell::OnceCell, collections::BTreeMap, sync::Arc};
 
 const DEFAULT_MAX_SEMANTIC_DIAGNOSTICS: usize = 1_000;
@@ -108,7 +107,7 @@ impl FileAnalysis {
 /// Choose the required depth explicitly:
 ///
 /// ```text
-/// SourceSnapshot + host/native registrations + explicit offline library sources
+/// SourceSnapshot + authored core documents + scoped registrations + import environment
 ///   declarations() -> DeclarationSnapshot: parse, lower, imports, declaration names
 ///   signatures()   -> SignatureSnapshot: declarations + checked signatures
 ///   body(owner)    -> FunctionAnalysis: signatures + selected body/constant prerequisites
@@ -136,10 +135,9 @@ pub struct AnalysisDatabase {
     inline_ids: HashMap<(FileId, String), FileId>,
     import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-    native_sources: Option<Vec<DeclarationSource>>,
-    libraries: LibrarySources,
-    /// Validated registration metadata and optional presentation parses.
-    /// Invalidated by registration/source/parser-limit changes, not user revisions.
+    core: Arc<[Arc<SourceFile>]>,
+    /// Validated, adopted registration metadata.
+    /// Invalidated by registration or importer spelling changes, not source revisions.
     native_files: OnceCell<NativeFiles>,
     /// Portable provider/settings identity, invalidated by every environment setter.
     environment_fingerprint: OnceCell<String>,
@@ -172,8 +170,7 @@ impl AnalysisDatabase {
             inline_ids: HashMap::default(),
             import_environment: Default::default(),
             native_modules: vec![],
-            native_sources: None,
-            libraries: LibrarySources::default(),
+            core: core_source::shared_modules(),
             native_files: OnceCell::new(),
             environment_fingerprint: OnceCell::new(),
         })
@@ -187,26 +184,7 @@ impl AnalysisDatabase {
     pub fn set_native_modules(&mut self, modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>) {
         self.environment_fingerprint.take();
         self.native_modules = modules;
-        self.native_sources = None;
         self.native_files.take();
-    }
-
-    /// Supply presentation origins in the same order as the explicit providers.
-    /// Every source is parsed and checked against its authoritative registration.
-    /// Independent offline exports use [`Self::set_external_modules`] instead.
-    pub fn set_native_sources(
-        &mut self,
-        modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-        sources: Vec<DeclarationSource>,
-    ) -> Result<(), AnalysisError> {
-        if modules.len() != sources.len() {
-            return Err(AnalysisError::NativeApi(DeclarationError(
-                "native declaration source/provider inventory differs".into(),
-            )));
-        }
-        self.set_native_modules(modules);
-        self.native_sources = Some(sources);
-        Ok(())
     }
 
     /// Sets the per-analysis diagnostic budget.
@@ -233,7 +211,6 @@ impl AnalysisDatabase {
         }
         self.parse_limits = limits;
         self.environment_fingerprint.take();
-        self.native_files.take();
     }
 
     /// Prepares signatures and checks bodies for every supplied/discovered file.

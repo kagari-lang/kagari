@@ -7,6 +7,7 @@ use crate::{
             forwarding_expression, is_library_forwarding_trait, library_forwarding_header_valid,
         },
         module::{DeclarationError, ImplDecl, ModuleDecl},
+        ownership::trait_impl_orphan_error,
         verify::trait_valid,
     },
     ty::{
@@ -17,17 +18,40 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind,
+        DefinitionKind, ModuleIdentity,
         map::DefinitionContext,
         table::{DefinitionId, DefinitionTable},
     },
 };
 use std::collections::{BTreeMap, HashSet};
 
+impl ImplDecl {
+    fn check_orphan(
+        &self,
+        module: &ModuleIdentity,
+        definitions: &DefinitionTable,
+    ) -> Result<(), DeclarationError> {
+        if let Some(interface) = &self.trait_type
+            && let Some(reason) = trait_impl_orphan_error(
+                module,
+                definitions,
+                interface.declaration,
+                &self.for_type,
+                &interface.arguments,
+            )
+        {
+            return Err(DeclarationError(reason.into()));
+        }
+        Ok(())
+    }
+}
+
 impl ModuleDecl {
-    /// Construct a trait implementation in the supplied construction context.
-    /// The context owns all inputs; this registers implementation/method names but
-    /// does not validate or publish the containing module.
+    /// Register a trait implementation, checking its supplied methods against the
+    /// applied contract. `bindings` selects the native entries. When a method is
+    /// supplied in `implementation.methods`, its authored signature is retained;
+    /// name-only bindings are shorthand for methods of a known native trait.
+    /// Omitted defaults stay with their defining trait.
     pub fn implement_trait(
         &mut self,
         contract: &TraitDef,
@@ -35,13 +59,9 @@ impl ModuleDecl {
         bindings: &[(&str, DefinitionId)],
         context: &DefinitionContext,
     ) -> Result<(), DeclarationError> {
-        if !implementation.methods.is_empty() {
-            return Err(DeclarationError(
-                "implementation methods must be supplied through bindings".into(),
-            ));
-        }
         let invalid = |error| DeclarationError(format!("invalid native identities: {error}"));
         let definitions = self.collect_definitions(context)?;
+        implementation.check_orphan(&self.identity, &definitions)?;
         let root = definitions
             .lookup_root(&self.identity)
             .ok_or_else(|| DeclarationError("missing module identity".into()))?;
@@ -56,8 +76,34 @@ impl ModuleDecl {
                 .map_err(invalid)?;
         }
         let definitions = context.snapshot();
-        implementation.methods =
+        let mut projected =
             implementation_methods(contract, &implementation, owner, bindings, &definitions)?;
+        let mut authored_methods = BTreeMap::new();
+        for method in implementation.methods.drain(..) {
+            if authored_methods
+                .insert(method.name.clone(), method)
+                .is_some()
+            {
+                return Err(DeclarationError("duplicate implementation method".into()));
+            }
+        }
+        for expected in &mut projected {
+            let Some(authored) = authored_methods.remove(&expected.name) else {
+                continue;
+            };
+            if !matches!(authored.implementation, CallableImplementation::Native(_))
+                || !method_matches(expected, &authored)
+            {
+                return Err(DeclarationError(
+                    "trait implementation differs from its registered contract".into(),
+                ));
+            }
+            *expected = authored;
+        }
+        if !authored_methods.is_empty() {
+            return Err(DeclarationError("unbound implementation method".into()));
+        }
+        implementation.methods = projected;
         let trait_type = implementation
             .trait_type
             .as_ref()
@@ -113,6 +159,7 @@ impl ModuleDecl {
             let Some(trait_type) = &implementation.trait_type else {
                 continue;
             };
+            implementation.check_orphan(&self.identity, definitions)?;
             let owner = self.implementation_id(index, definitions)?;
             if is_library_forwarding_trait(definitions, trait_type.declaration)
                 && !(library_forwarding_header_valid(
@@ -158,25 +205,12 @@ impl ModuleDecl {
                 .collect::<Result<Vec<_>, DeclarationError>>()?;
             let mut expected =
                 implementation_methods(contract, implementation, owner, &bindings, definitions)?;
-            // Required access is a local native impl fact when the Kagari trait
-            // does not impose it. Preserve every other signature/policy check;
-            // native declaration and installed binding validation check this fact
-            // against the receiver target and the actual lifetime-aware adapter.
-            for (expected, actual) in expected.iter_mut().zip(&implementation.methods) {
-                if actual.implementation == CallableImplementation::Script {
-                    expected.implementation = CallableImplementation::Script;
-                }
-                if expected.method_policy.receiver_access.is_none() {
-                    expected.method_policy.receiver_access = actual.method_policy.receiver_access;
-                }
-                // A trait's Self signature does not select external-ID storage.
-                // The explicit native impl owns its checked passing/effect policy;
-                // function and binding validation still require an exact adapter.
-                if expected.host_policy.is_none() {
-                    expected.host_policy = actual.host_policy.clone();
-                }
-            }
-            if expected != implementation.methods {
+            if expected.len() != implementation.methods.len()
+                || !expected
+                    .iter_mut()
+                    .zip(&implementation.methods)
+                    .all(|(expected, actual)| method_matches(expected, actual))
+            {
                 return Err(invalid());
             }
             let mut substitution =
@@ -294,6 +328,21 @@ impl ModuleDecl {
     }
 }
 
+/// A trait need not impose a receiver loan or external-ID passing policy. The
+/// actual declaration and installed adapter must still agree on that authority.
+fn method_matches(expected: &mut FnDecl, actual: &FnDecl) -> bool {
+    if actual.implementation == CallableImplementation::Script {
+        expected.implementation = CallableImplementation::Script;
+    }
+    if expected.method_policy.receiver_access.is_none() {
+        expected.method_policy.receiver_access = actual.method_policy.receiver_access;
+    }
+    if expected.host_policy.is_none() {
+        expected.host_policy.clone_from(&actual.host_policy);
+    }
+    expected == actual
+}
+
 fn implementation_methods(
     contract: &TraitDef,
     implementation: &ImplDecl,
@@ -348,12 +397,6 @@ fn implementation_methods(
             }
             return Err(DeclarationError(format!("missing method {}", method.name)));
         };
-        if !method.method_policy.override_allowed {
-            return Err(DeclarationError(format!(
-                "method {} forbids overriding",
-                method.name
-            )));
-        }
         let method_owner = ModuleDecl::method_id(owner, &method.name, definitions)?;
         let own_parameters = method
             .generic_params

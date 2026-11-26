@@ -1,5 +1,4 @@
 //! Owned parking checks actual frame roots and fresh provider graphs.
-mod graph;
 use crate::{
     Runtime,
     error::RuntimeErrorKind,
@@ -7,15 +6,18 @@ use crate::{
     module::ExecutableModule,
     native::conversion::context::ConversionContext,
     session::owned::OwnedExecution,
-    test_support::layouts,
     test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
+    test_support::{
+        layouts,
+        parking_graph::{Graphs, Probe},
+    },
     value::{
         aggregates::tuples::TupleObject,
         carriers::{RootedValue, ScopedValue},
+        native::NativeObject,
         view::ValueView,
     },
 };
-use graph::{Graphs, Probe};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Slot},
@@ -103,11 +105,11 @@ fn set_rooted(runtime: &mut Runtime, stack: &FrameStack, value: &RootedValue) {
     set_frame(source.runtime_mut(), stack, &value);
 }
 
-fn transient_tuple(runtime: &mut Runtime, host: Option<&RootedValue>) -> RootedValue {
+fn transient_tuple(runtime: &mut Runtime, host: &RootedValue) -> RootedValue {
     runtime
         .memory
         .scope(&runtime.resources, |cx, _| {
-            let value = host.map_or(Ok(ScopedValue::unit()), |root| root.get(cx))?;
+            let value = host.get(cx)?;
             let tuple = TupleObject::alloc(cx, &[value])?;
             ScopedValue::managed(tuple).retain(cx)
         })
@@ -162,7 +164,7 @@ fn transition(stack: ExecutionStack<'_>) {
 #[test]
 fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
     let mut runtime = Runtime::default();
-    let (host, _) = layouts::host_values(&mut runtime, 2);
+    let (host, path) = layouts::host_values(&mut runtime, 2);
     let module = module(&mut runtime, 1, false);
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
@@ -172,7 +174,7 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .as_mut()
         .unwrap()
         .with(|runtime, stack| {
-            let value = transient_tuple(runtime, Some(&host));
+            let value = transient_tuple(runtime, &path);
             set_rooted(runtime, stack, &value);
             Ok(())
         })
@@ -201,7 +203,7 @@ fn declined_parking_retains_activation_for_retry_and_errors_retain_trace() {
         .unwrap()
         .with(|runtime, stack| {
             assert_eq!(runtime.capture_error_trace().frames.len(), 1);
-            let value = transient_tuple(runtime, None);
+            let value = transient_tuple(runtime, &host);
             set_rooted(runtime, stack, &value);
             Ok(())
         })
@@ -239,6 +241,15 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
     let module = module(&mut runtime, 1, false);
     let probe = Arc::new(Probe::default());
     let value = graphs.allocate(&mut runtime, 1, false, &probe);
+    let guarded = graphs.allocate(&mut runtime, 1, false, &probe);
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let object = cx.downcast::<NativeObject>(guarded.get(cx)?.object().unwrap())?;
+            assert!(NativeObject::enter_operation(cx, object)?);
+            Ok(())
+        })
+        .unwrap();
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
@@ -252,7 +263,7 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
         })
         .unwrap();
     transition(stack);
-    graphs.hide_host_root(&mut runtime, &value);
+    graphs.set_child(&mut runtime, &value, &guarded);
     let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
     activation
         .as_mut()
@@ -283,6 +294,16 @@ fn parking_rechecks_alias_mutation_and_preserves_frame_error_order() {
         .unwrap();
     drop(activation);
     runtime.finish_owned_execution(&owner).unwrap();
+    runtime
+        .memory
+        .scope(&runtime.resources, |cx, _| {
+            let object = cx.downcast::<NativeObject>(guarded.get(cx)?.object().unwrap())?;
+            NativeObject::leave_operation(cx, object)
+        })
+        .unwrap();
+    drop((guarded, value));
+    runtime.collect_garbage().unwrap();
+    assert_eq!(probe.drops.load(Ordering::Relaxed), 2);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 

@@ -1,15 +1,22 @@
-use crate::tests::{bytecode::*, standard::io_module};
+use crate::{
+    source::{
+        lower::MirLoweringError,
+        program::{InstallationTraitRequirements, SourceProgramError},
+    },
+    tests::{bytecode::*, standard::io_module},
+};
 use kagari_bytecode::program::{ModuleRef, verify_program};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::types::{named::NamedContract, verify};
 use kagari_types::{
     declaration::{
-        TypeDeclaration,
+        TypeDeclaration, TypeDef, TypeDefKind,
         host::{HostPassingStyle, HostTypeOwnership},
         native::NativeTypeConstructor,
+        requirement::NativeCallableRequirement,
     },
     scalar::BuiltinType,
-    ty::Ty,
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 
 mod fixtures;
@@ -158,7 +165,7 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         .program
         .modules
         .iter()
-        .position(|module| module.identity.package.0 == "demo")
+        .position(|module| module.identity == fixtures::provider_owner())
         .unwrap();
     for corrupt in ["argument", "return", "method"] {
         let mut forged = valid.clone();
@@ -244,6 +251,100 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         ),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
+}
+
+#[test]
+fn provider_emits_bound_callable_and_mandatory_reference_only_requirements() {
+    let context = DefinitionContext::new().unwrap();
+    let source = include_str!("../../../tests/fixtures/native-reference-requirements.kgr");
+    let compile = |source: &str| {
+        fixtures::readable_sources_with(&[("root", source)], false, &context, |provider| {
+            let definitions = context.snapshot();
+            let source = definitions.lookup_root(&fixtures::root_owner()).unwrap();
+            let interface = context
+                .intern_child(source, DefinitionKind::Trait, "CallableOnly", 0)
+                .unwrap();
+            let member = context
+                .intern_child(interface, DefinitionKind::Method, "check", 0)
+                .unwrap();
+            let implementation = provider.implementation_id(0, &definitions).unwrap();
+            let get = definitions
+                .lookup_child(implementation, DefinitionKind::Method, "get", 0)
+                .unwrap();
+            provider.callable_requirements.insert(
+                get,
+                vec![NativeCallableRequirement {
+                    receiver: Ty::Builtin(BuiltinType::I32),
+                    interface: NominalTy {
+                        declaration: interface,
+                        arguments: vec![],
+                        associated_types: Default::default(),
+                    },
+                    member,
+                    arguments: vec![],
+                }],
+            );
+            let bounded = context
+                .intern_child(
+                    definitions.lookup_root(&provider.identity).unwrap(),
+                    DefinitionKind::Struct,
+                    "Bounded",
+                    0,
+                )
+                .unwrap();
+            let parameter = GenericParam {
+                owner: bounded,
+                position: 0,
+            };
+            provider.types.push(TypeDef {
+                name: "Bounded".into(),
+                kind: TypeDefKind::Struct,
+                bounds: vec![GenericBound {
+                    ty: parameter.as_type(),
+                    constraints: vec![NominalTy {
+                        declaration: context
+                            .intern_child(source, DefinitionKind::Trait, "BoundOnly", 0)
+                            .unwrap(),
+                        arguments: vec![],
+                        associated_types: Default::default(),
+                    }],
+                }],
+                generic_params: vec![parameter],
+                fields: vec![],
+                variants: vec![],
+            });
+            let mandatory = context
+                .intern_child(source, DefinitionKind::Trait, "ReferenceOnly", 0)
+                .unwrap();
+            let path = context.snapshot().resolve(mandatory).unwrap().to_path();
+            InstallationTraitRequirements {
+                by_importer: [(provider.identity.clone(), [path].into())].into(),
+            }
+        })
+    };
+    let program = compile(source).unwrap();
+    let provider = program
+        .modules
+        .iter()
+        .find(|m| m.identity == fixtures::provider_owner())
+        .unwrap();
+    let names: Vec<_> = provider
+        .trait_references
+        .iter()
+        .map(|r| r.abi.name.as_str())
+        .collect();
+    assert_eq!(
+        names,
+        ["BoundOnly", "CallableOnly", "Readable", "ReferenceOnly"]
+    );
+    let pin = &provider.trait_references.last().unwrap().declaration;
+    let path = context.snapshot().resolve(*pin).unwrap().to_path();
+    let hidden = source.replace("pub trait ReferenceOnly", "trait ReferenceOnly");
+    assert!(
+        matches!(compile(&hidden), Err(SourceProgramError::Lowering {
+        module, error: MirLoweringError::MissingHostDeclaration(missing),
+    }) if *module == provider.identity && missing == path)
+    );
 }
 
 #[test]
@@ -422,7 +523,7 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
     let provider = module
         .modules
         .iter_mut()
-        .find(|module| module.identity.package.0 == "demo")
+        .find(|module| module.identity == fixtures::provider_owner())
         .unwrap();
     provider.public_items.retain(|item| !matches!(item,
         PublicItem::InterfaceTable(table) if table.methods.iter().any(|method| method.name == "mark")
@@ -485,6 +586,13 @@ fn host_trait_bounds_use_imported_script_implementations() {
         &context,
     );
     verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
+    // The root only uses the foreign Marker as Readable's type-parameter bound.
+    assert!(
+        program.modules[program.root.index()]
+            .trait_references
+            .iter()
+            .any(|reference| reference.abi.name == "Marker")
+    );
     let mut forged = program.clone();
     fixtures::replace_readable_result(&mut forged, Ty::Builtin(BuiltinType::Bool));
     assert!(matches!(
@@ -519,7 +627,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
     let provider = program
         .modules
         .iter()
-        .find(|module| module.identity.package.0 == "demo")
+        .find(|module| module.identity == fixtures::provider_owner())
         .unwrap();
     let definition = provider
         .public_items

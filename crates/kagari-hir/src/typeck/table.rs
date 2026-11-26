@@ -22,7 +22,6 @@ use crate::{
     },
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
-use kagari_types::declaration::path::{HostPathContract, HostPathDeclaration};
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,7 +161,7 @@ pub struct ResolvedIteration {
 /// | `TypeRefId`, `FieldId` | resolved types, constraints, field types | signature/type resolution / diagnostics and member checking |
 /// | `ExprId`, `LocalId`, `PlaceId` | value/binding/place types | body checker / tooling and compiler |
 /// | `ExprId` | calls, fields, constructors, coercions, iteration, propagation, constants | specialized body checks / compiler lowering |
-/// | `PlaceId` | selected fields, index interface, declared host path | mutation checks / compiler lowering |
+/// | `PlaceId` | selected fields and index interfaces | mutation checks / compiler lowering |
 /// | `PatternId` | scalar/range/field/variant facts | pattern checker / match lowering |
 /// | definition identity | associated bounds/family inputs/values | trait/signature checking / substitution and selection |
 ///
@@ -188,8 +187,6 @@ pub struct TypeTable {
     pub(crate) associated_type_parameters: HashMap<DefinitionId, AssociatedTypeParameters>,
     /// Checked associated type family definitions keyed by member identity.
     pub(crate) associated_type_families: HashMap<DefinitionId, AssociatedTypeFamily>,
-    host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
-    host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
     constraints: HashMap<TypeRefId, Option<NominalType>>,
     type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
@@ -255,32 +252,6 @@ pub enum ResolvedInterfaceImplementation {
     Intrinsic,
 }
 
-/// A checked expression path through declared host access, not an unrestricted Rust reference.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPath {
-    /// Root expression evaluated before the path's dynamic arguments.
-    pub root: ExprId,
-    /// Source-order expressions paired with their declared runtime argument slots.
-    pub dynamic_arguments: Vec<(u32, ExprId)>,
-    /// Installed path declaration selected by checking.
-    pub declaration: HostPathDeclaration,
-    /// Checked access/value contract consumed by lowering.
-    pub contract: HostPathContract,
-}
-
-/// A checked assignment path through declared host access.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResolvedHostPlacePath {
-    /// Root place anchoring the host mutation path.
-    pub root: PlaceId,
-    /// Source-order index expressions paired with declared runtime argument slots.
-    pub dynamic_arguments: Vec<(u32, ExprId)>,
-    /// Installed path declaration selected by mutation checking.
-    pub declaration: HostPathDeclaration,
-    /// Checked access/value contract required for mutation.
-    pub contract: HostPathContract,
-}
-
 impl TypeTable {
     /// Records/replaces the selected iterator interfaces and element type under the matching node ID.
     pub(crate) fn insert_iteration(&mut self, id: ExprId, fact: ResolvedIteration) {
@@ -309,16 +280,6 @@ impl TypeTable {
     /// Records/replaces the selected associated constant under the matching node ID.
     pub(crate) fn insert_associated_const(&mut self, expr: ExprId, fact: ResolvedAssociatedConst) {
         self.associated_consts.insert(expr, fact);
-    }
-
-    /// Records/replaces the declared host mutation path under the matching node ID.
-    pub(crate) fn insert_host_place_path(&mut self, place: PlaceId, path: ResolvedHostPlacePath) {
-        self.host_place_paths.insert(place, path);
-    }
-
-    /// Records/replaces the declared host read path under the matching node ID.
-    pub(crate) fn insert_host_path(&mut self, expr: ExprId, path: ResolvedHostPath) {
-        self.host_paths.insert(expr, path);
     }
 
     pub(crate) fn insert_implementation(
@@ -690,16 +651,6 @@ impl TypeTable {
     /// Returns the recorded selected associated constant, or `None` when no such fact was recorded.
     pub fn associated_const(&self, expr: ExprId) -> Option<&ResolvedAssociatedConst> {
         self.associated_consts.get(&expr)
-    }
-
-    /// Returns the recorded declared host mutation path, or `None` when no such fact was recorded.
-    pub fn host_place_path(&self, place: PlaceId) -> Option<&ResolvedHostPlacePath> {
-        self.host_place_paths.get(&place)
-    }
-
-    /// Returns the recorded declared host read path, or `None` when no such fact was recorded.
-    pub fn host_path(&self, expr: ExprId) -> Option<&ResolvedHostPath> {
-        self.host_paths.get(&expr)
     }
 
     /// Returns the recorded resolved constraint target, or `None` when no such fact was recorded.

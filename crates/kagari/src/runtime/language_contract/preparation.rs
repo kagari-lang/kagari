@@ -12,6 +12,7 @@ use kagari_runtime::{
 };
 use kagari_source::{identity::FileId, source_database::SourceSnapshot};
 use kagari_stdlib::io;
+use kagari_types::declaration::host::HostCallPolicy;
 use std::sync::{Mutex, OnceLock};
 
 pub(super) fn engine(vector: bool) -> KagariEngine {
@@ -42,9 +43,15 @@ pub(super) fn engine(vector: bool) -> KagariEngine {
                 module
                     .bind(
                         vector,
-                        host::callback(|_, _| {
-                            Err(HostError::new("compilation-only provider must not execute"))
-                        }),
+                        host::callback(
+                            HostCallPolicy {
+                                passing: vec![],
+                                effects: Default::default(),
+                            },
+                            |_, _| {
+                                Err(HostError::new("compilation-only provider must not execute"))
+                            },
+                        ),
                     )
                     .unwrap();
                 builder.install(module.finish().unwrap()).unwrap();

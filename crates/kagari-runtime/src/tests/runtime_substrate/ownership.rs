@@ -236,20 +236,21 @@ fn actual_host_callbacks_can_retain_checked_root_leases() {
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), &[7i32.into()])
         .unwrap();
     let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let function = builder
         .define_function(
             FunctionDecl::new("retained")
                 .returns(Type::bool())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                }),
+                .host_policy(function_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             function,
-            callback(move |cx, _| {
+            callback(function_policy, move |cx, _| {
                 let value = cx
                     .import(&object)
                     .map_err(|error| HostError::new(error.to_string()))?;

@@ -25,21 +25,22 @@ fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
     let returns_bool = result.abi() == Type::bool().abi();
     let mut builder =
         ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
+    let echo_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: Default::default(),
+    };
     let echo = builder
         .define_function(
             FunctionDecl::new("echo")
                 .parameter("value", Type::i32())
                 .returns(result)
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: Default::default(),
-                }),
+                .host_policy(echo_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             echo,
-            host::callback(move |_, args| {
+            host::callback(echo_policy, move |_, args| {
                 let value = args[0]
                     .as_i32()
                     .ok_or_else(|| HostError::new("expected i32"))?;

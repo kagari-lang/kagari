@@ -55,6 +55,7 @@ use std::{collections::HashMap, slice};
 
 mod debug;
 mod interfaces;
+mod paths;
 mod placement;
 mod tail;
 mod views;
@@ -123,6 +124,7 @@ pub fn lower_to_bytecode(
     }
     let cancel = CancellationToken::default();
     let mut module = lower_linked_module(ir, None, Vec::new(), &cancel)?;
+    paths::attach(slice::from_mut(&mut module), slice::from_ref(ir), &cancel)?;
     views::populate(slice::from_mut(&mut module), ir.definitions())?;
     verify_module(&module, ir.definitions(), &Default::default())
         .map_err(BytecodeLoweringError::Verification)?;
@@ -1146,6 +1148,7 @@ pub(crate) fn lower_program_for_comparison(
         modules,
         update_evidence: program.update_evidence().clone(),
     };
+    paths::attach(&mut bytecode.modules, program.modules(), cancel)?;
     views::populate(&mut bytecode.modules, program.definitions())?;
     bytecode.update_evidence = updates::project(
         &bytecode.modules,

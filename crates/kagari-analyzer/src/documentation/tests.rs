@@ -1,38 +1,28 @@
 use crate::query_tests::native_fixture::function_module;
-use crate::query_tests::{render_native, standard_modules};
+use crate::query_tests::{publish_native_documents, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, metadata::DefinitionMetadata,
 };
-use kagari_hir::analysis::core_source::packaged_modules;
+use kagari_hir::analysis::{AnalysisDatabase, core_source::packaged_modules};
 use kagari_hir::{
     declarations::{DeclarationId, DeclarationOrigin},
-    native::render::declaration_source,
     semantic::signatures::FunctionImplementation,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
+use kagari_source::source_database::{CapturedSource, SourceDatabase, SourceLayer};
 use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::{collections::HashSet, sync::Arc};
 
 #[test]
 fn installed_declaration_inventory_preserves_every_named_source_site() {
-    let sources = SourceDatabase::default();
+    let mut sources = SourceDatabase::default();
     let installed_modules = standard_modules();
-    let views = installed_modules
-        .iter()
-        .map(|provider| render_native(provider, &installed_modules))
-        .collect::<Vec<_>>();
-    let mut database = test_analysis();
-    database
-        .set_native_sources(installed_modules.clone(), views.clone())
-        .unwrap();
+    let (mut database, views) = publish_native_documents(&mut sources, &installed_modules);
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
-    let mut independent = test_analysis();
-    independent
-        .set_native_sources(installed_modules.clone(), views.clone())
-        .unwrap();
+    let mut independent = AnalysisDatabase::default();
+    independent.set_import_environment(snapshot.import_environment().clone());
     let independent = independent
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -151,12 +141,12 @@ fn installed_declaration_inventory_preserves_every_named_source_site() {
             DeclarationId::Definition(owner.declarations().definitions().lookup(&path).unwrap());
         if let Some(authored) = packaged_modules()
             .iter()
-            .find(|module| module.source.module_identity() == &path.module)
+            .find(|module| module.module_identity() == &path.module)
         {
             let doc = snapshot.queries().documentation(&id).unwrap();
             assert_eq!(
                 doc.declaration.source_location().unwrap().file,
-                authored.source.id()
+                authored.id()
             );
             assert!(!doc.documentation.is_empty());
             assert!(!identities.contains(&id));
@@ -397,19 +387,14 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         DefinitionMetadata::checked(module.definitions().clone(), records, &Default::default())
             .unwrap(),
     );
-    let providers = vec![module];
-    let original = providers
-        .iter()
-        .map(|module| declaration_source(module, &providers).unwrap())
-        .collect::<Vec<_>>();
     let mut sources = SourceDatabase::default();
     let text = "use demo::echo; fn main() -> i32 { echo(1) }";
     let root = sources
         .set("native-location.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let offset = text.rfind("echo(1)").unwrap();
-    let mut database = test_analysis();
-    database.set_native_modules(providers.clone());
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(vec![module.clone()]);
     let structured = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -448,16 +433,25 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
         "file:///not-installed/provider.kgr",
         "kagari://std/math.kgr",
     ];
+    let view = declaration_snapshot
+        .render_native_document(&module, &Default::default())
+        .unwrap();
+    let mut editor = AnalysisDatabase::default();
+    editor.set_import_environment(declaration_snapshot.import_environment().clone());
     let mut retained = Vec::new();
     for uri in uris {
-        let mut views = original.clone();
-        views.last_mut().unwrap().uri = uri.into();
-        database
-            .set_native_sources(providers.clone(), views)
+        let input = sources
+            .replace_generated(
+                vec![CapturedSource {
+                    key: view.uri.clone(),
+                    display_name: uri.into(),
+                    module: identity.clone(),
+                    text: view.text.clone(),
+                }],
+                &Default::default(),
+            )
             .unwrap();
-        let snapshot = database
-            .snapshot(sources.snapshot(), &Default::default())
-            .unwrap();
+        let snapshot = editor.snapshot(input, &Default::default()).unwrap();
         let file = snapshot.file(root).unwrap();
         assert!(
             file.result().diagnostics().is_empty(),
@@ -480,11 +474,15 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
                 .source(docs.declaration.source_location().unwrap().file)
                 .unwrap()
                 .name(),
-            normalize_source_name(uri).unwrap()
+            uri
         );
         assert!(docs.written_signature.as_deref().unwrap().contains("echo"));
         retained.push((snapshot, docs));
     }
+    let old = retained[0].1.declaration.source_location().unwrap();
+    let new = retained[1].1.declaration.source_location().unwrap();
+    assert_eq!(old.file, new.file);
+    assert_ne!(old.revision, new.revision);
     drop(database);
     assert_eq!(
         structured.queries().documentation_at(root, offset),
@@ -496,7 +494,7 @@ fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity()
                 .source(docs.declaration.source_location().unwrap().file)
                 .unwrap()
                 .name(),
-            normalize_source_name(uri).unwrap()
+            uri
         );
         assert_eq!(
             snapshot.queries().documentation_at(root, offset),

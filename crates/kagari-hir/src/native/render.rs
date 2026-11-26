@@ -1,9 +1,10 @@
 //! Complete native declaration views derived from authoritative registrations.
 use crate::{
-    analysis::{core_source::packaged_modules, external::ExternalModule},
-    native::paths::LibraryPaths,
+    analysis::core_source::packaged_modules,
+    native::paths::{ImporterPaths, LibraryPaths},
 };
 use kagari_common::{
+    cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity,
         metadata::DefinitionMetadata,
@@ -11,6 +12,7 @@ use kagari_common::{
     },
     span::Span,
 };
+use kagari_source::source::SourceFile;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -55,8 +57,7 @@ pub struct NativeBoundSite {
 /// ```text
 /// registered ModuleDecl + providers -> declaration_source
 ///   -> DeclarationSource { uri, text, sites }
-///   -> native::api ordinary parsing + correspondence validation
-///   -> ordinary LoweredModule + attached installed metadata
+///   -> bind text to its logical module for source-only tooling
 /// ```
 ///
 /// The generated view is presentation/analysis input, not an independently authored
@@ -73,7 +74,9 @@ pub struct DeclarationSource {
     pub definitions: DefinitionTable,
 }
 
-/// Renders complete source declarations using the module and its explicit provider set.
+/// Renders a declaration preview using default producer spellings. For
+/// standalone source publication use [`DeclarationSnapshot::render_native_document`](crate::analysis::declarations::DeclarationSnapshot::render_native_document),
+/// which checks the actual importer and both namespaces.
 ///
 /// # Errors
 ///
@@ -83,34 +86,60 @@ pub fn declaration_source(
     module: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
 ) -> Result<DeclarationSource, DeclarationError> {
-    declaration_source_with_external(module, providers, packaged_modules())
+    declaration_source_with_core(module, providers, packaged_modules())
 }
 
-/// Renders a registration in the same spelling environment as analysis with these
-/// external source inputs. External owners supply aliases, never Native declarations.
+/// Renders a preview with default producer spellings for the specified bundled core owners.
+/// Unlike snapshot publication, a preview does not validate the effective import scopes.
 /// Returns an error for unrepresentable registered declarations or Script bodies.
-pub fn declaration_source_with_external(
+pub fn declaration_source_with_core(
     module: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
-    external: &[ExternalModule],
+    core: &[Arc<SourceFile>],
 ) -> Result<DeclarationSource, DeclarationError> {
-    render_with_paths(module, &LibraryPaths::new(providers, external))
+    let cancel = &CancellationToken::default();
+    let paths = LibraryPaths::new(providers, core);
+    let paths = paths.importer(&module.records().identity);
+    let exports = module
+        .records()
+        .exports
+        .iter()
+        .map(|(name, target)| {
+            check_cancel(cancel)?;
+            let target = module
+                .definitions()
+                .resolve(*target)
+                .map_err(|e| DeclarationError(e.to_string()))?;
+            Ok((name.name.clone(), paths.definition_path(target, cancel)?))
+        })
+        .collect::<Result<Vec<_>, DeclarationError>>()?;
+    render_module(module, paths, &exports, cancel)
 }
 
-pub(super) fn render_with_paths(
+fn render_module(
     module: &DefinitionMetadata<ModuleDecl>,
-    paths: &LibraryPaths,
+    paths: ImporterPaths<'_>,
+    exports: &[(String, String)],
+    cancel: &CancellationToken,
 ) -> Result<DeclarationSource, DeclarationError> {
+    check_cancel(cancel)?;
     module
         .records()
-        .validate_script_bodies(module.definitions(), &Default::default())?;
-    DeclarationView::new(module, paths).render()
+        .validate_script_bodies(module.definitions(), cancel)?;
+    DeclarationView::new(module, paths, cancel)?.render(exports)
+}
+
+fn check_cancel(cancel: &CancellationToken) -> Result<(), DeclarationError> {
+    cancel
+        .check()
+        .map_err(|_| DeclarationError("native declaration rendering cancelled".into()))
 }
 
 /// Borrowed authoritative module plus provider context used to resolve rendered identities.
 struct DeclarationView<'a> {
+    cancel: &'a CancellationToken,
     module: &'a ModuleDecl,
-    paths: &'a LibraryPaths,
+    paths: ImporterPaths<'a>,
     definitions: &'a DefinitionTable,
     parameter_counts: BTreeMap<DefinitionId, usize>,
 }
@@ -123,7 +152,11 @@ impl Deref for DeclarationView<'_> {
 }
 
 impl<'a> DeclarationView<'a> {
-    fn new(metadata: &'a DefinitionMetadata<ModuleDecl>, paths: &'a LibraryPaths) -> Self {
+    fn new(
+        metadata: &'a DefinitionMetadata<ModuleDecl>,
+        paths: ImporterPaths<'a>,
+        cancel: &'a CancellationToken,
+    ) -> Result<Self, DeclarationError> {
         let module = metadata.records();
         let mut parameter_counts = BTreeMap::<DefinitionId, usize>::new();
         let parameters = module
@@ -158,18 +191,21 @@ impl<'a> DeclarationView<'a> {
                     .flat_map(|method| &method.generic_params),
             );
         for parameter in parameters {
+            check_cancel(cancel)?;
             let count = parameter_counts.entry(parameter.owner).or_default();
             *count = (*count).max(parameter.position.saturating_add(1));
         }
-        Self {
+        Ok(Self {
+            cancel,
             module,
             paths,
             definitions: metadata.definitions(),
             parameter_counts,
-        }
+        })
     }
 
     fn view(&self, id: DefinitionId) -> Result<DefinitionView<'a>, DeclarationError> {
+        check_cancel(self.cancel)?;
         self.definitions
             .resolve(id)
             .map_err(|error| DeclarationError(error.to_string()))
@@ -182,8 +218,8 @@ impl<'a> DeclarationView<'a> {
             .ok_or_else(|| DeclarationError("missing declaration name".into()))
     }
 
-    fn module_path(&self, identity: &ModuleIdentity) -> String {
-        self.paths.module_path(identity)
+    fn module_path(&self, identity: &ModuleIdentity) -> Result<String, DeclarationError> {
+        self.paths.module_path(identity, self.cancel)
     }
 
     /// Display names use one-based numbering, omitted for a single parameter.
@@ -234,24 +270,25 @@ impl<'a> DeclarationView<'a> {
             .collect())
     }
 
-    fn render(&self) -> Result<DeclarationSource, DeclarationError> {
+    fn render(&self, exports: &[(String, String)]) -> Result<DeclarationSource, DeclarationError> {
         let mut output = Renderer {
             module: self,
             text: "// Generated from native registration definitions. Do not edit.\n\n".into(),
             sites: BTreeMap::new(),
         };
         for line in self.module_documentation.lines() {
+            check_cancel(self.cancel)?;
             output.text.push_str("//! ");
             output.text.push_str(line);
             output.text.push('\n');
         }
         output.text.push('\n');
-        for (name, target) in &self.exports {
-            let target = self.view(*target)?;
-            let path = self.paths.definition_path(target);
+
+        for (name, path) in exports {
+            check_cancel(self.cancel)?;
             output
                 .text
-                .push_str(&format!("pub use {path} as {};\n", name.name));
+                .push_str(&format!("pub use {path} as {name};\n"));
         }
         for ty in &self.types {
             let id = self.definition(ty.kind.definition_kind(), &ty.name, self.definitions)?;
@@ -259,12 +296,11 @@ impl<'a> DeclarationView<'a> {
             let is_struct = ty.kind == TypeDefKind::Struct;
             output.doc(id)?;
             let start = output.text.len();
-            output.text.push_str(if is_enum {
-                "pub enum "
-            } else if is_struct {
-                "pub struct "
-            } else {
-                "pub native type "
+            output.text.push_str(match ty.kind {
+                TypeDefKind::Enum => "pub enum ",
+                TypeDefKind::Struct => "pub struct ",
+                TypeDefKind::Host(_) => "pub native host type ",
+                TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_) => "pub native type ",
             });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params)?;
@@ -304,9 +340,12 @@ impl<'a> DeclarationView<'a> {
                     output.doc(owner)?;
                     let start = output.text.len();
                     output.text.push_str("    ");
-                    if field.visibility == Visibility::Public {
-                        output.text.push_str("pub ");
-                    }
+                    output.text.push_str(match field.visibility {
+                        Visibility::Public => "pub ",
+                        Visibility::PublicCrate => "pub(crate) ",
+                        Visibility::PublicSuper => "pub(super) ",
+                        Visibility::Private => "",
+                    });
                     output
                         .text
                         .push_str(if field.mutable { "var " } else { "val " });
@@ -391,6 +430,7 @@ impl<'a> DeclarationView<'a> {
             output.site(id, start, name_span, generics, vec![]);
         }
         for (index, implementation) in self.implementations.iter().enumerate() {
+            check_cancel(self.cancel)?;
             let id = self.implementation_id(index, self.definitions)?;
             let start = output.text.len();
             output.text.push_str("impl");
@@ -458,6 +498,7 @@ impl<'a> DeclarationView<'a> {
             sites: output.sites,
             definitions: self.definitions.clone(),
         };
+        check_cancel(self.cancel)?;
         Ok(source)
     }
 
@@ -469,6 +510,7 @@ impl<'a> DeclarationView<'a> {
     }
 
     fn spell(&self, ty: &Ty) -> Result<String, DeclarationError> {
+        check_cancel(self.cancel)?;
         let join = |items: &[Ty]| -> Result<String, DeclarationError> {
             Ok(items
                 .iter()
@@ -494,7 +536,7 @@ impl<'a> DeclarationView<'a> {
                 BuiltinType::F64 => "f64",
                 BuiltinType::String => {
                     let owner = NativeTypeConstructor::String.declaration().module;
-                    return Ok(format!("{}::String", self.module_path(&owner)));
+                    return Ok(format!("{}::String", self.module_path(&owner)?));
                 }
             }
             .into(),
@@ -533,7 +575,7 @@ impl<'a> DeclarationView<'a> {
             }
             Ty::Range(item, kind) => {
                 let owner = NativeTypeConstructor::Range(*kind).declaration().module;
-                let name = format!("{}::{}", self.module_path(&owner), kind.name());
+                let name = format!("{}::{}", self.module_path(&owner)?, kind.name());
                 if NativeTypeConstructor::Range(*kind).arity() == 0 {
                     name
                 } else {
@@ -555,7 +597,7 @@ impl<'a> DeclarationView<'a> {
         let mut text = if declaration.module() == &self.identity {
             name.to_owned()
         } else {
-            format!("{}::{}", self.module_path(declaration.module()), name)
+            format!("{}::{}", self.module_path(declaration.module())?, name)
         };
         let mut args = ty
             .arguments
@@ -587,6 +629,7 @@ impl Renderer<'_> {
         let nested = self.module.view(id)?.segments().count() > 1;
         if let Some(documentation) = self.module.documentation.get(&id) {
             for line in documentation.lines() {
+                check_cancel(self.module.cancel)?;
                 if nested {
                     self.text.push_str("    ");
                 }
@@ -725,6 +768,7 @@ impl Renderer<'_> {
     }
 
     fn script_expr(&mut self, expression: &ScriptExpr) -> Result<(), DeclarationError> {
+        check_cancel(self.module.cancel)?;
         match expression {
             ScriptExpr::Name(name) => self.text.push_str(name),
             ScriptExpr::Definition(id) => {
@@ -736,7 +780,7 @@ impl Renderer<'_> {
                     .join("::");
                 if target.module() != &self.module.identity {
                     self.text
-                        .push_str(&self.module.module_path(target.module()));
+                        .push_str(&self.module.module_path(target.module())?);
                     self.text.push_str("::");
                 } else {
                     self.text.push_str("self::");
@@ -821,6 +865,8 @@ impl Renderer<'_> {
         Ok(spans)
     }
 }
+
+mod publication;
 
 #[cfg(test)]
 mod tests;

@@ -60,7 +60,7 @@ impl ColdObject {
             if index.is_multiple_of(1024) {
                 resources.poll_closed()?;
             }
-            if !ValueProperties::of(cx, *value)?.storable {
+            if !ValueProperties::of(cx, *value)?.retainable {
                 return Err(GcError::Representation.into());
             }
         }

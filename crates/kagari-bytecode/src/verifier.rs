@@ -324,6 +324,17 @@ pub(super) fn verify_module_with_program(
         &cancel,
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    host::validate_path_operations(
+        &module.native_declarations,
+        &module.named_declarations,
+        &module.external_types,
+        definitions,
+        &cancel,
+    )
+    .map_err(|error| match error {
+        LayoutValidationError::Cancelled => BytecodeVerificationError::Cancelled,
+        _ => BytecodeVerificationError::InvalidPathLayout,
+    })?;
     if !native_signatures_match(
         &module.public_items,
         &module.native_declarations,
@@ -802,14 +813,7 @@ fn verify_function(
         verify_instruction(module, function, instruction, program, definitions)?;
     }
     let flow = flow::verify(function, flow_budget)?;
-    access::verify(
-        module,
-        function,
-        program,
-        definitions,
-        &flow.blocks,
-        flow_budget,
-    )?;
+    access::verify(module, function, program, definitions, &flow, flow_budget)?;
     Ok(flow.awaits)
 }
 

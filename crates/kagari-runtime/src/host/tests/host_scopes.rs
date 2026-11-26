@@ -369,27 +369,29 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         })
         .unwrap();
     let object = object.finish().unwrap();
+    let write_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::UniqueBorrow],
+        effects: HostFunctionEffects {
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let write = module
         .define_function(
             FunctionDecl::new("write")
                 .parameter("object", object.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::UniqueBorrow],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(write_policy.clone()),
         )
         .unwrap();
+    let read_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: Default::default(),
+    };
     let read = module
         .define_function(
             FunctionDecl::new("read")
                 .parameter("object", object.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: Default::default(),
-                }),
+                .host_policy(read_policy.clone()),
         )
         .unwrap();
     let invoked = Arc::new(AtomicUsize::new(0));
@@ -398,6 +400,7 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
         .bind(
             write,
             host::callback(
+                write_policy,
                 move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
                     called.fetch_add(1, Ordering::SeqCst);
                     let owner = context.runtime().execution_root().unwrap();
@@ -413,12 +416,15 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
             ),
         )
         .unwrap();
+    let reads = Arc::new(AtomicUsize::new(0));
+    let entered = reads.clone();
     module
         .bind(
             read,
-            host::callback(
-                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::unit()),
-            ),
+            host::callback(read_policy, move |_, _| {
+                entered.fetch_add(1, Ordering::SeqCst);
+                Ok(ValueView::unit())
+            }),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -432,14 +438,13 @@ fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
     let object = runtime.host_root_value(object).unwrap();
     let loaded_program = load_bytecode(&mut runtime, "borrows", program).unwrap();
     let loaded = runtime.select_program(&loaded_program).unwrap();
-    assert_eq!(
-        invoke(&mut runtime, &loaded, 0, std::slice::from_ref(&object))
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::HostCallFailure
-    );
+    let error = invoke(&mut runtime, &loaded, 0, std::slice::from_ref(&object)).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::HostCallFailure);
+    assert!(error.to_string().contains("business failure"), "{error}");
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
     let _ = invoke(&mut runtime, &loaded, 1, std::slice::from_ref(&object)).unwrap();
+    assert_eq!(reads.load(Ordering::SeqCst), 1);
     let baseline = runtime.collected_gc_stats().root_registrations;
     let mut scope = runtime.host_scope(&[]).unwrap();
     let token = scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap();
@@ -599,25 +604,27 @@ fn callback_values_survive_collection_and_retire_at_their_own_boundaries() {
     let observed = Arc::new(AtomicUsize::new(0));
     let saved = observed.clone();
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let make_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let make = module
         .define_function(
             FunctionDecl::new("make")
                 .parameter("fail", Type::bool())
                 .returns(Type::array(Type::i32()).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        may_trap: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(make_policy.clone()),
         )
         .unwrap();
     module
         .bind(
             make,
             host::callback(
+                make_policy,
                 move |context: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
                     let owner = context.runtime().execution_root().unwrap();
                     let roots = context.runtime().gc_stats().root_registrations;
@@ -723,6 +730,10 @@ fn host_callbacks_observe_replayable_root_inputs() {
         .bind(
             sample,
             host::callback(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                },
                 move |context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
                     captured.lock().unwrap().push((
                         context.execution_time_millis().unwrap(),
@@ -763,46 +774,62 @@ fn host_trace_keeps_invocation_order_across_reentry() {
     let outer = builder
         .define_function(function("outer", Type::i32()))
         .unwrap();
+    let fail_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let fail = builder
-        .define_function(FunctionDecl::new("fail").returns(Type::i32()).host_policy(
-            HostCallPolicy {
-                passing: vec![],
-                effects: HostFunctionEffects {
-                    may_trap: true,
-                    ..Default::default()
-                },
-            },
-        ))
+        .define_function(
+            FunctionDecl::new("fail")
+                .returns(Type::i32())
+                .host_policy(fail_policy.clone()),
+        )
         .unwrap();
     builder
         .bind(
             inner,
-            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                Ok(ValueView::from(2))
-            }),
+            host::callback(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                },
+                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::from(2)),
+            ),
         )
         .unwrap();
     builder
         .bind(
             outer,
-            host::callback(|context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                let owner = context.runtime().execution_root().unwrap();
-                assert_eq!(
-                    invoke(context.runtime_mut(), &owner, 0, &[])
-                        .unwrap()
-                        .as_i32(),
-                    Some(2)
-                );
-                Ok(ValueView::from(3))
-            }),
+            host::callback(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                },
+                |context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    let owner = context.runtime().execution_root().unwrap();
+                    assert_eq!(
+                        invoke(context.runtime_mut(), &owner, 0, &[])
+                            .unwrap()
+                            .as_i32(),
+                        Some(2)
+                    );
+                    Ok(ValueView::from(3))
+                },
+            ),
         )
         .unwrap();
     builder
         .bind(
             fail,
-            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                Err(HostError::new("expected failure"))
-            }),
+            host::callback(
+                fail_policy,
+                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    Err(HostError::new("expected failure"))
+                },
+            ),
         )
         .unwrap();
     let declarations = builder.finish().unwrap();

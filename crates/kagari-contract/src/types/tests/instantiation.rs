@@ -172,6 +172,7 @@ fn native_inherent_bounds_merge_canonically_without_weakening_the_installed_cont
         methods: vec![function.clone()],
     }))];
     let mut installed = NativeDeclaration {
+        path_operation: None,
         declaration: method,
         function,
         callable_requirements: vec![],

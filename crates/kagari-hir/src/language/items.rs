@@ -1,5 +1,7 @@
 //! Header-time role collection. Roles identify ordinary traits, not a second trait model.
 pub(crate) mod conversion;
+#[cfg(test)]
+mod conversion_registration;
 mod projection;
 mod shapes;
 #[cfg(test)]
@@ -7,7 +9,7 @@ mod tests;
 use crate::aggregates::traits::TraitSignature;
 use crate::{
     DiagnosticBuffer,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, EnumSignature},
     declarations::{DeclarationId, Declarations},
     hir::{
         attribute::{AttributeForm, AttributeTarget, AttributeValue},
@@ -118,6 +120,17 @@ pub(crate) fn collect(
     items
 }
 
+/// Both declaration routes arrive here with resolved payloads and member IDs.
+pub(crate) fn derive_failure_origin(actual: &mut EnumSignature, definitions: &DefinitionTable) {
+    let schema = CoreEnum::Result;
+    if definitions.lookup(&schema.declaration()) == Some(actual.id)
+        && projection::enumeration(actual, definitions)
+            .is_some_and(|record| schema.declaration_shape_valid(actual.id, &record, definitions))
+    {
+        actual.variants[1].reports_failure = true;
+    }
+}
+
 /// Check language-required shapes against their semantic requirements, not a copy
 /// supplied by the producer. Static conversion relationships use the shared verifier.
 pub(crate) fn validate_shapes(
@@ -128,7 +141,7 @@ pub(crate) fn validate_shapes(
     cancel: &CancellationToken,
 ) {
     let definitions = declarations.definitions();
-    for required in CoreEnum::COMPARISON {
+    for required in CoreEnum::COMPARISON.into_iter().chain([CoreEnum::Result]) {
         let path = required.declaration();
         if &path.module != lowered.source.module_identity() {
             continue;
@@ -142,7 +155,7 @@ pub(crate) fn validate_shapes(
         if !valid {
             diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidLanguageRole {
                 role: path.path[0].name.clone(),
-                reason: "missing or invalid public comparison enum".into(),
+                reason: "missing or invalid public core enum".into(),
             }));
         }
     }

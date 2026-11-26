@@ -1,7 +1,7 @@
 use crate::{
     error::RuntimeError,
     host::{
-        DynamicPathArgSlot, HostObjectId, HostPathAdapter, HostPathDescriptor,
+        DynamicPathArgSlot, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptor,
         HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
         HostPathSegment, HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch,
         path_access_allows, validate_path_access,
@@ -51,7 +51,7 @@ impl HostRegistry {
     }
 
     pub(crate) fn matches_root(&self, root: HostRootHandle) -> bool {
-        root.owner == self.owner && self.roots.get(&root.object_id) == Some(&root)
+        self.root(root.object_id) == Some(root)
     }
 
     pub fn register_root(
@@ -84,16 +84,35 @@ impl HostRegistry {
             schema_epoch,
             info.abi_fingerprint,
         );
-        self.roots.insert(object_id, root);
+        self.roots.insert(object_id, Some(root));
         Ok(root)
     }
 
+    pub(crate) fn retire_root(
+        &mut self,
+        root: HostRootHandle,
+        borrows: &HostBorrowTable,
+    ) -> Result<(), RuntimeError> {
+        let slot = self
+            .roots
+            .get_mut(&root.object_id)
+            .filter(|slot| **slot == Some(root))
+            .ok_or_else(|| RuntimeError::typed_path_validation("host root is not registered"))?;
+        if borrows.is_borrowed(root.object_id) {
+            return Err(RuntimeError::host_borrow_conflict(
+                "host root has an active borrow",
+            ));
+        }
+        *slot = None;
+        Ok(())
+    }
+
     pub fn root(&self, object_id: HostObjectId) -> Option<HostRootHandle> {
-        self.roots.get(&object_id).copied()
+        self.roots.get(&object_id).copied().flatten()
     }
 
     pub fn roots(&self) -> impl Iterator<Item = HostRootHandle> + '_ {
-        self.roots.values().copied()
+        self.roots.values().copied().flatten()
     }
 
     pub(super) fn portable_path_type(
@@ -229,12 +248,18 @@ impl HostRegistry {
             access: registration.access,
             schema_epoch: registration.schema_epoch.0,
         };
-        let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
+        let contract = self.checked_descriptor_contract(
+            &declaration,
+            registration.result_type,
+            &segments,
+            types,
+        )?;
         let descriptor = HostPathDescriptor::from_registration(
             id,
             registration,
             segments,
-            fingerprint,
+            &contract,
+            &definitions,
             declaration,
         )?;
         self.next_path_descriptor_id += 1;

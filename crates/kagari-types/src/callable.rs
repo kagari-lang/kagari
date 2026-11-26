@@ -5,22 +5,11 @@ use kagari_common::identity::table::DefinitionId;
 use serde::{Deserialize, Serialize};
 
 /// Declaration policy is independent of the implementation's provider or entry.
-/// Required methods must permit an implementation; defaults may forbid replacement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MethodPolicy {
-    pub override_allowed: bool,
     /// A short Rust payload loan required by an explicitly registered member.
     /// This does not change the nominal receiver's storage or expose Rust traits.
     pub receiver_access: Option<ReferenceAccess>,
-}
-
-impl Default for MethodPolicy {
-    fn default() -> Self {
-        Self {
-            override_allowed: true,
-            receiver_access: None,
-        }
-    }
 }
 
 /// A requirement has no executable entry until implementation selection resolves

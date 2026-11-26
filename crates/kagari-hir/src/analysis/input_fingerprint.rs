@@ -1,11 +1,7 @@
 //! Portable provider/settings identity owned by the analysis input environment.
 
 use crate::{
-    analysis::{
-        AnalysisDatabase,
-        error::AnalysisError,
-        external::{contracts, evidence_fingerprint},
-    },
+    analysis::{AnalysisDatabase, core_source, error::AnalysisError},
     typeck::const_budget::ConstLimits,
 };
 use blake3::Hasher;
@@ -13,12 +9,12 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_syntax::parser::ParseLimits;
 
 impl AnalysisDatabase {
-    /// Identifies native declarations and query limits without checking source.
+    /// Identifies the declaration environment without parsing or checking it.
     ///
     /// Includes complete canonical provider records rather than process IDs or only
-    /// rendered signatures. Native provider registration order is irrelevant. Source
-    /// bytes/selections, lowering options and executable content belong to their
-    /// separate owners. Tooling locations and runtime callbacks/state are excluded.
+    /// rendered signatures. Also includes bundled core documents, importer selections and
+    /// analysis limits. Caller source revisions and packages belong to the physical request;
+    /// callback state and tooling locations do not participate. Provider order is irrelevant.
     /// This key is not semantic validation or executable loading evidence.
     ///
     /// Reuses the encoding while these immutable inputs/settings remain installed;
@@ -47,60 +43,19 @@ impl AnalysisDatabase {
                 .compiler_input_bytes(provider.definitions(), cancel)?;
             hash_bytes(&mut hash, &bytes, cancel)?;
         }
-        let mut external = self.libraries.all().iter().collect::<Vec<_>>();
-        external.sort_by_key(|input| input.source.module_identity());
-        hash.update(&(external.len() as u64).to_le_bytes());
-        for input in external {
-            // All non-syntactic facts participate; source locations and process-local
-            // FileIds do not. This is an input key, not authority or validation.
+        hash.update(&(self.core.len() as u64).to_le_bytes());
+        for source in self.core.iter() {
+            let owner = source.module_identity();
+            let resource = core_source::resource(owner).expect("bundled core owner");
+            hash_bytes(&mut hash, format!("{owner:?}").as_bytes(), cancel)?;
+            hash.update(&source.revision().0.to_le_bytes());
+            hash_bytes(&mut hash, source.text().as_bytes(), cancel)?;
+            hash_bytes(&mut hash, resource.package_alias.as_bytes(), cancel)?;
             hash_bytes(
                 &mut hash,
-                format!("{:?}", input.source.module_identity()).as_bytes(),
+                format!("{:?}", resource.dependencies).as_bytes(),
                 cancel,
             )?;
-            hash_bytes(&mut hash, input.source.text().as_bytes(), cancel)?;
-            hash_bytes(
-                &mut hash,
-                format!("{:?}", input.source.inline_range()).as_bytes(),
-                cancel,
-            )?;
-            hash_bytes(
-                &mut hash,
-                format!(
-                    "{:?}{:?}{:?}{:?}{:?}{:?}{:?}",
-                    input.package_alias,
-                    input.prelude,
-                    input.dependencies,
-                    input.types,
-                    input.methods,
-                    input.enum_failures,
-                    input.import_namespaces
-                )
-                .as_bytes(),
-                cancel,
-            )?;
-            for (name, metadata) in &input.conversions {
-                hash_bytes(&mut hash, name.as_bytes(), cancel)?;
-                hash_bytes(
-                    &mut hash,
-                    &evidence_fingerprint::conversion_bytes(metadata, cancel)?,
-                    cancel,
-                )?;
-            }
-            for (name, metadata) in &input.hosts {
-                hash_bytes(&mut hash, name.as_bytes(), cancel)?;
-                hash_bytes(
-                    &mut hash,
-                    &evidence_fingerprint::host_bytes(metadata, cancel)?,
-                    cancel,
-                )?;
-            }
-            for (selector, metadata) in &input.contracts {
-                hash_bytes(&mut hash, format!("{selector:?}").as_bytes(), cancel)?;
-                let contract =
-                    contracts::fingerprint(metadata.records(), metadata.definitions(), cancel)?;
-                hash_bytes(&mut hash, contract.as_bytes(), cancel)?;
-            }
         }
         let ConstLimits {
             max_steps,

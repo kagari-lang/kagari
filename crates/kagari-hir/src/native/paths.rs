@@ -1,28 +1,33 @@
 //! Source spellings of explicit library owners, independent of registration authority.
-use crate::{analysis::external::ExternalModule, imports::LocalName};
-use kagari_common::identity::{
-    ModuleIdentity, PackageId, metadata::DefinitionMetadata, table::DefinitionView,
+use crate::{
+    analysis::core_source,
+    imports::{
+        LocalName,
+        environment::{ImportEnvironment, ModuleScope, package_targets, source_package_alias},
+    },
 };
-use kagari_types::declaration::module::ModuleDecl;
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{ModuleIdentity, PackageId, metadata::DefinitionMetadata, table::DefinitionView},
+};
+use kagari_source::{
+    package::{PackageEnvironment, PackageScope},
+    source::SourceFile,
+};
+use kagari_syntax::{lexer::lex_with_cancellation, token::TokenKind};
+use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
     sync::Arc,
 };
 
-/// Spell a standalone source's encoded family inside generated native declarations.
-/// Only an explicitly dependent native importer resolves this spelling.
-pub(crate) fn source_package_alias(package: &PackageId) -> Option<String> {
-    package
-        .0
-        .strip_prefix("source-file:")
-        .map(|family| format!("__kagari_source_{family}"))
-}
-
 /// Presentation and import-scope inputs only. Duplicate owners are rejected by
 /// declaration preparation; an alias never creates a module or grants visibility.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct LibraryPaths {
+    explicit: BTreeMap<ModuleIdentity, ModuleScope>,
+    package_scopes: BTreeMap<PackageId, PackageScope>,
     preferred: BTreeMap<ModuleIdentity, String>,
     packages: BTreeMap<PackageId, BTreeSet<String>>,
 }
@@ -30,27 +35,44 @@ pub(crate) struct LibraryPaths {
 impl LibraryPaths {
     pub(crate) fn new(
         native: &[Arc<DefinitionMetadata<ModuleDecl>>],
-        external: &[ExternalModule],
+        core: &[Arc<SourceFile>],
     ) -> Self {
         let native = native.iter().map(|provider| {
             let module = provider.records();
-            (&module.identity, module.package_alias.as_ref())
+            (&module.identity, module.package_alias.as_deref())
         });
-        let authored = external.iter().map(|module| {
-            (
-                module.source.module_identity(),
-                module.package_alias.as_ref(),
-            )
+        let authored = core.iter().map(|source| {
+            let owner = source.module_identity();
+            (owner, core_source::resource(owner).map(|m| m.package_alias))
         });
         let mut paths = Self::default();
         for (owner, alias) in native.chain(authored) {
             let aliases = paths.packages.entry(owner.package.clone()).or_default();
             if let Some(alias) = alias.filter(|name| LocalName::new(name).is_some()) {
-                aliases.insert(alias.clone());
-                paths.preferred.insert(owner.clone(), alias.clone());
+                aliases.insert(alias.to_owned());
+                paths.preferred.insert(owner.clone(), alias.to_owned());
             }
         }
         paths
+    }
+
+    /// Keep only request selections that can affect a prepared registration.
+    pub(crate) fn with_importers(
+        mut self,
+        native: &[Arc<DefinitionMetadata<ModuleDecl>>],
+        environment: &ImportEnvironment,
+        packages: &PackageEnvironment,
+    ) -> Self {
+        for module in native {
+            let id = &module.records().identity;
+            if let Some(scope) = environment.scope(id) {
+                self.explicit.insert(id.clone(), scope.clone());
+            } else if let Some(scope) = packages.scope(&id.package) {
+                self.package_scopes
+                    .insert(id.package.clone(), scope.clone());
+            }
+        }
+        self
     }
 
     pub(crate) fn bindings(&self) -> impl Iterator<Item = (&String, &PackageId)> {
@@ -63,30 +85,122 @@ impl LibraryPaths {
         })
     }
 
-    pub(crate) fn definition_path(&self, target: DefinitionView<'_>) -> String {
-        let mut path = self.module_path(target.module());
+    pub(crate) fn importer<'a>(&'a self, importer: &'a ModuleIdentity) -> ImporterPaths<'a> {
+        match self.explicit.get(importer) {
+            Some(scope) => ImporterPaths::effective(importer, scope),
+            None => ImporterPaths {
+                importer,
+                packages: self.package_scopes.get(&importer.package),
+                defaults: Some(self),
+                scope: None,
+            },
+        }
+    }
+}
+
+/// A replacement scope never falls through to producer-advertised aliases. Before
+/// graph construction, a default producer may also use its selected library's names;
+/// the graph normalizer checks conflicting default bindings. Publication uses only
+/// the frozen effective scope (including dependency spellings permitted by lookup).
+#[derive(Clone, Copy)]
+pub(crate) struct ImporterPaths<'a> {
+    importer: &'a ModuleIdentity,
+    packages: Option<&'a PackageScope>,
+    defaults: Option<&'a LibraryPaths>,
+    scope: Option<&'a ModuleScope>,
+}
+
+impl<'a> ImporterPaths<'a> {
+    pub(crate) fn effective(importer: &'a ModuleIdentity, scope: &'a ModuleScope) -> Self {
+        Self {
+            importer,
+            packages: Some(&scope.packages),
+            defaults: None,
+            scope: Some(scope),
+        }
+    }
+
+    pub(crate) fn definition_path(
+        self,
+        target: DefinitionView<'_>,
+        cancel: &CancellationToken,
+    ) -> Result<String, DeclarationError> {
+        let mut path = self.module_path(target.module(), cancel)?;
         for segment in target.segments() {
             path.push_str("::");
             path.push_str(segment.name);
         }
-        path
+        Ok(path)
     }
 
-    pub(crate) fn module_path(&self, identity: &ModuleIdentity) -> String {
-        // Package bindings also cover sibling and inline modules. Prefer the
-        // owner's choice; otherwise choose deterministically among its package aliases.
-        let alias = self
-            .preferred
-            .get(identity)
-            .or_else(|| self.packages.get(&identity.package)?.first());
+    fn alias(
+        self,
+        identity: &ModuleIdentity,
+        cancel: &CancellationToken,
+    ) -> Result<Option<&'a str>, Cancelled> {
+        for (name, target) in self
+            .packages
+            .into_iter()
+            .flat_map(|scope| &scope.dependencies)
+        {
+            cancel.check()?;
+            if *target == identity.package && legal_name(name, cancel)? {
+                return Ok(Some(name));
+            }
+        }
+        if let Some(defaults) = self.defaults {
+            for name in defaults.preferred.get(identity).into_iter().chain(
+                defaults
+                    .packages
+                    .get(&identity.package)
+                    .into_iter()
+                    .flatten(),
+            ) {
+                if legal_name(name, cancel)? {
+                    return Ok(Some(name));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn module_path(
+        self,
+        identity: &ModuleIdentity,
+        cancel: &CancellationToken,
+    ) -> Result<String, DeclarationError> {
+        let cancelled = |_: Cancelled| DeclarationError("native path spelling cancelled".into());
+        cancel.check().map_err(cancelled)?;
+        let importer = self.importer;
         let fallback = source_package_alias(&identity.package);
-        let package = alias
-            .map(String::as_str)
-            .or(fallback.as_deref())
-            .unwrap_or(&identity.package.0);
-        iter::once(package)
+        let fallback = fallback.as_deref().unwrap_or(&identity.package.0);
+        let package = if let Some(name) = self.alias(identity, cancel).map_err(cancelled)? {
+            name
+        } else if identity.package == importer.package {
+            "crate"
+        } else if legal_name(fallback, cancel).map_err(cancelled)?
+            && !self
+                .packages
+                .is_some_and(|scope| scope.dependencies.contains_key(fallback))
+            && self.scope.is_none_or(|scope| {
+                let targets = package_targets(Some(scope), importer, fallback);
+                targets.len() == 1 && targets.contains(&identity.package)
+            })
+        {
+            fallback
+        } else {
+            return Err(DeclarationError(format!(
+                "no package spelling for {identity} from {importer}"
+            )));
+        };
+        Ok(iter::once(package)
             .chain(identity.path.iter().map(String::as_str))
             .collect::<Vec<_>>()
-            .join("::")
+            .join("::"))
     }
+}
+
+pub(super) fn legal_name(name: &str, cancel: &CancellationToken) -> Result<bool, Cancelled> {
+    let tokens = lex_with_cancellation(name, cancel)?;
+    Ok(name != "_" && tokens.len() == 2 && tokens[0].kind == TokenKind::Ident)
 }

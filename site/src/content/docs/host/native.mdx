@@ -117,7 +117,11 @@ a same-named Rust trait does not satisfy a script trait bound automatically.
 
 Choose a DTO when independent owned conversion is intended, an `Opaque<T>` when
 identity-preserving runtime storage is intended. When Rust keeps the external
-object, expose operations through explicit Host adapters. Continue with
+object, expose operations through explicit Host adapters. The editor sees that
+handle as `pub native host type Player;`, distinct from this example's opaque
+`pub native type Player;`. Neither declaration supplies storage or borrows. To
+compile against the Host handle, supply its structured registration rather than
+its generated declaration text. Continue with
 <a href={page('host/ownership')}>ownership and scoped access</a> for the distinction.
 The <a href={source('docs/spec/host-interop.md')}>host interop contract</a> and
 <a href={source('docs/spec/embedding-api.md#typed-native-registration')}>typed conversion rules</a>

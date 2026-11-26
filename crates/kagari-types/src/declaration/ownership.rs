@@ -4,8 +4,11 @@ use crate::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use kagari_common::identity::{ModuleIdentity, PackageId, table::DefinitionTable};
-use std::collections::BTreeMap;
+use kagari_common::identity::{
+    ModuleIdentity, PackageId,
+    table::{DefinitionId, DefinitionTable},
+};
+use std::{collections::BTreeMap, iter};
 
 /// Checks the implementation module for inherent methods, without changing nominal
 /// ownership for conversions or trait coherence. Local schema validation may see
@@ -25,6 +28,38 @@ pub fn owns_inherent_methods(
     defining.as_ref() == Some(module)
 }
 
+/// Check an authored impl's ordered inputs, not its bounds or associated outputs.
+/// Kagari has no transparent fundamental wrapper: a constructor covers its arguments
+/// but is local only by its own identity. An unresolved projection is not a constructor.
+/// Visibility and the validity of reserved constructor declarations are checked separately.
+pub fn trait_impl_orphan_error(
+    module: &ModuleIdentity,
+    definitions: &DefinitionTable,
+    interface: DefinitionId,
+    receiver: &Ty,
+    arguments: &[Ty],
+) -> Option<&'static str> {
+    if definitions
+        .resolve(interface)
+        .is_ok_and(|view| view.module().package == module.package)
+    {
+        return None;
+    }
+    for input in iter::once(receiver).chain(arguments) {
+        if matches!(input, Ty::Parameter { .. })
+            || matches!(input, Ty::Projection { .. }) && input.contains_parameter()
+        {
+            return Some("uncovered impl parameter before the first local type");
+        }
+        if receiver_owner(input, definitions, |kind| Some(kind.declaration().module))
+            .is_some_and(|owner| owner.package == module.package)
+        {
+            return None;
+        }
+    }
+    Some("the impl package must own the trait or an input type")
+}
+
 /// Constructor ownership is supplied by declarations, independent of API names.
 #[derive(Debug, Clone, Default)]
 pub struct ReceiverOwners {
@@ -32,21 +67,6 @@ pub struct ReceiverOwners {
 }
 
 impl ReceiverOwners {
-    /// Select a dependency-visible view of already validated constructor owners.
-    ///
-    /// This filters the finite constructor index, not declaration records. Nominal
-    /// ownership still requires the caller's retained identity table.
-    pub fn restricted_to(&self, visible: impl Fn(&ModuleIdentity) -> bool) -> Self {
-        Self {
-            constructors: self
-                .constructors
-                .iter()
-                .filter(|(_, module)| visible(module))
-                .map(|(constructor, module)| (*constructor, module.clone()))
-                .collect(),
-        }
-    }
-
     pub fn from_types<'a>(
         types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef)>,
     ) -> Result<Self, DeclarationError> {
@@ -55,22 +75,13 @@ impl ReceiverOwners {
             let TypeDefKind::Native(constructor) = declaration.kind else {
                 continue;
             };
-            if !constructor.shape_valid(declaration) {
+            if NativeTypeConstructor::reserved_name(module, &declaration.name) != Some(constructor)
+                || !constructor.shape_valid(declaration)
+            {
                 return Err(DeclarationError(
                     "invalid native constructor declaration".into(),
                 ));
             }
-            owners.insert(constructor, module)?;
-        }
-        Ok(owners)
-    }
-
-    /// Checks a mixed environment of already shape-validated constructor bindings.
-    pub fn from_constructors<'a>(
-        constructors: impl IntoIterator<Item = (&'a ModuleIdentity, NativeTypeConstructor)>,
-    ) -> Result<Self, DeclarationError> {
-        let mut owners = Self::default();
-        for (module, constructor) in constructors {
             owners.insert(constructor, module)?;
         }
         Ok(owners)
@@ -96,49 +107,59 @@ impl ReceiverOwners {
     /// Resolve receiver ownership in the supplied identity scope. Unknown or
     /// foreign nominal IDs never establish ownership.
     pub fn owner(&self, ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
-        let constructor = match ty {
-            Ty::Host(declaration) => {
-                return definitions
-                    .resolve(*declaration)
-                    .ok()
-                    .map(|view| view.module().clone());
-            }
-            Ty::NativeObject(nominal)
-            | Ty::Struct(nominal)
-            | Ty::Enum(nominal)
-            | Ty::Trait(nominal) => {
-                return definitions
-                    .resolve(nominal.declaration)
-                    .ok()
-                    .map(|view| view.module().clone());
-            }
-            Ty::Builtin(BuiltinType::Char) => {
-                return Some(ModuleIdentity {
-                    package: PackageId("kagari-core".into()),
-                    path: vec!["char".into()],
-                });
-            }
-            // Primitive scalar identity is part of language semantics, not a library recipe.
-            Ty::Builtin(kind) if *kind != BuiltinType::String => {
-                return Some(ModuleIdentity {
-                    package: PackageId("kagari-core".into()),
-                    path: vec!["num".into()],
-                });
-            }
-            Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
-            Ty::Array(..) => {
-                return Some(ModuleIdentity {
-                    package: PackageId("kagari-core".into()),
-                    path: vec!["array".into()],
-                });
-            }
-
-            Ty::Range(_, kind) => NativeTypeConstructor::Range(*kind),
-
-            _ => return None,
-        };
-        self.constructors.get(&constructor).cloned()
+        receiver_owner(ty, definitions, |kind| {
+            self.constructors.get(&kind).cloned()
+        })
     }
+}
+
+fn receiver_owner(
+    ty: &Ty,
+    definitions: &DefinitionTable,
+    constructor_owner: impl FnOnce(NativeTypeConstructor) -> Option<ModuleIdentity>,
+) -> Option<ModuleIdentity> {
+    let constructor = match ty {
+        Ty::Host(declaration) => {
+            return definitions
+                .resolve(*declaration)
+                .ok()
+                .map(|view| view.module().clone());
+        }
+        Ty::NativeObject(nominal)
+        | Ty::Struct(nominal)
+        | Ty::Enum(nominal)
+        | Ty::Trait(nominal) => {
+            return definitions
+                .resolve(nominal.declaration)
+                .ok()
+                .map(|view| view.module().clone());
+        }
+        Ty::Builtin(BuiltinType::Char) => {
+            return Some(ModuleIdentity {
+                package: PackageId("kagari-core".into()),
+                path: vec!["char".into()],
+            });
+        }
+        // Primitive scalar identity is part of language semantics, not a library recipe.
+        Ty::Builtin(kind) if *kind != BuiltinType::String => {
+            return Some(ModuleIdentity {
+                package: PackageId("kagari-core".into()),
+                path: vec!["num".into()],
+            });
+        }
+        Ty::Builtin(BuiltinType::String) => NativeTypeConstructor::String,
+        Ty::Array(..) => {
+            return Some(ModuleIdentity {
+                package: PackageId("kagari-core".into()),
+                path: vec!["array".into()],
+            });
+        }
+
+        Ty::Range(_, kind) => NativeTypeConstructor::Range(*kind),
+
+        _ => return None,
+    };
+    constructor_owner(constructor)
 }
 
 #[cfg(test)]
@@ -153,13 +174,13 @@ mod tests {
     fn sequence(module: &ModuleDecl, context: &DefinitionContext) -> TypeDef {
         let root = context.intern_root(&module.identity).unwrap();
         TypeDef {
-            name: "Sequence".into(),
+            name: "Range".into(),
             kind: TypeDefKind::Native(NativeTypeConstructor::Range(
                 crate::range::RangeKind::Exclusive,
             )),
             generic_params: vec![GenericParam {
                 owner: context
-                    .intern_child(root, DefinitionKind::AssociatedType, "Sequence", 0)
+                    .intern_child(root, DefinitionKind::AssociatedType, "Range", 0)
                     .unwrap(),
                 position: 0,
             }],
@@ -171,7 +192,11 @@ mod tests {
 
     #[test]
     fn native_family_ownership_comes_from_validated_bindings() {
-        let left = ModuleDecl::new(ModuleIdentity::single_file("left.kgr"));
+        let left = ModuleDecl::new(
+            NativeTypeConstructor::Range(crate::range::RangeKind::Exclusive)
+                .declaration()
+                .module,
+        );
         let right = ModuleDecl::new(ModuleIdentity::single_file("right.kgr"));
         let context = DefinitionContext::new().unwrap();
         let definitions = context.snapshot();
@@ -190,13 +215,7 @@ mod tests {
             owners.owner(&receiver, &definitions),
             Some(left.identity.clone())
         );
-        assert!(
-            ReceiverOwners::from_types([
-                (&left.identity, &left_type),
-                (&right.identity, &right_type)
-            ])
-            .is_err()
-        );
+        assert!(ReceiverOwners::from_types([(&right.identity, &right_type)]).is_err());
         let mut invalid = left_type;
         invalid.generic_params.clear();
         assert!(ReceiverOwners::from_types([(&left.identity, &invalid)]).is_err());

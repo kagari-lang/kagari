@@ -74,7 +74,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         associated_types: Default::default(),
     };
     let mut methods = Vec::new();
-    for (name, overridable) in [("read", true), ("fixed", false)] {
+    for name in ["read", "fixed"] {
         let template = context
             .intern_child(
                 root,
@@ -110,7 +110,6 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         method.bounds.clear();
         method.params[0].name = "self".into();
         method.params[0].ty = Ty::SelfType(owner);
-        method.method_policy.override_allowed = overridable;
         method.implementation = CallableImplementation::Script;
         let method_id = context
             .intern_child(owner, DefinitionKind::Method, name, 0)

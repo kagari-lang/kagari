@@ -10,7 +10,7 @@ use crate::{
     native::{
         binding::NativeResult,
         completion::CompletionRegistry,
-        future::{ColdFuture, PendingNative, claims::ClaimedFuture},
+        future::{ColdFuture, PendingNative, claims::ClaimedFuture, storage::ColdObject},
     },
     task::waiting::TaskWait,
     value::{carriers::RootedValue, place::ResultPlace},
@@ -22,6 +22,7 @@ mod tests;
 use crate::diagnostics::{self, Event};
 
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
+use kagari_gc::root::Root;
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -64,6 +65,13 @@ pub(crate) enum QueuedFuture {
 }
 
 impl PendingWait {
+    pub(super) fn conversion_source(&self) -> Option<&Root<ColdObject>> {
+        match &self.pending {
+            PendingOperation::Native(pending) => pending.conversion_source(),
+            PendingOperation::Task(_) | PendingOperation::Group { .. } => None,
+        }
+    }
+
     pub(crate) fn cancel(&mut self) -> NativeResult<()> {
         match &mut self.pending {
             PendingOperation::Native(pending) => pending.cancel(),

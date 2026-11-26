@@ -14,7 +14,7 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, VariantDef, native::NativeTypeConstructor},
+    declaration::{TypeDefKind, VariantDef},
     scalar::BuiltinType,
 };
 
@@ -139,7 +139,6 @@ fn concrete_result_requires_interface_evidence_before_any_factory_runs() {
     for implements in [false, true] {
         let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
         set.add(ModuleDefinition::new(owner("split"), move |module| {
-            module.define_constructor("String", NativeTypeConstructor::String)?;
             let view = module.define_trait("View", 0, |_, _| Ok(()))?;
             let data = module.define_type("Data", TypeDefKind::Enum, 0, |record, _| {
                 record.variants.push(VariantDef {
@@ -153,7 +152,7 @@ fn concrete_result_requires_interface_evidence_before_any_factory_runs() {
                 module.trait_implementation(data.apply([])?, view.apply([])?, vec![])?;
             }
             let concrete = data.apply([])?;
-            module.inherent(Type::scalar(BuiltinType::String), |methods| {
+            module.inherent(concrete.clone(), |methods| {
                 methods.define(
                     MethodDecl::instance("split")
                         .produces(concrete.clone())
@@ -163,7 +162,7 @@ fn concrete_result_requires_interface_evidence_before_any_factory_runs() {
                         .implementation_with(move |_| {
                             Ok(NativeBinding::new(
                                 vec![
-                                    Codec::Exact(Type::scalar(BuiltinType::String)),
+                                    Codec::Exact(concrete.clone()),
                                     Codec::Exact(Type::scalar(BuiltinType::String)),
                                 ],
                                 Codec::Exact(concrete),

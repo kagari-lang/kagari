@@ -54,9 +54,9 @@ The interop scope excludes:
 
 ## Core Split
 
-Host interop is split into two concerns:
+Host interop separates three concerns:
 
-1. offline declarations of types and functions
+1. Kagari declarations of types and functions
 2. runtime bindings checked against those declarations
 3. borrow-boundary management
 
@@ -75,9 +75,11 @@ checks callbacks against the declared signature and access policy, and
 borrow tables and physical metadata slots. Rust callbacks may share captured state
 only when the application chooses to capture shared state.
 
-`TypeBuilder::external` declares an external object identity and `field` adds common
-`FieldDef` records with `HostFieldPolicy`. This descriptor contains no Rust pointer
-or object storage. External root metadata, inherent methods and explicitly declared
+`TypeBuilder::external` declares an external object identity. Its Kagari spelling
+is `native host type Player;`, or a field-bearing declaration if the builder adds
+fields. Each `field` adds a `FieldDef` with `HostFieldPolicy`. The exported field
+shows its Kagari type, visibility and `val`/`var`, not that policy. Neither the
+text nor the schema contains a Rust pointer to a live player. External root metadata, inherent methods and explicitly declared
 Kagari trait impls use the same native module and callable installation as ordinary
 registered APIs. A Rust struct's methods or trait impls are never inferred from a
 data schema. Runtime-owned `Opaque<T>` storage and external Host roots and paths
@@ -100,17 +102,18 @@ including preparation, commit and dirty reporting.
 
 `HostPathDeclaration` and its bounded wire representation belong to
 `kagari_types::declaration::path` and `declaration::wire::path`. They use common `Ty`
-and `TypeDeclaration` schemas without a second host type DSL. Source syntax selects
-these exact declarations; MIR carries their checked facts and bytecode records
-them in `BytecodeModule::path_declarations`. Source-free loading requires exact
+and `TypeDeclaration` schemas without a second host type DSL. Lowering binds checked
+Host field IDs to an exact path declaration; MIR carries the contract and bytecode
+records the requirement in `BytecodeModule::path_declarations`. Source-free loading requires exact
 installed schemas and path bindings, including unused path declarations.
 `Runtime::resolve_host_path` looks up an installed scoped declaration without
 registering another descriptor. The runnable
 [atomic path example](../../crates/kagari-runtime/examples/atomic_host_path.rs)
 shows the complete declaration, binding, installation and checked access sequence.
 
-Root handles are created only by `register_host_root` and carry registry ownership,
-schema epoch and ABI identity. Calls, temporary scopes and path-view chaining reject
+`Runtime::register_host_root` issues a registry-local handle; its
+[lifetime and retirement rules](#external-host-access-and-scope) are independent of code reload.
+Calls, temporary scopes and path-view chaining reject
 foreign or expired roots even when object IDs, type slots and schemas coincide.
 Native arguments match the installed result type of a path view and validate every
 parent descriptor, dynamic argument and access capability against that root.
@@ -156,49 +159,11 @@ shared conversion and optional Serde limits.
 
 ## Function Registration
 
-Rust consumers import each API from its owning module. For example,
-`KagariEngine` belongs to `kagari::engine`, `NativeApi` to
-`kagari_runtime::native::api`, typed conversions to `kagari_runtime::native_value`,
-and array handles to `kagari_runtime::native_value::array`. The `native_module`
-attribute belongs to `kagari_native_macros`; consumers declare that direct
-dependency. Native type wrapper expansions also name `kagari_types::ty::Ty`
-and require a direct `kagari-types` dependency. Crate roots do not re-export these
-items. Any future re-export requires a reviewed exact whitelist entry under the
-[structure-check policy](../structure-checks.md).
-
-The native package API accepts actual Rust functions through
-`#[native_module("game::math")]` and `#[native]`. `#[native_type]` supports
-type aliases and single-field tuple wrappers backed by `NativeRepresentation`.
-The adapter's resolved Rust type supplies the closed engine constructor and enum
-variant shape; registration checks generic arity and payload slots. Checked
-`NativeArray<T>`, six immutable `NativeRange<T, Shape>` proxies and Rust `Bound<T>`
-provide current storage representations; `#[native_trait]` and
-`#[native_impl]` export actual Rust required traits and implementations. Rust
-checks bodies, return types and trait conformance. `NativeValue` conversions
-supply scalar, String, Option and checked array metadata, including Rust aliases.
-Open generics require inline `T: NativeValue` and compile once using checked rooted
-`GenericValue<slot>` proxies; this does not register arbitrary Rust generics.
-
-`NativeResult<T>` returns T to script and propagates RuntimeError as a trap.
-`#[context]` injects a checked NativeCall without adding a script argument.
-NativeArray operations preserve bounds, aliasing and heap guards. Readonly
-applications permit reads and reject mutations. NativeFn<(u64,), T> supplies the
-checked index callback for the current array proof; NativeContinuation<T> reuses
-the rooted resumable driver and cooperative polling boundaries. The registered ops Index is a by-value
-Rust bridge for the existing script indexing contract. It returns checked values
-and does not expose unrestricted Rust references. NativeRange preserves complete
-integer widths without converting endpoints to signed offsets. Bound payloads
-use ordinary NativeValue conversions and roots, including arbitrary script objects.
-
-`module::native_api()` builds validated NativeModule records and typed factories.
-`KagariEngine::builder()` starts with no Native modules. If the host needs stdlib,
-[compose and install it explicitly](embedding-api.md), then install application
-modules and consume `builder.build()`. Verified core declarations are authoring
-inputs; they do not install callbacks. Generated `.kgr` provides
-navigation and documentation, while compiler signatures are imported directly.
-Advanced NativeApi::new/NativeFactory registrations retain runtime result,
-application, ownership and callback validation. External root and path adapters
-use the same declaration, bind and installation owners.
+A source-enabled `KagariEngine::builder()` has verified core declarations for
+registration authors, but no installed Native modules. To add stdlib, [compose
+and install it explicitly](embedding-api.md). Application modules use the same
+[registration API](standard-declarations.md#explicit-registration); neither a Rust
+function signature nor a Rust trait implementation declares a Kagari API.
 
 Declare a function with `FunctionDecl`, including its parameter/result `Type`
 handles, then attach its callback with `ModuleBuilder::bind`. Signatures use the
@@ -207,7 +172,17 @@ ordinary scoped `Ty` tree. Manual external-ID callbacks explicitly attach a
 that checked declaration and its complete dependency closure; there is no second
 runtime function registry or inferred signature authority.
 
-Host parameter types from offline declarations provide expression context before
+Given `native host type Player;`, the declaration `native fn bounce(p: Player) -> Player;`
+takes and returns a handle of that same type. Checking the call neither requires
+a passing annotation nor infers a Rust loan from the caller’s aliases.
+A Native entry exposing an external handle in a parameter or result, including
+a nested type, requires a Host policy at registration and executable admission.
+It must match the actual binding; absence does not mean `Owned`.
+At invocation the runtime validates the actual handle and acquires any required
+short loan before callback entry. A conflicting reentrant call fails before its
+callback runs; call cleanup releases the acquired loan on success or failure.
+
+Declared Host parameter types provide expression context before
 argument checking, including nested containers and empty Array literals. The same
 parameter comparison rules apply to script and host calls: an argument that exits
 the enclosing function on every path produces no parameter value and does not
@@ -243,9 +218,9 @@ through Runtime effect, cancellation, signature and source validation.
 
 `kagari_runtime::execution::reentry::reenter(context, loaded, function, args)` drives the existing explicit
 frame executor synchronously. The loaded handle and FunctionRef select a linked
-version, which must belong to the current root program.
-Reentry does not switch to the latest epoch. Argument and
-result representations are checked against the linked signature, and arguments
+call route; ordinary call selection resolves its current implementation within the
+active execution's program. Argument and result representations are checked
+against the linked signature, and arguments
 must contain valid references owned by this runtime. The return is a RootedValue;
 keeping it alive retains the object across subsequent GC and host operations.
 Outer frames and borrow guards remain live while nested calls run. Borrow conflicts
@@ -259,16 +234,13 @@ Nested calls share the session's frame stack and debugger observer. Breakpoint a
 trap snapshots include suspended callers at their actual call instruction, plus
 the nested frames. The synchronous callback path currently uses the interpreter.
 
-SharedBorrow/UniqueBorrow parameters acquire corresponding object leases when
-passed a HostRoot. Forwarded borrow tokens must belong to this runtime, still be
-live and satisfy the required mode; they cannot satisfy Owned passing. Conflicting
-arguments reject before invoking the callback, releasing leases already prepared
-for earlier arguments. Borrow tokens carry a table owner in addition to frame and
-epoch, so coincident frame numbers in other runtimes confer no authority.
-Formal shared arguments also weaken unique tokens before callback argument getters
-can observe them. The alias retains its checked owner/frame/epoch and expires with
-the original frame; it cannot validate unique access. The original token remains
-valid with its original capability until that frame ends.
+`SharedBorrow` and `UniqueBorrow` Host parameters reserve the actual root object,
+including when the argument is a path view. Shared passing narrows a writable
+path view for the callback, without changing the caller's view. Conflicting
+arguments reject before invoking the callback; scope cleanup releases reservations
+already acquired for earlier arguments. A Rust-side borrow token identifies its
+borrow table, frame, epoch, object, type and mode. It expires when the frame ends;
+it is neither a script value nor a durable root handle.
 
 Runtime::host_scope creates explicit temporary scopes and validate_host_borrow
 checks tokens; the old enter_host_call and mutable borrow-table access are removed.
@@ -327,7 +299,7 @@ users supply cold declarations through AnalysisDatabase::set_native_modules.
 SDK users bind and install NativeModule values through KagariEngineBuilder::install
 or install_all, then build an engine with a sealed declaration and binding closure.
 That engine can compile before creating a runtime; authoring and compilation do not
-execute callbacks. The former KagariEngine::set_host_interface entrypoint is removed.
+execute callbacks.
 Source may call demo::echo directly, import demo::echo with an optional alias, use
 a nested import group, or import demo as a module alias. Source paths use double
 colons; the module identity and its actual declaration IDs select the binding.
@@ -335,8 +307,8 @@ The std namespace is reserved. Ambiguous function/module paths and unspellable
 declaration paths are rejected. Unknown imports and duplicate import aliases
 produce source diagnostics instead of disappearing during lowering.
 
-Validated Native registration metadata and any supplied presentation parses can
-be shared across requests. Each request lowers and checks the declarations it
+Validated Native registration metadata can be shared across requests, not a
+presentation parse or prior lowering. Each request lowers and checks the declarations it
 needs against current inputs. Snapshots retain their checked declarations,
 signatures, documentation and scoped definition IDs; a definition from another
 context cannot resolve by coincident index.
@@ -364,12 +336,13 @@ and result checks inspect nested members and standard enum tags, reject foreign
 or stale heap references, and observe execution termination while traversing.
 Argument mismatch prevents callback execution. A result mismatch rejects the
 result without rolling back effects already performed by the callback.
-Opaque host types resolve in source annotations and call signatures by declaration
-identity. Direct imports, module aliases and source facade re-exports share the
-same semantic targets. Host types are distinct from script structs, even when
-their names coincide; they do not support script construction or generic equality.
-Ordinary definition queries expose the checked type identity and its owning
-schema; declaration views supply their actual generated source locations.
+External Host types resolve in source annotations and call signatures by declaration
+identity. Direct imports, module aliases and source facade re-exports preserve that
+identity. A field-bearing `native host type Player` is still a handle, not a
+constructible struct or a runtime-owned opaque object. Its [comparison rules](value-semantics.md#identity-requires-statically-known-object-operands)
+do not depend on how the declaration reached the checker.
+Ordinary definition queries expose the checked declaration identity. A parsed
+document supplies its own source location; it does not supply the Host schema.
 Erroneous applications retain the base target, and immutable snapshots retain
 their original native declaration facts after provider inputs change.
 Nominal host references survive public ABI encoding and generic function
@@ -426,25 +399,6 @@ publication, including artifact reloads. Compiled host calls use registry-owned
 slots; labels remain declaration and policy metadata. A wrong runtime cannot
 reuse a coincident slot. Loading executes no callbacks. See [bytecode.md](bytecode.md)
 and [artifacts.md](artifacts.md) for the executable and encoding contracts.
-
-Rust functions are also registered explicitly.
-
-Conceptually:
-
-```rust
-registry.register_fn("game.heal", |player: &mut Player, hp: i32| {
-    player.hp += hp;
-});
-```
-
-Function registration records:
-
-- exposed symbol name
-- parameter list
-- passing style for each parameter
-- return type
-
-This aligns with the existing host runtime surface in [host.rs](../../crates/kagari-runtime/src/host.rs).
 
 ## Passing Styles
 
@@ -541,10 +495,10 @@ and the [reservation failure contract](failure-semantics.md#modification-guarant
 ## Registered payload loans
 
 An instance `MethodDecl` may explicitly set `receiver_access` to
-`ReferenceAccess::Shared` or `Mutable`. The required capability belongs to its
-ordinary callable declaration, including portable metadata and trait/default
-application; it is independent of Rust trait implementation. The common `bind`
-adapter and installation validator require agreement with the selected callback.
+`ReferenceAccess::Shared` or `Mutable`. HIR selects the method by its Kagari `self`
+and signature, not by a Rust receiver loan. Lowering takes the loan requirement
+from the selected member's registration into the executable contract. The common
+`bind` adapter and installation validator require agreement with the callback.
 Owned/raw callbacks cannot silently claim the borrowed receiver contract.
 
 The borrowed callback takes `&mut LoanContext` and an outer argument tuple whose
@@ -588,28 +542,38 @@ inputs/results at the Host boundary instead of bare unrooted transport values.
 ## External Host access and scope
 
 Host-owned state stays outside runtime-owned payload storage. A script receives a
-registered Host root or typed path capability, not a Rust reference. Installation
-and invocation check owner, generation, schema, path and access before entering
-an adapter. A shared receiver does not grant write authority. Path identities do
-not constitute active Rust loans: multiple handles may refer to the same root.
-Conflicts involving active loans are checked at invocation or path access before
-lending Rust storage. Compatible shared access may overlap; incompatible writes
-reject. No metadata, DTO or handle can bypass those rules.
+registered Host root or typed path capability, not a Rust reference. A
+`HostRootHandle` identifies the issuing registry, `HostObjectId`, runtime type,
+schema epoch and ABI fingerprint. `retire_host_root` requires the exact live
+handle and fails while that object has a shared or unique loan. After retirement
+the object is absent from lookup and enumeration, but its ID is reserved for
+the rest of that registry's lifetime. The schema epoch describes the schema;
+it is not an object generation. Independent runtimes may use the same numeric ID.
+
+A Future holding player A's handle does not pin A's registration or snapshot
+its fields. A later path read resolves the complete handle, checks the path,
+schema and access, and borrows the root for that operation. If A was retired,
+the read fails before the adapter runs; registering player B with the same schema
+cannot redirect it. Shared reservations may overlap; a unique reservation conflicts
+with any other reservation on that object, including during synchronous reentry.
 
 `Runtime::with_host_scope` and `Runtime::execute_scoped` support these independent
 Host calls. Import a rooted Host value into the scope and invoke the checked entry
 with an explicit `ExecutionContext`. The scope protects argument and result views
-without creating owning roots for temporary transport. Scope-bound views cannot
-outlive their scope; use `scope.retain` for a storable result that must survive it.
-The same Host validation applies before and after reload. Retaining a code generation
-or copying a transport value cannot restore expired or revoked access.
+without creating owning roots for temporary transport. A call-lifetime `ValueView`
+cannot escape its scope. `scope.retain` validates the value and returns an owning
+`RootedValue`; this can protect a live Host root or path descriptor for Rust. It
+neither extends a loan nor makes that value admissible in script storage.
 
-Host capabilities subject to frame or scope restrictions are not ordinary storable
-values. Source and executable validation independently reject their prohibited
-escapes, including durable storage, captures and suspension. Runtime checks actual
-ownership, lifetime and access at use. Scope and call cleanup release protected
-values and active loans on success, error or supported Rust unwind. Completed
-writes are not rolled back. See [failure semantics](failure-semantics.md),
+Ordinary script heap fields, array elements and module statics do not accept a
+direct Host root or path view, including inside nested tuples. Computations have
+a different boundary: a managed Native value or same-registry root may be retained
+in a closure, cold Future, capture cell or parked frame. Admission checks for
+reachable active loans/operation guards and rejects path views even inside tuples
+or behind mutable aliases. It need not prove a retained root is still registered;
+retention alone never grants access. See [owned interpreter driving](execution.md#owned-interpreter-driving).
+Scope and call cleanup release protected values and active loans on success,
+error or supported Rust unwind. Completed writes are not rolled back. See [failure semantics](failure-semantics.md),
 [scoped entry](embedding-api.md#scoped-external-host-entry) and the
 [manual adapter tests](../../crates/kagari-stdlib/src/tests/execution/native_boundary/native_boundary_conversion/host_adapter.rs).
 
@@ -622,7 +586,7 @@ Rules:
 
 - host metadata determines the host passing style
 - script code uses normal calls and member access
-- host-backed field and index chains lower to typed path operations where appropriate
+- declared Host fields use field syntax; registering an index or virtual segment does not add script syntax
 - a typed path describes checked access, not a retained Rust loan
 
 `HostPathDeclaration` accepts `HostPathSegmentDeclaration`. Its `Field`
@@ -675,15 +639,7 @@ access and schema epoch. Duplicate records, invalid chains, noncontiguous dynami
 argument slots and paths longer than 256 segments are rejected. Installation
 derives physical descriptors from the same schemas and fingerprints before any
 callback runs. Linking checks required contracts even if a module has no path
-instruction; missing or ambiguous bindings reject publication. Source field and
-index syntax selects one declared ordered path by field or virtual name and the
-exact type of each index expression. The suffix can mix fields, multiple indexes
-and virtual members. Each source index step must use a distinct declared dynamic
-slot; its evaluated value is passed to that slot even when slot order differs from
-source order. The root and each index evaluate once, left to right; assignment
-captures them before its RHS, while the final read or modification uses one linked
-descriptor. Intermediate segments are not read separately. Required host types
-include nominal values reached through index and virtual segment results.
+instruction; missing or ambiguous bindings reject publication.
 
 Bytecode path records require that contract fingerprint. The loader resolves all
 records before publishing the program, rejects missing/ambiguous contracts and
@@ -691,95 +647,62 @@ checks result representation and write access. Each loaded version holds its own
 path bindings. VM path operations consume those bindings; registering descriptors
 later cannot retarget an existing version. Debug names are diagnostic text only.
 
-Source field reads select a unique declared nominal field chain. HIR owns the
-field identities, result types, root expression and selected contract; missing or
-ambiguous paths produce `KG_HOST_PATH_INVALID` while keeping known field facts
-available to tools. Analyzer's `FileQueries::field_at` selects the common field identity;
-resolve its type/access facts in the owning shared schema and its documentation
-in the declaring ModuleDecl's documentation map. External fields need not have a
-source declaration location. These recovery facts do not supply an executable
-path or make an invalid program loadable. Nested chains lower to one `ReadPath`, evaluating
-the root exactly once. IR validates the selected contract against required host
-types; bytecode carries the required field declaration and linked path record.
+For a field read or assignment, HIR checks the field's owner, visibility, type
+and `val`/`var` declaration. It records each selected field ID and result type,
+not an adapter or path contract. `FileQueries::field_at` uses that same identity
+for navigation, even without an executable path. Lowering groups consecutive
+Host fields and matches the root and ordered field IDs against the provider's
+registered paths without looking up names again. It requires one exact chain,
+matching result types at every step and write access for a write. A missing,
+ambiguous or incompatible path fails lowering, not field lookup. The root is
+evaluated once; `ReadPath`, `SetPath` or `ModifyPath` uses the whole chain
+without separate reads of intermediate fields.
 
-Source field assignments and compound assignments use checked writable path
-declarations. HIR records the target's root place and contract; readonly paths
-produce diagnostics. Lowering
-captures the root before evaluating the RHS, then emits SetPath or ModifyPath.
-The runtime validates and reads the current target after RHS evaluation and prepares
-the update before committing the target and dirty record. Arithmetic failure or
-target removal by the RHS prevents the final write while retaining completed RHS
-effects.
+For `player.baseline.hp += 2`, `val baseline: Stats` forbids replacing
+`player.baseline`, not following its Host handle. A writable path may traverse
+that readable prefix to a `var hp`; a `val hp` cannot be assigned through either
+a `val` or a `var` prefix. A readonly runtime view is a separate restriction:
+even a writable leaf and matching writable descriptor cannot upgrade that view.
+
+For a path containing Host index or virtual segments, a provider can expose an
+ordinary Native method such as `player.add_score(first(), second(), rhs())`.
+HIR checks the declared call. Its portable Native declaration pairs an operation
+kind (`Read`, `Set` or `Add`) with the exact path. The call remains a Native
+import, not a path opcode. Source-free loading requires the installed callable
+to bind that same operation and path, the matching schema closure and an adapter
+supporting the declared access. A same-signature method bound to another path
+fails before any callback, even if both descriptors are installed.
+
+The receiver, index arguments in segment order, and finally the RHS each evaluate
+once, left to right. If the two index segments declare slots `1` and `0`, the
+adapter receives `[second_value, first_value]`; neither argument is evaluated again.
+`Read` returns the leaf, `Set` returns unit, and `Add` returns the updated numeric
+leaf. As for field assignment, the captured target is validated and read after
+the RHS. A successful write prepares and commits once and publishes one dirty
+record with the root, descriptor, slot-ordered arguments, operation and old/new
+values. Integer overflow traps after the old value is read and before write
+preparation. Neither overflow nor a target invalidated by the RHS commits that
+write or appends its dirty record; previously completed effects remain visible.
+
 For every read, set, modify and view instruction, linking also checks dynamic
 argument count and register representations against the bound descriptor's index
 parameters. An incompatible instruction rejects the whole program before publication;
 runtime checks still validate actual argument values and ownership during execution.
 
-Example:
+A Host-rooted path descriptor keeps its access restrictions, not an active loan.
+An adapter acquires fresh checked access when the operation executes.
 
-```kagari
-player.heal(10)
-player.hp = 100
-```
+## Generic Host registrations
 
-For host-owned state, assignment such as `player.hp = 100` lowers to a checked path mutation operation rooted at `player`.
-It does not require the script runtime to store a Rust `&mut Player` or `&mut player.hp`.
-
-This keeps Kagari syntax clean while still allowing efficient Rust-backed mutation.
-
-Typed path mutation is the normal model for ergonomic field-style access to Rust-owned game state.
-Adapters may acquire short checked Rust loans when an operation executes; a retained path view does not keep such a loan live.
-
-## Registration of Generic Rust Functions
-
-Kagari does not register open Rust generics directly.
-
-Generic registration rule:
-
-- register concrete instantiations separately
-
-Example:
-
-```rust
-registry.register_fn("util.sort_i32", |xs: &mut [i32]| { ... });
-registry.register_fn("util.sort_string", |xs: &mut [String]| { ... });
-```
-
-This is simpler because:
-
-- Rust generic instantiation and Kagari generic instantiation are not the same system
-- overload and resolution behavior remains explicit
-- diagnostics are easier to keep understandable
-
-## Registration of Generic Rust Types
-
-Use the same strategy for generic host types in v1:
-
-- register concrete instantiations explicitly
-
-Examples:
-
-```rust
-registry.register_type::<Vec2>("math.Vec2");
-registry.register_type::<InventorySlot<PlayerId>>("game.InventorySlot_PlayerId");
-```
-
-The host may expose script-facing aliases that hide the Rust naming detail.
-
-## Deferred Generic Factory Model
-
-A later version may support a generic registration factory.
-
-Conceptually:
-
-```rust
-registry.register_generic_type("game.Buffer", resolver);
-registry.register_generic_fn("util.sort", resolver);
-```
-
-The resolver would receive a concrete Kagari instantiation request and decide whether it can map it to a supported Rust specialization.
-
-This is a later extension, not a v1 requirement.
+A Rust generic function does not imply an open Kagari API. The module may
+expose distinct concrete functions, or explicitly declare Kagari binders, bounds,
+parameter/result types and the operations a generic Native implementation needs.
+The selected application must satisfy that declaration; a callback cannot add
+new implementations during resolution. An ordinary generic native type and its
+storage descriptor must agree on the supported nominal applications. An external
+Host type itself has no binders, but it can be an argument to a generic function
+or type. See
+[explicit registration](standard-declarations.md#explicit-registration).
 
 ## Binder Traits
 
@@ -843,35 +766,35 @@ registers runtime-owned `Opaque<Counter>` separately from a Kagari `Readable` tr
 and its explicit impl. The bound `get` callback takes a checked shared loan and calls
 Rust's `RustReadable::read`. It then compiles and decodes KBC, installs the common
 module, checks the linked trait table and invokes that native application with an
-Opaque root. Run `cargo run -p kagari-runtime --example host_trait_table`.
+Opaque root. Run `cargo run -p kagari-stdlib --example host_trait_table`.
 
-`ModuleBuilder::reference_trait` accepts a portable declaration path and scoped
-expected `TraitDef` for a source-defined trait. It records the expectation in
-`ModuleDecl::trait_references` and returns the ordinary `TraitRef` used by
-`trait_impl`; it defines and exports no second trait. The contract may come from
-the source module's checked public or private ABI. Required members still need explicit
-bindings. Associated outputs use `MethodsBuilder::associated_type`, and omitted
-source defaults retain their script bodies. Native adapters, reserved protocols
-and duplicate/conflicting references cannot be introduced through this API.
+To pin a script trait for a native installation, select its defining module from
+an independently compiled, verified program with `DeclarationCatalog::with_verified_modules`.
+`ModuleBuilder::reference_trait` accepts the public trait's portable declaration
+path and returns the `TraitRef` used by `trait_impl`. This records a mandatory
+requirement for the importer; it does not define the trait or grant access to a
+private declaration. Native adapters, reserved protocols and duplicate pins
+cannot be introduced through this API.
 
-The declaring script module must supply the actual trait. Checked native
-declaration dependencies resolve only in that native importer's scope. An exact
-registered trait reference admits its canonical private trait in that scope;
-ordinary script imports retain their visibility checks. References create no
-global source package aliases. Engine
-construction validates the closed source-independent native set immediately.
-Standalone source families use a valid generated qualifier in the native view;
-only that native importer's explicit dependency set resolves it. This spelling
-does not expose even a public sibling to an ordinary source import. Canonical
-module identities remain unchanged, and colliding dependency spellings remain
-ambiguous rather than selecting an arbitrary owner.
-Source-dependent generated signatures/bodies are checked with the user snapshot;
-a missing source provider cannot compile. MIR and bytecode carry the reference
-requirements separately from trait definitions and compare them with the actual
-reachable defining module's ABI. Source-free loading also requires that each
-native module carries exactly its installed references: omission or forgery is
-rejected, including unused requirements. Comparison covers unused members,
-associated output contracts and default policies. A changed source default body
+The host declares each implemented method's own signature and callback with
+`MethodsBuilder::define_method` (or `define_method_with` for method-local
+parameters, bounds or requirements). For example, a `Counter` implementation of
+`Reader<Item = i32>` declares `read(self: Counter, amount: i32) -> i32`.
+`associated_type` binds `Item`; omitting a source default leaves its body with
+the trait owner. Binding checks the adapter against the authored method. When the
+application is compiled, the impl must also match the actual visible trait after
+substitution. Changing only the owner's `amount` type does not change what the
+host has declared.
+
+A structured identity and a written path obey the same reachability and
+visibility rules. Dependencies resolve in the importer's scope; they create no
+global aliases. A missing owner or inaccessible trait cannot supply an impl.
+MIR and bytecode carry the checked owner's trait ABI separately from its uses.
+At source-free load, every mandatory identity and ABI must match the installed
+importer's independent pin, even if no method was called. The compiler may carry
+additional requirements inferred from checked uses; these too must match the
+reachable defining module. Comparison covers unused members, associated output
+contracts and which methods have defaults. A changed source default body
 with the same ABI remains subject to frozen declaration, independent executable
 and retained-demand checks, not transitive body protection. If admitted,
 ordinary calls select its current implementation; retained computation bodies remain
@@ -881,16 +804,16 @@ The [portable source-trait contract fixture](../../crates/kagari/src/runtime/tes
 demonstrates explicit binding, an associated output, a script default and exact
 ABI rejection.
 
-Host types implement script-visible traits only through explicit common
-implementation declarations. `ImplBuilder` names the trait application, receiver
-and associated outputs; each member is declared and bound through the ordinary
-native module. Rust trait implementation bodies can supply those callbacks, but
-Rust trait membership never creates a Kagari impl. Ordinary DTO schema registration
+A Kagari `impl` for a Host type can come from script or from registration; both
+follow the [same trait and protocol rules](traits.md#standard-protocol-identities).
+For a registered impl, `ImplBuilder` names the trait application, receiver and
+associated outputs. Rust code can supply callbacks for declared Native members,
+but Rust trait membership never creates a Kagari impl. Ordinary DTO schema registration
 also creates no methods or trait impls.
 
 Signature analysis and artifact verification check the complete output schema,
 input/output bounds, receiver and substituted method signatures against the
-owning trait's public ABI or private execution contract, even without calls.
+owning trait's checked ABI, even without calls.
 Linking requires an identical registered table and bound callbacks for mapped
 methods. A script implementation of the same applied trait for that host type
 is an overlap; associated outputs do not distinguish implementations.
@@ -907,12 +830,29 @@ Runtime downcast syntax remains future work.
 
 Run `cargo run -p kagari --example host_interfaces` for
 [the complete binding example](../../crates/kagari/examples/host_interfaces.rs).
-It reads the private source Reader contract, explicitly binds its associated Item
-and read member once, then uses the same installation for static calls and boxed
+It pins the public `Reader` contract, binds `Item` and declares and binds `read`,
+then uses the same installation for static calls and boxed
 interface dispatch after KBC decoding. Its runtime-local Counter root remains
 host-owned. Compilation imports cold declarations without executing callbacks.
 
 Trait-system behavior is defined in [traits.md](traits.md).
+
+### Host conversions
+
+`From` and `TryFrom` may have a Host source or destination. They are Kagari
+trait implementations, not Rust storage codecs, casts or requests to manufacture
+a handle. The [orphan and overlap rules](traits.md#coherence-guidance), the
+substituted signature (including `TryFrom::Error`), and the implementation body
+are checked as for other conversions. A reverse `into` or `try_into` call still
+requires the [canonical blanket impl](builtins.md#conversion-protocols).
+
+For `impl From<Player> for HealthSnapshot`, a body reading `player.hp` reads the
+live object through its checked field adapter. If that handle has been retired,
+access fails **before** the adapter reads storage; creating another `Player`
+does not redirect the handle. In the other direction, a body returning `Player`
+must obtain a genuine handle, for example from a declared lookup. Returning an
+`i32` instead is a type error; neither the impl nor generated `.kgr` supplies
+storage, a callback or authority to construct a Host object.
 
 ## Interaction with Security
 

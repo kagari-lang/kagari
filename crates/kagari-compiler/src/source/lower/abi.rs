@@ -3,17 +3,19 @@
 #[cfg(test)]
 mod host_tests;
 #[cfg(test)]
+mod path_operation_tests;
+#[cfg(test)]
 mod tests;
 
 mod named;
 mod traits;
 mod type_definitions;
 
-use crate::source::lower::statics::static_contract;
-use kagari_common::identity::table::DefinitionTable;
+use crate::source::lower::{MirLoweringError, statics::static_contract};
+use kagari_common::identity::{mapping::DefinitionMappingError, table::DefinitionTable};
 use kagari_contract::types::{
-    InterfaceTable, ModuleContract, PublicItem, TraitContract, inherent::InherentTable,
-    materialization, named::FunctionOrigin,
+    InterfaceTable, ModuleContract, PublicItem, inherent::InherentTable, materialization,
+    named::FunctionOrigin,
 };
 use kagari_hir::{
     aggregates::{AggregateCatalog, traits::MethodDefault},
@@ -33,7 +35,10 @@ use kagari_hir::{
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
-    declaration::{AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param},
+    declaration::{
+        AssociatedTypeFamily, ConstDef, FnDecl, NativeDeclaration, Param,
+        host::requires_host_policy,
+    },
     scalar::IntegerType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
@@ -61,7 +66,9 @@ fn const_abi_value(value: &ScalarValue, definitions: &DefinitionTable) -> String
     }
 }
 
-pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
+pub(crate) fn collect_module_abi(
+    module: &CheckedModule<'_>,
+) -> Result<ModuleContract, MirLoweringError> {
     let headers = module.headers();
     let environment = module.environment();
     let definitions = environment.definitions();
@@ -92,7 +99,7 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
                 }
             }
             Item::Struct(_) | Item::Enum(_) | Item::NativeType(_) => {
-                let (visibility, declaration) = type_definitions::lower(module, *item);
+                let (visibility, declaration) = type_definitions::lower(module, *item)?;
                 if visibility == Visibility::Public {
                     public_items.push(PublicItem::Type(declaration.definition));
                 } else {
@@ -155,23 +162,26 @@ pub(crate) fn collect_module_abi(module: &CheckedModule<'_>) -> ModuleContract {
         ))));
     }
 
-    let native_declarations = native_declarations(module).collect();
-    ModuleContract {
+    let native_declarations = native_declarations(module).collect::<Vec<_>>();
+    for native in &native_declarations {
+        if native.function.host_policy.is_none() && requires_host_policy(&native.function) {
+            let path = definitions
+                .resolve(native.declaration)
+                .map_err(DefinitionMappingError::from)?
+                .to_path();
+            return Err(MirLoweringError::MissingHostPassingPolicy(path));
+        }
+    }
+    Ok(ModuleContract {
         named_declarations: named::collect(module),
         function_origins: Vec::new(),
-        trait_references: module
-            .trait_references()
-            .iter()
-            .map(|(declaration, abi)| TraitContract {
-                declaration: *declaration,
-                abi: abi.clone(),
-            })
-            .collect(),
+        // Requirements are linked against checked owners after MIR uses are known.
+        trait_references: Vec::new(),
         native_declarations,
         public_items,
         private_types,
         trait_contracts,
-    }
+    })
 }
 
 fn implementation_table(module: &CheckedModule<'_>, header: &Impl) -> InterfaceTable {
@@ -338,10 +348,7 @@ fn implementation_methods_abi(module: &CheckedModule<'_>, item: &Impl) -> Vec<Fn
                 Some(MethodDefault::Native(contract)) => contract.host_policy.clone(),
                 _ => None,
             },
-            method_policy: MethodPolicy {
-                override_allowed: true,
-                ..method.policy
-            },
+            method_policy: MethodPolicy::default(),
             name: method.name.clone(),
             implementation: match method.default.clone().expect("selected default method") {
                 MethodDefault::Script => CallableImplementation::Script,
@@ -384,11 +391,7 @@ fn function_abi(module: &CheckedModule<'_>, function: &Function) -> Option<FnDec
             _ => None,
         },
         method_policy: MethodPolicy {
-            receiver_access: match &typed.implementation {
-                FunctionImplementation::Native(contract) => contract.receiver_access,
-                _ => None,
-            },
-            ..Default::default()
+            receiver_access: module.registered_receiver_loan(declaration),
         },
         name: typed.name.clone(),
         implementation: match typed.implementation.clone() {
@@ -427,9 +430,9 @@ fn declared_native_functions<'a>(
         let declaration = module
             .environment()
             .definition(ResolvedName::Function(function.id))?;
-        let mut function = function_abi(module, function)?;
-        function.method_policy.receiver_access = contract.receiver_access;
+        let function = function_abi(module, function)?;
         Some(NativeDeclaration {
+            path_operation: module.registered_path_operation(declaration).cloned(),
             declaration,
             function,
             concrete_result: contract.concrete_result.clone(),
@@ -459,6 +462,7 @@ pub(crate) fn native_declarations<'a>(
                 continue;
             };
             let source = NativeDeclaration {
+                path_operation: None,
                 declaration: method.id,
                 function: traits::declared_method(module, method),
                 concrete_result: contract.concrete_result.clone(),

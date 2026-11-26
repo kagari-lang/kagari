@@ -78,6 +78,11 @@ impl Parser<'_> {
         }
         if kind == TokenKind::NativeKw {
             kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if kind == TokenKind::Ident && self.token_text(cursor - 1) == "host" {
+                return self
+                    .nth_nontrivia_kind_from(&mut cursor)
+                    .filter(|kind| *kind == TokenKind::TypeKw);
+            }
             if !matches!(
                 kind,
                 TokenKind::FnKw | TokenKind::AsyncKw | TokenKind::TypeKw

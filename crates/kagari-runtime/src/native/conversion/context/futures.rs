@@ -1,7 +1,7 @@
 //! Cold construction and decoding keep actual captures and selected metadata alive.
 use crate::{
     Runtime,
-    error::{RuntimeError, trap::TrapReason},
+    error::RuntimeError,
     execution::roots::{ExecutionRoots, ValueBank},
     execution_metadata::managed::{
         ProtectedMetadata,
@@ -26,8 +26,7 @@ use crate::{
         native::{NativeAllocation, NativeObject},
         view::ValueView,
     },
-    value_check::data::async_scoped,
-    value_check::scoped::CheckError,
+    value_check::data::check_captures,
 };
 use kagari_gc::root::Root;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
@@ -135,6 +134,7 @@ impl<'call> ConversionContext<'call> {
         let Runtime {
             memory,
             modules,
+            host_borrows,
             resources,
             ..
         } = &mut *self.runtime;
@@ -154,12 +154,7 @@ impl<'call> ConversionContext<'call> {
                         if index.is_multiple_of(1024) { resources.poll_closed()?; }
                         values.push(capture.get(slots)?);
                     }
-                    match async_scoped(slots.scope(), &values, resources) {
-                        Ok(true) => {},
-                        Ok(false) => return Err(RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue).into()),
-                        Err(CheckError::Storage(error)) => return Err(error.into()),
-                        Err(CheckError::Execution(error)) => return Err(error.into()),
-                    }
+                    check_captures(slots.scope(), &values, &protected, resources, host_borrows)?;
                     resources.poll_closed()?;
                     let cold = ColdObject::alloc(
                         slots.scope(),

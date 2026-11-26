@@ -5,7 +5,8 @@ use crate::{
         RuntimeHelper,
     },
     verify::{
-        Context, MirVerificationError, MirVerificationErrorKind as Error, suspension::ephemeral,
+        Context, MirVerificationError, MirVerificationErrorKind as Error,
+        suspension::invalid_retained_slot,
     },
 };
 use kagari_abi::representation::ValueType;
@@ -117,7 +118,7 @@ pub(super) fn verify(
             context.expect(dst.ty, ValueType::HeapObject, "Future destination")?;
             for (index, (argument, parameter)) in arguments.iter().zip(&callee.params).enumerate() {
                 context.expect(argument.ty, parameter.ty, "Future capture")?;
-                if ephemeral(argument.ty, callee.semantic.params.get(&index))
+                if invalid_retained_slot(argument.ty, callee.semantic.params.get(&index))
                     || !callee.semantic.params.contains_key(&index)
                     || function.semantic.registers.get(&argument.temp.index())
                         != callee.semantic.params.get(&index)
@@ -547,8 +548,14 @@ pub(super) fn verify(
             {
                 return Err(context.error(Error::InvalidInterfaceTable));
             }
-            for (capture, param) in captures.iter().zip(&callee.params) {
+            for (index, (capture, param)) in captures.iter().zip(&callee.params).enumerate() {
                 context.expect(capture.ty, param.ty, "closure capture")?;
+                let source = function.semantic.registers.get(&capture.temp.index());
+                if invalid_retained_slot(capture.ty, source)
+                    || source != callee.semantic.params.get(&index)
+                {
+                    return Err(context.error(Error::InvalidCall(*target)));
+                }
             }
         }
         Instruction::MakeCell { dst, .. } => {

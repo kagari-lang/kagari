@@ -1325,14 +1325,14 @@ The [Native boundary contracts](native-model-design.md#9-frontend-and-linking-bo
 [embedding](spec/embedding-api.md) describe the resulting owners. Completed implementation steps
 are not a second pending queue.
 
-**Next: HIR declaration inputs (not started).** The [design](hir-declaration-inputs-design.md) specifies structured Host declarations for compilation and generated `.kgr` alone for editor Host APIs. The [execution plan](hir-declaration-inputs-plan.md) owns sequencing and acceptance, from the common HIR entrypoint through source-free linking, Host execution, editor refresh and retirement of `ExternalModule`.
+**HIR declaration inputs: implemented and checked locally.** Compilation lowers scoped Rust registrations; the editor analyzes generated `.kgr` plus importer scopes and bundled core, without registrations. Both use the [same HIR graph and type checker](architecture/hir.md#native-declaration-inputs-and-origins). The [declaration contract](spec/standard-declarations.md#source-visible-declarations-and-executable-evidence) distinguishes a visible Host handle from a managed object without granting a binding. Local checks sampled declaration selection, retained editor snapshots, package coherence, decoded execution and independent rejection of incompatible installations; full workspace tests and exhaustive matrices remain CI-only.
 
 LoweredModule retains source, module and input kind. Module.nodes uses HirNodes, and records carry their origins. Explicit common import
 scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
 Native signatures have one static kind without installed entries. Real Script expressions/default
 bodies replace dedicated default recipes; compiler ABI/templates derive from checked facts.
 Runtime independently matches demanded implementations and authenticates installed structured
-Script bodies, including final defaults, against actual executable behavior. Portable origins and
+Script bodies, including inherited defaults, against actual executable behavior. Portable origins and
 instruction certificates alone establish consistency, not independent library semantics. Runtime
 retains real bindings; no Runtime-to-HIR edge or Runtime trait solver was introduced.
 
@@ -1356,7 +1356,7 @@ follow-ups below and the full CI matrix remain open.
 imports/alias precedence, captured/replayed environments, independent language/conversion shapes,
 canonical constructors without sidecars, Host policy binders, structured/parsed equivalence,
 checked admission, generic ABI/default selection, exact helper selection under parameter shadowing,
-Native direct/interface/callable-requirement and associated-method execution, final-default forgery
+Native direct/interface/callable-requirement and associated-method execution, inherited-default forgery
 rejection, portable round trips, linking, SDK Host/interfaces/results and analyzer/lint consumers.
 These selections cover changed mechanisms and direct downstream consumers, not every combination.
 IDE `build_project` repeatedly timed out at the MCP context server; Cargo test builds and Clippy
@@ -1409,7 +1409,7 @@ Earlier NM evidence applies only to unchanged code, not to this implementation's
 **Deferred:** [the existing design](native-model-design.md#4-checked-libraries-and-rust-providers)
 retains registration/provider products, prebuild binary versus generated-code representation,
 standalone MIR/shared libraries, HOST/TARGET producer/bootstrap, preparation/link caches and
-export-sidecar encoding/directory publication/refresh. New Native field adapters, concrete reference
+automatic discovery of published declarations. New Native field adapters, concrete reference
 access/runtime design, library output/inspection and broader LSP scheduling were outside these
 three phases. Unpublished affected products are disposable; no compatibility reader, routine format/ABI bump or
 general provider installation redesign was added.

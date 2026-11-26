@@ -1,0 +1,3 @@
+fn score() -> i32 {
+    game::api::number()
+}

@@ -199,6 +199,13 @@ impl PreparedFunction {
         &self.owner
     }
 
+    pub(crate) fn closure_root(&self) -> Option<&RootedValue> {
+        match &self.target {
+            Target::Entry(_) => None,
+            Target::Closure { root } => Some(root),
+        }
+    }
+
     pub(crate) fn body_origin(&self) -> RevisionSource<'_> {
         RevisionSource::Host(self._program.revision())
     }

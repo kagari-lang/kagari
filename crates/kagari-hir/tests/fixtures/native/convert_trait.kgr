@@ -1,0 +1,7 @@
+use core::result::Result;
+
+pub trait Convert<S> {
+    type Error;
+
+    fn convert(value: S) -> Result<Self, Self::Error>;
+}

@@ -55,7 +55,14 @@ test('Native function and type names retain declaration scopes in mixed library 
   const source = await readFile(new URL('../../../crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr', import.meta.url), 'utf8');
   const spans = await tokenize(source);
   region(source, spans, 'native', 'code', 'storage.modifier.kagari', 2);
-  region(source, spans, 'borrow', 'code', 'entity.name.function.kagari');
+  region(source, spans, 'collect', 'code', 'entity.name.function.kagari');
+  regionsIn(source, spans, 'native host type Handle;', [['host', 'storage.modifier.kagari']]);
+  regionsIn(source, spans, 'native type host;', [['host', 'entity.name.type.kagari']]);
+  const split = 'native /* host */\n host type Player;\nnative fn host();';
+  const splitSpans = await tokenize(split);
+  region(split, splitSpans, 'host', 'comment', 'comment.block.kagari');
+  region(split, splitSpans, 'host', 'code', 'storage.modifier.kagari', 2);
+  region(split, splitSpans, 'host', 'code', 'entity.name.function.kagari', 3);
   region(source, spans, 'Counter', 'code', 'entity.name.type.kagari');
   region(source, spans, 'identity', 'code', 'entity.name.function.kagari');
 });

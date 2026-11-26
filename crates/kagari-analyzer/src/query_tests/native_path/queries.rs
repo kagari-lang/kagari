@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AnalyzerQueries,
-    query_tests::{common::import_facts, test_analysis},
+    query_tests::{common::import_facts, publish_native_documents, test_analysis},
 };
 // External methods and nominal queries use the same common declaration owner.
 
@@ -13,7 +13,11 @@ use kagari_hir::{
 fn host_methods_keep_checked_receiver_targets_and_offline_documentation() {
     let mut declarations = Hosts::new();
     let context = declarations.context.clone();
-    let identity = declarations.method("add", Ty::Builtin(BuiltinType::I32));
+    let identity = declarations.method(
+        "add",
+        Ty::Builtin(BuiltinType::I32),
+        HostPassingStyle::SharedBorrow,
+    );
     declarations.modules[0]
         .documentation
         .insert(identity, "Add to the host counter".into());
@@ -148,7 +152,7 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
             SourceLayer::Base,
         )
         .unwrap();
-    let text = "use pkg::facade::{Object as Item, api}; use pkg::facade; fn pass(value: facade::Object) -> api::Item { value } fn main() -> i32 { val value: Item = left::make(); left::take(pass(value)) }";
+    let text = include_str!("../../../tests/fixtures/host-facade-types.kgr");
     sources
         .bind_module(
             "mem://root",
@@ -218,35 +222,45 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
     assert!(!new.file(root).unwrap().result().diagnostics().is_empty());
     let offset = text.find("facade::Object").unwrap() + "facade::".len();
     let qualifier = text.find("facade::Object").unwrap();
-    assert!(file.queries().definition_at(qualifier).is_none());
-    assert!(
-        file.queries()
-            .definition_at(qualifier + "facade".len())
-            .is_none()
-    );
-    assert!(
-        file.queries()
-            .definition_at(offset + "Object".len())
-            .is_none()
-    );
-    let signature = old.signature_snapshot().file(root).unwrap();
-    assert_eq!(
-        signature.queries().definition_at(offset).unwrap().id,
-        DeclarationId::Definition(id)
-    );
-    assert!(signature.queries().definition_at(qualifier).is_none());
-    assert!(
-        signature
-            .queries()
-            .definition_at(qualifier + "facade".len())
-            .is_none()
-    );
-    assert!(
-        signature
-            .queries()
-            .definition_at(offset + "Object".len())
-            .is_none()
-    );
+    let (mut editor, _) = publish_native_documents(&mut sources, &declarations.providers());
+    let offline = editor
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let original = context
+        .snapshot()
+        .resolve(declarations.owners[0])
+        .unwrap()
+        .to_path();
+    for snapshot in [&old, &offline] {
+        let file = snapshot.file(root).unwrap();
+        let signature = snapshot.signature_snapshot().file(root).unwrap();
+        let item = file.definitions().lookup(&original).unwrap();
+        assert_eq!(file.queries().type_at(offset), Some(TypeId::Host(item)));
+        let core = text.find("core::future::Future").unwrap();
+        let future = core + "core::future::".len();
+        let Some(TypeId::NativeObject(storage)) = file.queries().type_at(future) else {
+            panic!("expected ordinary Native Future storage");
+        };
+        for (position, expected) in [
+            (core, None),
+            (core + "core::".len(), None),
+            (future, Some(DeclarationId::Definition(storage.declaration))),
+            (future + "Future".len(), None),
+            (qualifier, None),
+            (qualifier + "facade".len(), None),
+            (offset, Some(DeclarationId::Definition(item))),
+            (offset + "Object".len(), None),
+        ] {
+            assert_eq!(
+                file.queries().definition_at(position).map(|d| &d.id),
+                expected.as_ref()
+            );
+            assert_eq!(
+                signature.queries().definition_at(position).map(|d| &d.id),
+                expected.as_ref()
+            );
+        }
+    }
     assert!(
         old.queries()
             .documentation_at(root, offset)
@@ -261,11 +275,10 @@ fn host_types_resolve_through_facades_and_keep_revision_owned_query_facts() {
             .documentation,
         "updated"
     );
-    let actual = signature.declarations().external_type(id).unwrap();
-    assert_eq!(
-        import_facts(actual, signature.declarations().definitions(), &context).into_records(),
-        declarations.modules[0].types[0]
-    );
+    let actual = file.result().facts().aggregates.native_type(&id).unwrap();
+    assert!(actual.is_host);
+    assert_eq!(actual.declaration.id, DeclarationId::Definition(id));
+    assert_eq!(actual.declaration.name, "Item");
     assert_eq!(
         file.queries().type_at(text.find("value))").unwrap()),
         Some(TypeId::Host(id))
@@ -292,19 +305,18 @@ fn erroneous_host_calls_retain_return_types_and_member_facts() {
         .passing
         .push(HostPassingStyle::Owned);
     declarations.root(PathAccess::ReadOnly);
-    declarations.method("next", Ty::Host(declarations.owners[0]));
+    declarations.method(
+        "next",
+        Ty::Host(declarations.owners[0]),
+        HostPassingStyle::SharedBorrow,
+    );
     let field = declarations.field(
         0,
         "score",
         Ty::Builtin(BuiltinType::I32),
         PathAccess::ReadOnly,
     );
-    declarations.modules[0].paths.push(HostPathDeclaration {
-        root: declarations.owners[0],
-        segments: vec![HostPathSegmentDeclaration::Field(field)],
-        access: PathAccess::ReadOnly,
-        schema_epoch: 0,
-    });
+
     let host_type = TypeId::Host(declarations.owners[0]);
     for call in [
         "left::make()",

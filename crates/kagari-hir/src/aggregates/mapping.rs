@@ -59,7 +59,6 @@ impl RemapDefinitions for InherentMethodSignature {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InherentMethodSignature {
-            receiver_access: self.receiver_access,
             id: self.id.remap_definitions(mapper)?,
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.remap_definitions(mapper)?,
@@ -158,11 +157,7 @@ impl RemapDefinitions for NativeTypeSignature {
                 }),
             )?,
             declaration: self.declaration.remap_definitions(mapper)?,
-            host: self
-                .host
-                .as_ref()
-                .map(|value| value.remap_definitions(mapper))
-                .transpose()?,
+            is_host: self.is_host,
             fields: map_sequence(&self.fields, |value| value.remap_definitions(mapper))?,
         })
     }
@@ -186,9 +181,6 @@ impl DefinitionReferences for NativeTypeSignature {
             }
         }
         self.declaration.visit_definition_ids(visit, cancel)?;
-        if let Some(representation) = &self.host {
-            representation.visit_definition_ids(visit, cancel)?;
-        }
         for field in &self.fields {
             field.visit_definition_ids(visit, cancel)?;
         }

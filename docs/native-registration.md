@@ -5,10 +5,9 @@ They do not infer the script API from Rust signatures. This guide covers the run
 [authoring API](../crates/kagari-runtime/src/native/assembly.rs); the
 [declaration specification](spec/standard-declarations.md) defines the preserved
 contracts and [architecture](architecture.md#unified-library-registration) defines
-ownership. Default SDK analysis lowers structured registrations directly; generated
-`.kgr` files are presentation views, not a required registration round trip or
-another signature authority. Explicit supplied/materialized views retain their
-parsed/validated route.
+ownership. SDK analysis lowers registrations directly, even when a host publishes
+generated `.kgr` for tooling. Those files are not compiler inputs or another
+signature authority.
 
 ## Choose the authoring boundary
 
@@ -167,9 +166,10 @@ fn packets(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                         .variant("Text")?;
                     Ok(NativeBinding::new(
                         vec![Codec::Exact(string())], Codec::Exact(result),
-                        move |cx| cx.allocate_enum(
-                            &cx.result_type_argument()?, &variant, vec![cx.argument(0)?],
-                        ),
+                        move |cx| {
+                            let text = cx.argument(0)?;
+                            cx.allocate_enum(&cx.result_type_argument()?, &variant, &[text])
+                        },
                     ))
                 }),
         )?;
@@ -295,7 +295,17 @@ the trait method is Script and its complete ordinary call expression is retained
 special HIR forwarding-call table. Do not author a second helper lowerer.
 `TraitOverride::requires`, `produces` and `documentation` attach
 implementation-specific facts/prose without redefining the trait signature.
-The real impl/member binders are substituted before existing proofs run.
+The real impl/member binders are substituted before existing proofs run. Omitting a
+method inherits its default. An explicit implementation with the applied signature
+wins; a mismatched signature rejects, whether the declaration came from text or Rust.
+
+[Trait impl ownership](../crates/kagari-types/src/declaration/ownership.rs) is package-based.
+A package can implement its own trait. For a foreign trait, scan the receiver then
+the trait arguments: there must be a local input type, with no uncovered impl
+parameter before the first local type. Overlap, bounds, visibility and signatures
+are checked separately. This applies to `From` and `TryFrom`, not inherent impls.
+A Host source or destination is not disqualifying; a conversion returning a Host
+value must still return a genuine handle.
 
 A factory's `SealedPreparation::declaration()` names its exact binding target,
 including lowered ordered requirements and concrete result. For trait defaults
@@ -325,8 +335,9 @@ Trait implementation docs inherit actual member docs unless explicitly overridde
 Aliases preserve canonical identity/docs. Rendering may inherit/format prose, but
 must not select an independent description through a global method-name switch.
 
-A builtin constructor (`define_constructor`) records semantic ownership; it does
-not imply native storage. Map/Set builtins are not nominal storage bindings. For
+A String or range constructor record (`define_constructor`) must match its canonical
+owner, name and declared shape. It cannot confer builtin identity or native storage
+on another declaration. For
 `TypeDefKind::NativeStorage`, `bind_storage` must match the local layout and generic
 parameters exactly. Payload tracing, scoped host borrowing and runtime ownership
 remain mandatory; assembly is not a route to unrestricted Rust references.
@@ -350,6 +361,38 @@ charge does not grant arbitrary editing. See the
 [host accounting contract](spec/host-interop.md#native-payload-accounting) and
 [runtime coverage](spec/runtime.md#gc-heap).
 
+## Registering Host fields and path operations
+
+Declare the fields as Kagari should see them, including their visibility, type
+and `val`/`var`. Then use `ModuleBuilder::define_path` for each supported chain
+and `bind_path` for its storage adapter. Registration checks the paths you declare:
+a read-write path needs both a read and a prepared-write hook. It does not
+require a path for every possible use of a `var`. HIR records the checked field
+IDs; lowering a field use needs a unique path for that root and ordered chain,
+with matching types and sufficient access. A missing path or a read-only path
+for a write fails lowering without changing the script declaration.
+
+For example, a writable path to `player.baseline.hp` may traverse a readable
+`val baseline: Stats` to a `var hp`. It permits replacing neither `baseline`
+nor a `val hp`, and it does not upgrade a readonly runtime view.
+
+For an index or virtual segment, declare the script-visible operation explicitly.
+Use `bind_path_operation(method, &path, kind)` instead of `bind` for a Native
+method backed by that path; `bind_path` still supplies its storage hooks. A free
+Native function can use the same binding. Declare a non-generic, non-suspending
+call with owned arguments: the Host root first (`self` on a method), then one
+index per index segment in traversal order, then the RHS for `Set` or `Add`.
+Writes require a read-write path and a host-mutation effect. `Read` returns the
+leaf; `Set` takes a leaf value and returns unit; `Add` takes a numeric leaf value
+and returns the updated value. No Rust receiver-loan binding is needed: the
+path service checks access when it performs the operation.
+
+The portable declaration binds the callable identity to the kind and exact path.
+A decoded artifact rejects a missing adapter or a same-signature method bound
+to a different path before execution. For the distinction between argument
+order and descriptor slots, and the commit and dirty-record guarantees, see
+[Host path semantics](spec/host-interop.md#kagari-side-semantics).
+
 ## Analysis and declaration presentation
 
 Runtime registration supplies actual Rust bindings independently of how a tool
@@ -362,21 +405,23 @@ inputs the choices are:
 - `AnalysisDatabase::set_native_modules`: owned `ModuleDecl` records lower directly
   into common HIR, then undergo ordinary resolution and checking. Declaration-to-HIR
   identity correspondence is constructed with the nodes, not recovered from text.
-- `set_native_sources`: explicitly supplied complete views are parsed and checked
-  against their paired registrations before static contracts attach. This remains
-  the source-backed navigation route, not the default compilation requirement.
-- `set_external_modules`: offline `ExternalModule` source is parsed alongside
-  project source. Scoped sidecars supply static constructor, Host schema/path,
-  conversion relationship, exceptional method-policy, enum failure/import namespace
-  and ordered Native operation/concrete-result facts absent from syntax. Common
-  role/constructor checks do not require a duplicate trait catalog or origin privilege.
-  Complete checked programs can enter compilation through this route; linking still
-  requires matching demanded implementations, and unsupported operations reject.
+- For an editor, bind the generated `.kgr` documents to their published module
+  identities alongside user files in `SourceSnapshot`. Supply the effective import
+  environment. HIR checks the declared API as ordinary source, with no registration
+  IDs, Rust callbacks or Host path descriptors. Core remains a separate set of
+  packaged source documents in both requests.
 
-The [declaration-input contract](spec/standard-declarations.md#declaration-analysis-inputs)
-includes explicit `native fn ...;` / `native type ...;` / field-bearing Native type
-syntax, field typing and the sidecar inventory. Ordinary Script definitions and
-defaults must remain complete, including embedded source: signatures or placeholder
+An external Host handle renders as `pub native host type Player;` or, for example,
+`pub native host type Player { pub var hp: i32 }`. Both forms preserve the handle
+category, not its storage or a borrow policy. Ordinary opaque Native storage renders
+as `pub native type Player;` even if its Rust adapter takes a loan. `host` remains
+an identifier elsewhere. A source-only editor can check `player.hp`; compiling with
+the generated Host declaration as the owner fails with `MissingHostSchema`, even
+for the fieldless form. Supply the owning registration instead of its text; then
+the field operation still needs the matching path described above.
+
+Under the [declaration-input contract](spec/standard-declarations.md#declaration-analysis-inputs),
+ordinary Script definitions and defaults must remain complete, including embedded source: signatures or placeholder
 bodies are not substitutes. Structured expression bodies and parsed blocks use
 ordinary resolution, body checking and generic instance planning; module-qualified
 helper references cannot be captured by parameters. Genuine Native defaults remain
@@ -385,37 +430,36 @@ records establish internal materialization provenance, not semantic authenticati
 [Runtime Script authentication](../crates/kagari-runtime/src/native/registry/scripts.rs)
 compares the actual bytecode call/value trace against the independently installed
 canonical ScriptExpr and function contract, applying binders and normalizing associated
-outputs through the checked impl. Final Script library methods without that canonical
-expression fail closed; origins, matching signatures or artifact-supplied digests do
-not authorize them. See [checked contracts](spec/standard-declarations.md#checked-executable-contracts).
-Native field support is frontend typing, not a new Runtime field adapter.
-Checked Host paths and Opaque receiver loans use independent installed adapters.
+outputs through the checked impl when the product claims an inherited installed
+body. A same-signature substitute with new instruction evidence still rejects.
+An ordinary authored trait without an installed owner needs no registration. See [checked contracts](spec/standard-declarations.md#checked-executable-contracts).
+Native field support creates no Runtime adapter. HIR selects methods by their
+Kagari signatures; any Opaque receiver loan belongs to the registered binding,
+not to method lookup or the Host path adapter.
 
 [ImportEnvironment](../crates/kagari-hir/src/imports/environment.rs) separately supplies
 package aliases, dependencies and selected preludes, with producer/package defaults
 normalized before graph construction. Explicit aliases determine package selection;
 dependencies do not grant private access, and coherence uses actual defining owners.
-Immutable analysis inputs retain explicit scopes for replay. New requests use the
+Immutable analysis inputs retain explicit scopes; replay also needs the physical source snapshot. New requests use the
 current scopes, and scope changes reset the environment fingerprint. Runtime
 `NativeBinding` values and Rust storage/access adapters remain valid
 implementation-side objects, never HIR authority.
 
-Source-enabled engines use the direct route unless the host sets
-`builder.declaration_cache(path)` before `build()`. The SDK still renders
-`engine.native_declaration_sources()` presentation views in either case. With no
-cache directory these stay in memory and are not fed back through the parser;
-structured declarations retain docs and identities, but syntax/source locations
-may be absent. Documentation queries do not require a physical owning source.
-With a cache directory, the existing SDK route pairs generated views with the
-registrations, checks them (including unused defaults), and publishes immutable
-content/version-addressed files with parsed navigation ranges. Declarations that
-need user-source trait providers are checked with that source snapshot, rather
-than pretending those providers exist at engine construction. See the
+Source-enabled engines check registrations structurally. Registered docs and
+identities do not require a physical owning source. For navigation, call
+`engine.native_declaration_sources(project, cancel)` with the authored project
+snapshot: the SDK returns generated documents and their effective import scopes.
+Without a cache this request renders in memory. Set `builder.declaration_cache(path)`
+before `build()` to publish immutable files instead. Build publishes the
+source-independent registrations; the tooling request can include registrations
+that require trait declarations from the project. Neither publication nor the CLI
+changes which inputs the compiler checks. See the
 [materialization example](spec/standard-declarations.md#engine-source-presentation).
 
-These are current APIs, not a new exporter, directory watcher, publication protocol
-or provider product. Neither a generated URI nor an offline sidecar can select a
-Rust implementation, grant layout access or replace installation validation.
+An editor can replace its generated documents and scope selections together.
+Publication does not add a directory watcher or provider discovery protocol. A
+generated URI cannot select a Rust implementation or grant layout access.
 
 ### Private core Native bindings
 
@@ -445,7 +489,7 @@ builder.install_all(library.modules()?)?;
 ```
 
 A frontend-free host can use `StandardLibrary::from_verified_program` with verified
-bytecode selected by the host that contains the eleven core owners; application modules in that image
+bytecode selected by the host that contains the packaged core owners; application modules in that image
 are not stdlib providers. Composing the bundle validates declarations but installs
 nothing. Only install it if needed. For example, `String` is a core type, but its
 `trim` method requires `std::string`. Script-only core calls need neither `.kgr`

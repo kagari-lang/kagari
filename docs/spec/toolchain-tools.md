@@ -7,6 +7,24 @@ checks as CLI compilation;
 neither emits MIR, bytecode or native products. See [CLI loading](module-loading.md#cli-loading)
 for dependency resolution, filesystem boundaries and execution commands.
 
+## Editor declaration inputs
+
+An editor checks the effective project buffers, bundled core and a complete
+export of generated `.kgr` documents with **no registrations**. The SDK’s
+[declaration export](standard-declarations.md#engine-source-presentation) includes
+the solved import scopes: text alone cannot tell which package an alias selects.
+`EditorWorkspace::replace_generated(documents, imports, cancel)` replaces the
+generated set and its scopes together. Invalid or cancelled document replacement
+leaves both unchanged; a retained analysis still refers to its old revision.
+
+The checker reads `native host type Player` from the exported declaration. It
+does not infer a Host handle from the URI, an import alias or a hidden schema.
+A generated document’s stable key and module identity are independent of its
+display path. Opening it shows the exact published text; it is read-only, not a
+user overlay. Navigation uses ranges in that document, never Rust locations or
+synthetic registration spans. None of this publishes files on behalf of CLI
+`check`, `lint`, `build` or `run`, or installs a callback.
+
 ## Commands and selection
 
 ```sh
@@ -44,8 +62,8 @@ unreadable, ambiguous or aliased modules never yield complete compilation inputs
 Check/lint report the affected root as incomplete and analyze other complete roots.
 Manifest/resolution failures remain request-wide. Cancellation stops further work.
 A lock candidate is published only after every selected root is acquired completely,
-before semantic checking. Check/lint may materialize the existing declaration cache;
-these side effects are distinct from source writes and executable emission.
+before semantic checking. CLI source commands analyze Native registrations directly;
+check and lint do not publish generated declaration files or emit executables.
 
 Only fmt supports stdin (`-`). It writes formatted text to stdout and diagnostics
 to stderr; `--check` is rejected with stdin. Check/lint support `--message-format

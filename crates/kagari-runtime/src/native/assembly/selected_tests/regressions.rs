@@ -16,7 +16,10 @@ use crate::{executor::Executor, native::conversion::arguments::ArgumentValues};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, ConstantId, ConstantOperand},
-    program::updates::{self, EvidenceInputs},
+    program::{
+        BytecodeProgram,
+        updates::{self, EvidenceInputs},
+    },
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
@@ -24,10 +27,12 @@ use kagari_common::identity::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::{
-    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation,
-    native::render::declaration_source,
+    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation, program::CheckedProgram,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -84,172 +89,48 @@ fn module() -> (DeclarationCatalog, ModuleDecl) {
     )
 }
 
-fn run(module: NativeModule, source: &str, rendered: bool) -> i32 {
+fn compile_registered(
+    module: &NativeModule,
+    source: &str,
+    rendered: bool,
+) -> DefinitionMetadata<BytecodeProgram> {
     let metadata = Arc::new(module.to_declaration());
     let mut analysis = AnalysisDatabase::default();
-    if rendered {
-        let source = declaration_source(&metadata, std::slice::from_ref(&metadata)).unwrap();
-        analysis
-            .set_native_sources(vec![metadata], vec![source])
-            .unwrap();
-    } else {
-        analysis.set_native_modules(vec![metadata]);
-    }
+    analysis.set_native_modules(vec![metadata.clone()]);
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("regression.kgr", source.into(), SourceLayer::Base)
         .unwrap();
+    if rendered {
+        let declarations = analysis
+            .declarations(sources.snapshot(), &Default::default())
+            .unwrap();
+        let document = declarations
+            .render_native_document(&metadata, &Default::default())
+            .unwrap();
+        sources
+            .bind_module(&document.uri, metadata.records().identity.clone())
+            .unwrap();
+        sources
+            .set(&document.uri, document.text, SourceLayer::Base)
+            .unwrap();
+        analysis = AnalysisDatabase::default();
+        analysis.set_import_environment(declarations.import_environment().clone());
+    }
     let checked = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
-        .unwrap()
-        .into_unverified();
-    if module
-        .declaration()
-        .traits
-        .iter()
-        .flat_map(|contract| &contract.methods)
-        .any(|method| {
-            !method.method_policy.override_allowed
-                && method.implementation == CallableImplementation::Script
-        })
-    {
-        let mut forged = bytecode.records().clone();
-        let table = forged
-            .modules
-            .iter_mut()
-            .flat_map(|owner| &mut owner.public_items)
-            .find_map(|item| match item {
-                PublicItem::InterfaceTable(table) if !table.method_origins.is_empty() => {
-                    Some(table)
-                }
-                _ => None,
-            })
-            .unwrap();
-        assert!(
-            table
-                .methods
-                .iter()
-                .all(|method| method.implementation == CallableImplementation::Script)
-        );
-        // Preserve the same impl-owned Script identity and exact signature, but remove
-        // the evidence that it is the final default rather than a replacement body.
-        table.method_origins.clear();
-        let forged = DefinitionMetadata::checked(
-            bytecode.definitions().clone(),
-            forged,
-            &Default::default(),
-        )
-        .unwrap();
-        let context = DefinitionContext::new().unwrap();
-        let error = VerifiedProgram::new(forged, &context).unwrap_err();
-        assert!(error.to_string().contains("invalid public ABI"), "{error}");
+    compile(&checked)
+}
 
-        let context = DefinitionContext::new().unwrap();
-        let verified = VerifiedProgram::new(bytecode.clone(), &context).unwrap();
-        let error = Runtime::default()
-            .load_verified_program("unowned", verified)
-            .unwrap_err();
-        assert!(
-            error.to_string().contains("installed canonical body"),
-            "{error}"
-        );
+fn run(module: NativeModule, source: &str, rendered: bool) -> i32 {
+    let bytecode = compile_registered(&module, source, rendered);
+    run_decoded(&module, bytecode)
+}
 
-        let mut forged = bytecode.records().clone();
-        let placement = forged
-            .modules
-            .iter()
-            .flat_map(|owner| &owner.public_items)
-            .find_map(|item| match item {
-                PublicItem::InterfaceTable(table) => {
-                    table.method_origins.first().map(|origin| origin.placement)
-                }
-                _ => None,
-            })
-            .unwrap();
-        let owner = forged
-            .modules
-            .iter_mut()
-            .find(|owner| {
-                owner.functions.iter().any(|function| {
-                    function
-                        .identity
-                        .as_ref()
-                        .is_some_and(|identity| identity.declaration == placement)
-                })
-            })
-            .unwrap();
-        let constant = ConstantId::new(owner.constants.len());
-        owner.constants.push(ConstantOperand::I32(7));
-        let function = owner
-            .functions
-            .iter_mut()
-            .find(|function| {
-                function
-                    .identity
-                    .as_ref()
-                    .is_some_and(|identity| identity.declaration == placement)
-            })
-            .unwrap();
-        let (instruction, dst) = function
-            .instructions
-            .iter()
-            .enumerate()
-            .find_map(|(index, instruction)| {
-                let BytecodeInstruction::Call { dst: Some(dst), .. } = instruction else {
-                    return None;
-                };
-                (function.metadata.semantic.slots.get(&dst.index()) == Some(&scalar()))
-                    .then_some((index, *dst))
-            })
-            .expect("canonical i32 helper call");
-        function.instructions[instruction] = BytecodeInstruction::LoadConst { dst, constant };
-        // Keep all ordinary origins and regenerate both the baseline and actual
-        // instruction evidence. A stale certificate must not be the rejection oracle.
-        let previous = &forged.update_evidence;
-        forged.update_evidence = updates::build(
-            &forged.modules,
-            EvidenceInputs {
-                sources: previous.sources.clone(),
-                initializers: previous.initializers.clone(),
-                selections: previous.selections.clone(),
-                classifications: previous
-                    .bodies
-                    .iter()
-                    .map(|body| (body.requirement.origin.clone(), body.classification.clone()))
-                    .collect(),
-            },
-            bytecode.definitions(),
-            &Default::default(),
-        )
-        .unwrap();
-        let forged = DefinitionMetadata::checked(
-            bytecode.definitions().clone(),
-            forged,
-            &Default::default(),
-        )
-        .unwrap();
-        let context = DefinitionContext::new().unwrap();
-        let verified = VerifiedProgram::new(forged, &context)
-            .expect("forgery is internally valid, including its fresh instruction evidence");
-        let mut recipient = Runtime::default();
-        module.install(&mut recipient).unwrap();
-        let error = recipient
-            .load_verified_program("forged", verified)
-            .unwrap_err();
-        assert!(
-            error.to_string().contains("installed canonical body"),
-            "{error}"
-        );
-    }
+fn run_decoded(module: &NativeModule, bytecode: DefinitionMetadata<BytecodeProgram>) -> i32 {
     let context = DefinitionContext::new().unwrap();
     let imported = bytecode.import_into(&context, &Default::default()).unwrap();
     let artifact = KbcArtifact::from_program(
@@ -269,13 +150,160 @@ fn run(module: NativeModule, source: &str, rendered: bool) -> i32 {
     .unwrap();
     let mut runtime = Runtime::default();
     module.install(&mut runtime).unwrap();
-    let loaded = load_bytecode(&mut runtime, "regression", bytecode).unwrap();
+    execute(&mut runtime, bytecode)
+}
+
+fn compile(checked: &CheckedProgram) -> DefinitionMetadata<BytecodeProgram> {
+    let mir = lower_program_to_mir(
+        &CheckedCompilation::from_program(checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    lower_program_to_bytecode(&mir, &Default::default())
+        .unwrap()
+        .into_unverified()
+}
+
+fn execute(runtime: &mut Runtime, bytecode: DefinitionMetadata<BytecodeProgram>) -> i32 {
+    let loaded = load_bytecode(runtime, "regression", bytecode).unwrap();
     let selected = runtime.select_program(&loaded).unwrap();
     let (owner, entry) = selected.entry_function().unwrap();
-    Executor::new(&mut runtime, &owner, entry, ArgumentValues::scalars(&[]))
+    Executor::new(runtime, &owner, entry, ArgumentValues::scalars(&[]))
         .unwrap()
         .run(|runtime, stack, value| Ok(stack.retain_result(runtime, value)?.as_i32().unwrap()))
         .unwrap()
+}
+
+#[test]
+fn default_selection_agrees_for_registration_and_generated_source() {
+    let catalog = DeclarationCatalog::default();
+    let context = catalog.types.context();
+    let package = PackageId("digits".into());
+    let mut api = ModuleDecl::new(ModuleIdentity {
+        package: package.clone(),
+        path: vec!["api".into()],
+    });
+    let root = context.intern_root(&api.identity).unwrap();
+    let owner = context
+        .intern_child(root, DefinitionKind::Trait, "Pair", 0)
+        .unwrap();
+    let swapped = context
+        .intern_child(owner, DefinitionKind::Method, "swapped", 0)
+        .unwrap();
+    let params = vec![
+        parameter("self", Ty::SelfType(owner)),
+        parameter(
+            "combine",
+            Ty::Function {
+                params: vec![scalar(), scalar()],
+                result: Box::new(scalar()),
+            },
+        ),
+        parameter("first", scalar()),
+        parameter("second", scalar()),
+    ];
+    api.traits.push(TraitDef {
+        name: "Pair".into(),
+        generic_params: vec![],
+        bounds: vec![],
+        supertraits: vec![],
+        associated_types: vec![],
+        associated_consts: vec![],
+        conversion_adapter: None,
+        methods: vec![function(
+            "swapped",
+            CallableImplementation::Script,
+            params,
+            scalar(),
+        )],
+    });
+    api.script_bodies.insert(
+        swapped,
+        ScriptExpr::Call {
+            callee: Box::new(ScriptExpr::Name("combine".into())),
+            type_arguments: vec![],
+            arguments: ["second", "first"]
+                .map(|name| ScriptExpr::Name(name.into()))
+                .into(),
+        },
+    );
+    let cancel = Default::default();
+    let module = NativeModule::checked(
+        api,
+        vec![],
+        Default::default(),
+        vec![],
+        Default::default(),
+        &catalog,
+    )
+    .unwrap();
+    let registration = Arc::new(module.to_declaration());
+    let mut client = SourceDatabase::default();
+    client
+        .bind_module(
+            "digits.kgr",
+            ModuleIdentity {
+                package,
+                path: vec![],
+            },
+        )
+        .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    analysis.set_native_modules(vec![registration]);
+    let declarations = analysis.declarations(client.snapshot(), &cancel).unwrap();
+    let [provider] = declarations.native_modules() else {
+        panic!("expected only the Pair provider")
+    };
+    let document = declarations
+        .render_native_document(provider, &cancel)
+        .unwrap();
+    let mut offline = AnalysisDatabase::default();
+    offline.set_import_environment(declarations.import_environment().clone());
+    for (route, db, document) in [
+        ("registered", &mut analysis, None),
+        ("generated", &mut offline, Some(document)),
+    ] {
+        if let Some(document) = document {
+            client
+                .bind_module(&document.uri, provider.records().identity.clone())
+                .unwrap();
+            client
+                .set(&document.uri, document.text, SourceLayer::Base)
+                .unwrap();
+            assert!(db.inputs().native_modules().is_empty());
+        }
+        let root = client
+            .set(
+                "digits.kgr",
+                include_str!("../../../../tests/fixtures/native/swapped-default.kgr").into(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let snapshot = db.snapshot(client.snapshot(), &cancel).unwrap();
+        let program = snapshot
+            .check_program(root, &cancel)
+            .unwrap_or_else(|err| panic!("{route}: {err:?}"));
+        let product = compile(&program);
+        let selected = if route == "registered" {
+            run_decoded(&module, product)
+        } else {
+            execute(&mut Runtime::default(), product)
+        };
+        assert_eq!(selected, 4224, "{route}");
+        let invalid = client
+            .set(
+                "digits.kgr",
+                include_str!("../../../../tests/fixtures/native/mismatched-default.kgr").into(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let snapshot = db.snapshot(client.snapshot(), &cancel).unwrap();
+        let diagnostics = snapshot.file(invalid).unwrap().result().diagnostics();
+        assert!(diagnostics.iter().any(|d| matches!(&d.kind,
+            DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
+                if method_name == "swapped" && reason == "return type expected `i32`, found `bool`")), "{route}: {diagnostics:?}");
+        assert!(snapshot.check_program(invalid, &cancel).is_err());
+    }
 }
 
 #[test]
@@ -352,6 +380,7 @@ fn explicit_definition_calls_the_module_helper_even_when_a_parameter_shadows_it(
             ],
             Default::default(),
             vec![],
+            Default::default(),
             &catalog,
         )
         .unwrap();
@@ -425,6 +454,7 @@ fn inherited_generic_native_defaults_execute_direct_and_interface_calls() {
         vec![(method, binding)],
         Default::default(),
         vec![],
+        Default::default(),
         &catalog,
     )
     .unwrap();
@@ -524,6 +554,7 @@ fn native_callback_executes_an_omitted_native_default_requirement() {
         vec![(method, selected), (invoke, binding)],
         Default::default(),
         vec![],
+        Default::default(),
         &catalog,
     )
     .unwrap();
@@ -613,6 +644,7 @@ fn native_associated_method_keeps_its_non_receiver_first_argument() {
             vec![(target, binding)],
             Default::default(),
             vec![],
+            Default::default(),
             &catalog,
         )
         .unwrap();
@@ -628,8 +660,97 @@ fn native_associated_method_keeps_its_non_receiver_first_argument() {
     }
 }
 
+fn assert_inherited_body_authenticated(
+    module: &NativeModule,
+    bytecode: &DefinitionMetadata<BytecodeProgram>,
+) {
+    let mut forged = bytecode.records().clone();
+    let placement = forged
+        .modules
+        .iter()
+        .flat_map(|owner| &owner.public_items)
+        .find_map(|item| match item {
+            PublicItem::InterfaceTable(table) => {
+                table.method_origins.first().map(|origin| origin.placement)
+            }
+            _ => None,
+        })
+        .unwrap();
+    let owner = forged
+        .modules
+        .iter_mut()
+        .find(|owner| {
+            owner.functions.iter().any(|function| {
+                function
+                    .identity
+                    .as_ref()
+                    .is_some_and(|identity| identity.declaration == placement)
+            })
+        })
+        .unwrap();
+    let constant = ConstantId::new(owner.constants.len());
+    owner.constants.push(ConstantOperand::I32(7));
+    let function = owner
+        .functions
+        .iter_mut()
+        .find(|function| {
+            function
+                .identity
+                .as_ref()
+                .is_some_and(|identity| identity.declaration == placement)
+        })
+        .unwrap();
+    let (instruction, dst) = function
+        .instructions
+        .iter()
+        .enumerate()
+        .find_map(|(index, instruction)| {
+            let BytecodeInstruction::Call { dst: Some(dst), .. } = instruction else {
+                return None;
+            };
+            (function.metadata.semantic.slots.get(&dst.index()) == Some(&scalar()))
+                .then_some((index, *dst))
+        })
+        .expect("canonical i32 helper call");
+    function.instructions[instruction] = BytecodeInstruction::LoadConst { dst, constant };
+    // Keep all ordinary origins and regenerate both the baseline and actual
+    // instruction evidence. A stale certificate must not be the rejection oracle.
+    let previous = &forged.update_evidence;
+    forged.update_evidence = updates::build(
+        &forged.modules,
+        EvidenceInputs {
+            sources: previous.sources.clone(),
+            initializers: previous.initializers.clone(),
+            selections: previous.selections.clone(),
+            classifications: previous
+                .bodies
+                .iter()
+                .map(|body| (body.requirement.origin.clone(), body.classification.clone()))
+                .collect(),
+        },
+        bytecode.definitions(),
+        &Default::default(),
+    )
+    .unwrap();
+    let forged =
+        DefinitionMetadata::checked(bytecode.definitions().clone(), forged, &Default::default())
+            .unwrap();
+    let context = DefinitionContext::new().unwrap();
+    let verified = VerifiedProgram::new(forged, &context)
+        .expect("forgery is internally valid, including its fresh instruction evidence");
+    let mut recipient = Runtime::default();
+    module.install(&mut recipient).unwrap();
+    let error = recipient
+        .load_verified_program("forged", verified)
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("installed canonical body"),
+        "{error}"
+    );
+}
+
 #[test]
-fn source_free_final_script_selection_rejects_a_same_signature_replacement() {
+fn source_free_inherited_script_rejects_a_same_signature_replacement() {
     let (catalog, mut declaration) = module();
     let context = catalog.types.context();
     let root = context.intern_root(&declaration.identity).unwrap();
@@ -709,7 +830,6 @@ fn source_free_final_script_selection_rejects_a_same_signature_replacement() {
         projection.clone(),
     );
     item_function.generic_params.push(item_parameter);
-    item_function.method_policy.override_allowed = false;
     declaration.script_bodies.insert(
         item_method,
         ScriptExpr::Call {
@@ -728,7 +848,6 @@ fn source_free_final_script_selection_rejects_a_same_signature_replacement() {
         scalar(),
     );
     read.generic_params.push(read_parameter.clone());
-    read.method_policy.override_allowed = false;
     declaration.traits.push(TraitDef {
         name: "Read".into(),
         methods: vec![read, item_function],
@@ -790,17 +909,17 @@ fn source_free_final_script_selection_rejects_a_same_signature_replacement() {
         vec![(helper, binding), (identity, identity_binding)],
         Default::default(),
         vec![],
+        Default::default(),
         &catalog,
     )
     .unwrap();
-    assert_eq!(
-        run(
-            module,
-            include_str!("../../../../tests/fixtures/native/final-script-default.kgr"),
-            false
-        ),
-        42
+    let bytecode = compile_registered(
+        &module,
+        include_str!("../../../../tests/fixtures/native/inherited-script-default.kgr"),
+        false,
     );
+    assert_inherited_body_authenticated(&module, &bytecode);
+    assert_eq!(run_decoded(&module, bytecode), 42);
     assert_eq!(count.load(Ordering::SeqCst), 2);
     assert_eq!(identities.load(Ordering::SeqCst), 2);
 }

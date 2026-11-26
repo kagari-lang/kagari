@@ -1,13 +1,14 @@
 use crate::{
     callable::CallableImplementation,
     declaration::{
-        AssociatedTypeDef, FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+        AssociatedTypeDef, FnDecl, NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
         verify::{
             DeclarationValidationError, Parameters, function_valid, scalar_const_valid,
             trait_valid, types_in_scope, validate_native_declarations,
         },
     },
+    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeTransformError},
 };
@@ -239,6 +240,7 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         position: 0,
     };
     let mut declaration = NativeDeclaration {
+        path_operation: None,
         declaration: function,
         concrete_result: None,
         callable_requirements: vec![],
@@ -284,6 +286,15 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         result
     };
     assert_eq!(validate(&declaration), Ok(()));
+    let mut free = declaration.clone();
+    free.function.params.push(Param {
+        name: "self".into(),
+        ty: free.function.return_type.clone(),
+        mutable: false,
+    });
+    assert_eq!(validate(&free), Ok(()));
+    free.function.method_policy.receiver_access = Some(ReferenceAccess::Shared);
+    assert_eq!(validate(&free), Err(DeclarationValidationError::Invalid));
     declaration.function.bounds[0].constraints.reverse();
     assert_eq!(
         validate(&declaration),
@@ -463,6 +474,39 @@ fn trait_members_require_the_retained_scope_and_exact_parent() {
     let other_output = context
         .intern_child(other, DefinitionKind::AssociatedType, "Output", 0)
         .unwrap();
+    // A foreign owner is checked later in HIR, but its member IDs must
+    // already be scoped correctly before lowering them to associated names.
+    let mut provider = ModuleDecl::new(ModuleIdentity::single_file("provider"));
+    let mut implementation = module.implementations[0].clone();
+    implementation.methods[0].implementation = CallableImplementation::Script;
+    provider.implementations.push(implementation);
+    let definitions = provider.collect_definitions(&context).unwrap();
+    provider.validate(&|_| None, &definitions).unwrap();
+    let mut wrong_receiver = provider.clone();
+    wrong_receiver.implementations[0].methods[0]
+        .params
+        .push(Param {
+            name: "self".into(),
+            mutable: false,
+            ty: Ty::Builtin(BuiltinType::Bool),
+        });
+    assert_eq!(
+        wrong_receiver
+            .validate(&|_| None, &definitions)
+            .unwrap_err()
+            .0,
+        "invalid implementation receiver parameter"
+    );
+    provider.implementations[0]
+        .trait_type
+        .as_mut()
+        .unwrap()
+        .associated_types = [(other_output, Ty::Builtin(BuiltinType::I32))].into();
+    assert_eq!(
+        provider.validate(&|_| None, &definitions).unwrap_err().0,
+        "invalid scoped implementation header"
+    );
+
     let mut invalid = contract.clone();
     invalid.associated_types[0].declaration = other_output;
     assert!(!trait_valid(&invalid, owner, &cancel, &context.snapshot()));

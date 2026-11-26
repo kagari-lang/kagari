@@ -1,6 +1,5 @@
 use super::*;
-use crate::tests::common::compilation;
-use crate::tests::standard::standard_modules;
+use crate::tests::{common::compilation, standard::standard_modules};
 use crate::{
     bytecode::lower_program_to_bytecode,
     source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
@@ -11,12 +10,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{source::ExecutableOrigin, updates::BodyClassification};
-use kagari_hir::{
-    analysis::AnalysisDatabase,
-    hir::origin::NodeOrigin,
-    native::render::{declaration_source, declaration_source_with_external},
-    program::CheckedProgram,
-};
+use kagari_hir::{analysis::AnalysisDatabase, hir::origin::NodeOrigin, program::CheckedProgram};
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
@@ -24,34 +18,55 @@ use kagari_source::{
 use kagari_types::declaration::{
     TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout,
 };
-use std::{slice, sync::Arc};
-
-/// Complete-source tests explicitly retain the Native declaration documents.
-/// Default structured registration deliberately has no authored source surface.
-fn supply_complete_native_source(analysis: &mut AnalysisDatabase) {
-    let modules = standard_modules();
-    let sources = modules
-        .iter()
-        .map(|module| {
-            declaration_source_with_external(module, &modules, analysis.inputs().library_modules())
-                .unwrap()
-        })
-        .collect();
-    analysis.set_native_sources(modules, sources).unwrap();
-}
+use std::sync::Arc;
 
 fn checked(text: &str) -> CheckedProgram {
+    checked_with_documents(text, &[])
+}
+
+fn checked_with_documents(
+    text: &str,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+) -> CheckedProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("exact.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    supply_complete_native_source(&mut analysis);
+    let mut analysis = capture_documents(&mut sources, providers);
     analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap()
+}
+
+fn capture_documents(
+    sources: &mut SourceDatabase,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+) -> AnalysisDatabase {
+    let mut analysis = AnalysisDatabase::default();
+    if providers.is_empty() {
+        return analysis;
+    }
+    let cancel = CancellationToken::default();
+    let mut publisher = AnalysisDatabase::default();
+    publisher.set_native_modules(providers.to_vec());
+    let published = publisher.declarations(sources.snapshot(), &cancel).unwrap();
+    let documents = providers
+        .iter()
+        .map(|provider| {
+            let view = published.render_native_document(provider, &cancel).unwrap();
+            CapturedSource {
+                key: view.uri.clone(),
+                display_name: view.uri,
+                module: provider.records().identity.clone(),
+                text: view.text,
+            }
+        })
+        .collect();
+    sources.replace_generated(documents, &cancel).unwrap();
+    analysis.set_import_environment(published.import_environment().clone());
+    analysis
 }
 
 #[test]
@@ -132,11 +147,7 @@ fn structured_registrations_compile_without_claiming_complete_authored_source() 
     ));
     // Supplying a rendered view later cannot authorize source attachment to an
     // executable whose original compilation had no complete source manifest.
-    let view = declaration_source(&native, slice::from_ref(&native)).unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis
-        .set_native_sources(vec![native], vec![view])
-        .unwrap();
+    let mut analysis = capture_documents(&mut sources, &[native]);
     let with_source = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
@@ -325,7 +336,6 @@ fn equal_display_and_text_keep_distinct_module_origins_and_inline_coordinates() 
         .unwrap();
     let file = snapshot.module(&root).unwrap().id();
     let mut analysis = AnalysisDatabase::default();
-    supply_complete_native_source(&mut analysis);
     let checked = analysis
         .snapshot(snapshot, &cancel)
         .unwrap()
@@ -429,7 +439,7 @@ fn equal_display_and_text_keep_distinct_module_origins_and_inline_coordinates() 
 
 #[test]
 fn intrinsic_helpers_have_no_fabricated_authored_owner_and_round_trip() {
-    let checked = checked(
+    let checked = checked_with_documents(
         r#"
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -438,6 +448,7 @@ fn main() -> String { val view: Debug = 42; view.debug() }
 fn hashed<T: Hash>(value: T) -> i64 { val boxed: Hash = value; boxed.hash() }
 fn tuple() -> i64 { hashed((42, 3)) }
 "#,
+        &standard_modules(),
     );
     let cancel = CancellationToken::default();
     let bytecode = compile(&checked);
@@ -549,7 +560,7 @@ fn tuple() -> i64 { hashed((42, 3)) }
 
 #[test]
 fn source_local_adapters_keep_authored_owner_and_cannot_claim_intrinsic_origin() {
-    let checked = checked(
+    let checked = checked_with_documents(
         r#"
 struct Number { val value: i32 }
 impl Fn<(i32,)> for Number {
@@ -558,6 +569,7 @@ impl Fn<(i32,)> for Number {
 }
 fn convert() -> fn(i32) -> i32 { Number { value: 2 } }
 "#,
+        &standard_modules(),
     );
     let cancel = CancellationToken::default();
     let bytecode = compile(&checked);
@@ -635,7 +647,6 @@ fn foreign_defaults_and_materialized_generic_applications_keep_authored_owner() 
         "use pkg::model::{Read, identity}; struct Holder { val value: i32 } impl Read for Holder { fn read(self) -> i32 { self.value } } fn main() -> i32 { val x: Read = Holder { value: 7 }; identity(x.again()) }",
     );
     let mut analysis = AnalysisDatabase::default();
-    supply_complete_native_source(&mut analysis);
     let checked = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()

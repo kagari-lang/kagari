@@ -121,13 +121,19 @@ impl HostCallPolicy {
     }
 }
 
-/// Validate caller-visible Host passing and effects against a declared signature.
-pub fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool {
-    if let Some(policy) = &function.host_policy {
-        return policy.valid_for(function, table);
+/// Check an executable declaration, not a Kagari source signature.
+pub(crate) fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool {
+    match &function.host_policy {
+        Some(policy) => policy.valid_for(function, table),
+        None => !requires_host_policy(function),
     }
+}
+
+/// A Native entry exposing an external handle, even in a nested type or only
+/// in its result, cannot use a policy-free binding.
+pub fn requires_host_policy(function: &FnDecl) -> bool {
     if !matches!(function.implementation, CallableImplementation::Native(_)) {
-        return true;
+        return false;
     }
     let mut pending = function
         .params
@@ -137,7 +143,7 @@ pub fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool
         .collect::<Vec<_>>();
     while let Some(ty) = pending.pop() {
         match ty {
-            Ty::Host(_) => return false,
+            Ty::Host(_) => return true,
             Ty::Projection {
                 receiver,
                 interface,
@@ -166,7 +172,7 @@ pub fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool
             Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
         }
     }
-    true
+    false
 }
 
 fn immutable_value(ty: &Ty, table: &DefinitionTable) -> bool {

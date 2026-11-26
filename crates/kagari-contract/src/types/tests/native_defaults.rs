@@ -85,14 +85,12 @@ impl Fixture {
             constraints: vec![interface(&owner, vec![])],
         });
         let binding = identity(&context, DefinitionKind::Function, "handler");
-        let mut method = function(
+        let method = function(
             "echo",
             CallableImplementation::Native(binding),
             Ty::SelfType(owner),
         );
-        method.method_policy.override_allowed = false;
         let mut derived = method.clone();
-        derived.method_policy.override_allowed = true;
         derived.params[0].ty = scalar();
         let implementation = identity(&context, DefinitionKind::Impl, "");
         context
@@ -115,6 +113,7 @@ impl Fixture {
                 methods: vec![method],
             },
             template: NativeDeclaration {
+                path_operation: None,
                 concrete_result: None,
                 declaration,
                 function: body,
@@ -174,7 +173,7 @@ impl Fixture {
 }
 
 #[test]
-fn native_defaults_preserve_binding_signature_and_final_policy() {
+fn native_defaults_preserve_inherited_binding_and_signature() {
     let fixture = Fixture::new();
     let cancel = CancellationToken::default();
     verify::validate(
@@ -215,7 +214,10 @@ fn native_defaults_preserve_binding_signature_and_final_policy() {
     for mutation in 0..3 {
         let mut table = fixture.table.clone();
         match mutation {
-            0 => table.methods[0].implementation = CallableImplementation::Script,
+            0 => {
+                table.methods[0].implementation =
+                    CallableImplementation::Native(fixture.template.declaration);
+            }
             1 => table.methods[0].params[0].ty = Ty::Builtin(BuiltinType::Bool),
             _ => table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool),
         }
@@ -239,7 +241,6 @@ fn native_defaults_preserve_binding_signature_and_final_policy() {
 fn required_methods_do_not_become_native_defaults() {
     let mut fixture = Fixture::new();
     fixture.contract.methods[0].implementation = CallableImplementation::Required;
-    fixture.contract.methods[0].method_policy.override_allowed = true;
     fixture.table.methods.clear();
     assert!(!verify::interface_methods_match(
         &fixture.table,
@@ -251,7 +252,7 @@ fn required_methods_do_not_become_native_defaults() {
 }
 
 #[test]
-fn final_script_defaults_require_the_canonical_ordinary_materialization() {
+fn inherited_script_defaults_require_the_canonical_ordinary_materialization() {
     let mut fixture = Fixture::new();
     fixture.contract.methods[0].implementation = CallableImplementation::Script;
     fixture.table.methods[0].implementation = CallableImplementation::Script;
@@ -297,9 +298,9 @@ fn final_script_defaults_require_the_canonical_ordinary_materialization() {
         Err(TypeTransformError::InvalidContract)
     );
     let mut forged = fixture.table.clone();
-    // A same-signature impl-owned Script is not the final trait's authored body.
+    // An explicit implementation has no inherited origin.
     forged.method_origins.clear();
-    assert!(!valid(&forged));
+    assert!(valid(&forged));
     forged.method_origins = fixture.table.method_origins.clone();
     forged.method_origins[0].authored = fixture
         .context

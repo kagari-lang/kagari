@@ -290,7 +290,6 @@ fn fact_kind(kind: FactKind) -> u64 {
         FactKind::Await => 19,
         FactKind::Capture => 20,
         FactKind::Binding => 21,
-        FactKind::HostAccess => 22,
     }
 }
 

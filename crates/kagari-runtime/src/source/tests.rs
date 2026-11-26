@@ -38,10 +38,7 @@ use kagari_compiler::{
     },
 };
 use kagari_contract::source::ExecutableOrigin;
-use kagari_hir::{
-    analysis::AnalysisDatabase, compile_input::program::CheckedCompilation,
-    native::render::declaration_source,
-};
+use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use rstest::rstest;
 use std::sync::Arc;
@@ -50,18 +47,37 @@ fn compiled(
     text: &str,
     baseline: Option<&ExecutableModule>,
 ) -> (VerifiedBytecodeProgram, VerifiedSourcePackage) {
-    compiled_in(text, baseline, AnalysisDatabase::default())
+    compiled_in(text, baseline, None)
 }
 
 fn compiled_in(
     text: &str,
     baseline: Option<&ExecutableModule>,
-    mut analysis: AnalysisDatabase,
+    provider: Option<&NativeModule>,
 ) -> (VerifiedBytecodeProgram, VerifiedSourcePackage) {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("exact.kgr", text.into(), SourceLayer::Base)
         .unwrap();
+    let mut analysis = AnalysisDatabase::default();
+    if let Some(provider) = provider {
+        let metadata = Arc::new(provider.to_declaration());
+        let mut publisher = AnalysisDatabase::default();
+        publisher.set_native_modules(vec![metadata.clone()]);
+        let declarations = publisher
+            .declarations(sources.snapshot(), &Default::default())
+            .unwrap();
+        let view = declarations
+            .render_native_document(&metadata, &Default::default())
+            .unwrap();
+        sources
+            .bind_module(&view.uri, metadata.records().identity.clone())
+            .unwrap();
+        sources
+            .set(&view.uri, view.text, SourceLayer::Base)
+            .unwrap();
+        analysis.set_import_environment(declarations.import_environment().clone());
+    }
     let checked = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap()
@@ -389,17 +405,6 @@ fn source_free_packages_stripping_mismatch_and_locator_authority(#[case] retaine
     );
 }
 
-fn analysis_with_provider_source(provider: &NativeModule) -> AnalysisDatabase {
-    let providers = vec![Arc::new(provider.to_declaration())];
-    // A checked declaration view is a compiler input, not an executable body.
-    let source = declaration_source(&providers[0], &providers).unwrap();
-    let mut analysis = AnalysisDatabase::default();
-    analysis
-        .set_native_sources(providers, vec![source])
-        .unwrap();
-    analysis
-}
-
 #[test]
 fn native_origins_never_fabricate_text() {
     let mut builder = ModuleBuilder::new("fixture::source", &Default::default()).unwrap();
@@ -418,7 +423,7 @@ fn native_origins_never_fabricate_text() {
     let (bytecode, package) = compiled_in(
         include_str!("../../tests/fixtures/source/native-origin.kgr"),
         None,
-        analysis_with_provider_source(&provider),
+        Some(&provider),
     );
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();

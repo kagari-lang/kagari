@@ -87,6 +87,21 @@ pub(super) fn validate_trait_surface(
         }
 
         let header = ImplHeader::lower(&for_ty, &id.arguments);
+        if let Some(reason) = header.orphan_error(
+            lowered.source.module_identity(),
+            declarations.definitions(),
+            id.declaration,
+        ) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
+                    trait_name: trait_name.clone(),
+                    type_name,
+                    reason: reason.into(),
+                })
+                .with_span(impl_block.origin.diagnostic_span()),
+            );
+            continue;
+        }
         if seen_impls.iter().any(|(declaration, previous)| {
             *declaration == id.declaration && previous.overlaps(&header)
         }) {

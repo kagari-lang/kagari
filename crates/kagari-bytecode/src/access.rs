@@ -1,9 +1,11 @@
 //! Access-flow validation runs after physical operand and layout validation.
 mod interfaces;
+mod projections;
 mod scalar;
 use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::ids::FunctionRef;
 use kagari_contract::representation::builtin_representation;
+use projections::{Projections, Shape};
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use crate::{
@@ -12,7 +14,7 @@ use crate::{
     program::{BytecodeProgram, ModuleRef},
     suspension::FlowBudget,
     trait_bounds,
-    verifier::{BytecodeVerificationError as Error, flow::Block},
+    verifier::{BytecodeVerificationError as Error, flow::FlowResult},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
@@ -34,6 +36,8 @@ use kagari_types::{
 struct Fact {
     ty: Option<Arc<Ty>>,
     conflict: bool,
+    // May contain a MakePathView result on an incoming executable edge.
+    path_view: Shape,
     nodes: usize,
     fresh: bool,
 }
@@ -67,6 +71,13 @@ impl TypeBudget<'_> {
         if self.flow.work > 100_000_000 {
             return Err(self.invalid("access flow work limit"));
         }
+        Ok(())
+    }
+
+    fn projection(&mut self, work: usize, bytes: usize) -> Result<(), Error> {
+        self.work(work)?;
+        self.space(bytes)?;
+        self.bytes += bytes;
         Ok(())
     }
 
@@ -118,12 +129,19 @@ fn call_argument_flows(
     accepts_owned(receiver_access, target) && flows(source, target)
 }
 
-fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> Option<Fact> {
+fn join(
+    left: Option<&Fact>,
+    right: Option<&Fact>,
+    declared: Option<&Fact>,
+    path_view: Shape,
+) -> Option<Fact> {
     let (Some(left), Some(right)) = (left, right) else {
         return None;
     };
-    if left == right {
-        return Some(left.clone());
+    if left.ty == right.ty && left.conflict == right.conflict {
+        let mut fact = left.clone();
+        fact.path_view = path_view;
+        return Some(fact);
     }
 
     let compatible = declared.filter(|fact| {
@@ -134,6 +152,7 @@ fn join(left: Option<&Fact>, right: Option<&Fact>, declared: Option<&Fact>) -> O
     let incompatible = left.ty != right.ty && compatible.is_none();
     let mut fact = compatible.cloned().unwrap_or_default();
     fact.conflict = left.conflict || right.conflict || incompatible;
+    fact.path_view = path_view;
     Some(fact)
 }
 
@@ -142,13 +161,14 @@ pub(super) fn verify(
     function: &BytecodeFunction,
     program: Option<&BytecodeProgram>,
     definitions: &DefinitionTable,
-    blocks: &[Block],
+    flow: &FlowResult,
     budget: &mut FlowBudget,
 ) -> Result<(), Error> {
     let invalid = || Error::InvalidOperation {
         function: function.id,
         reason: "invalid collection access flow",
     };
+    let blocks = &flow.blocks;
     let semantic = &function.metadata.semantic;
     let path_contracts = module.path_contracts(definitions).map_err(|_| invalid())?;
     if !semantic.protocol_adapter_valid(function.identity.as_ref(), definitions) {
@@ -269,6 +289,7 @@ pub(super) fn verify(
         types.admit(&mut fact)?;
         entry.0[slot.index()] = Some(fact);
     }
+    let mut projections = Projections::default();
     let mut validate = false;
     let owner = |slot: ModuleRef| -> Option<&BytecodeModule> {
         program
@@ -295,10 +316,19 @@ pub(super) fn verify(
                 }
                 if let Some(incoming) = &mut incoming {
                     for slot in 0..count {
+                        let shape = |fact: &Option<Fact>| {
+                            fact.as_ref().map_or(Shape::default(), |f| f.path_view)
+                        };
+                        let path_view = projections.join(
+                            shape(&incoming.0[slot]),
+                            shape(&outputs[predecessor].0[slot]),
+                            &mut |work, bytes| types.projection(work, bytes),
+                        )?;
                         incoming.0[slot] = join(
                             incoming.0[slot].as_ref(),
                             outputs[predecessor].0[slot].as_ref(),
                             declared.get(&slot),
+                            path_view,
                         );
                         if incoming.1[slot] != outputs[predecessor].1[slot] {
                             incoming.1[slot] = None;
@@ -311,7 +341,54 @@ pub(super) fn verify(
             let Some((mut registers, mut constants)) = incoming else {
                 continue;
             };
-            for instruction in &function.instructions[block.start..block.end] {
+            for pc in block.start..block.end {
+                let instruction = &function.instructions[pc];
+                let shape = |slot: Slot| {
+                    registers[slot.index()]
+                        .as_ref()
+                        .map_or(Shape::default(), |f| f.path_view)
+                };
+                let is_view = |slot| shape(slot).contains_view();
+                if validate {
+                    match instruction {
+                        I::Await { .. } => {
+                            types.work(count)?;
+                            let point = flow
+                                .awaits
+                                .binary_search_by_key(&pc, |point| point.instruction())
+                                .expect("reachable await liveness");
+                            if flow.awaits[point]
+                                .live_slots()
+                                .any(|i| is_view(Slot::new(i)))
+                            {
+                                return Err(types.invalid("host capability live across await"));
+                            }
+                        }
+                        I::MakeFuture { arguments, .. }
+                        | I::MakeClosure {
+                            captures: arguments,
+                            ..
+                        } if arguments.iter().copied().any(is_view) => {
+                            return Err(types.invalid("cannot capture a host path view"));
+                        }
+                        _ => {}
+                    }
+                }
+                // Compute before writing dst: a move or tuple may reuse an input slot.
+                let path_view = match instruction {
+                    I::MakePathView { .. } => Shape::VIEW,
+                    I::Move { src, .. } => shape(*src),
+                    I::MakeTuple { elements, .. } => projections
+                        .tuple(elements.iter().copied().map(shape), &mut |w, b| {
+                            types.projection(w, b)
+                        })?,
+                    I::ReadAggregateIndex { base, index, .. } => projections.project(
+                        shape(*base),
+                        constants[index.index()],
+                        &mut |w, b| types.projection(w, b),
+                    )?,
+                    _ => Shape::default(),
+                };
                 if validate
                     && instruction.slot_inputs().iter().any(|slot| {
                         registers[slot.index()]
@@ -987,7 +1064,10 @@ pub(super) fn verify(
                     _ => None,
                 };
                 if let Some(dst) = instruction.slot_output() {
-                    registers[dst.index()] = Some(Fact::default());
+                    registers[dst.index()] = Some(Fact {
+                        path_view,
+                        ..Fact::default()
+                    });
                     constants[dst.index()] = constant;
                 }
                 if let Some((dst, mut fact)) = produced {
@@ -998,6 +1078,7 @@ pub(super) fn verify(
                         }
                         fact = declared[&dst.index()].clone();
                     }
+                    fact.path_view = path_view;
                     registers[dst.index()] = Some(fact);
                 }
             }

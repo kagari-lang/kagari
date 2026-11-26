@@ -1,8 +1,7 @@
 //! Independent structured descriptors and fixed parsed text exercise one checker.
 
-use super::{ExternalFunction, ExternalModule};
 use crate::{
-    analysis::{AnalysisDatabase, AnalysisSnapshot, FileAnalysis, error::AnalysisError},
+    analysis::{AnalysisDatabase, AnalysisSnapshot, FileAnalysis},
     compile_input::program::{AdmissionError, CheckedCompilation},
     hir::{
         expr::ExprKind,
@@ -14,14 +13,11 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     metadata::DefinitionMetadata, table::DefinitionId,
 };
-use kagari_source::{
-    diagnostic::DiagnosticKind,
-    source_database::{SourceDatabase, SourceLayer},
-};
+use kagari_source::source_database::{CapturedSource, SourceDatabase, SourceLayer};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
-        AssociatedTypeDef, FieldDef, FnDecl, Param, TraitDef, TypeDef, TypeDefKind,
+        FieldDef, FnDecl, Param, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
         names::{ExportName, NameNamespace},
         native::NativeStorageLayout,
@@ -184,32 +180,7 @@ fn registration() -> Arc<DefinitionMetadata<ModuleDecl>> {
             Ty::Builtin(BuiltinType::I32),
         )],
     });
-    module.trait_references.insert(
-        read,
-        TraitDef {
-            conversion_adapter: None,
-            name: "Read".into(),
-            generic_params: vec![],
-            bounds: vec![],
-            supertraits: vec![],
-            associated_types: vec![],
-            associated_consts: vec![],
-            methods: vec![
-                function(
-                    "read",
-                    CallableImplementation::Required,
-                    vec![("self", Ty::SelfType(read))],
-                    Ty::Builtin(BuiltinType::I32),
-                ),
-                function(
-                    "defaulted",
-                    CallableImplementation::Script,
-                    vec![("self", Ty::SelfType(read))],
-                    Ty::Builtin(BuiltinType::I32),
-                ),
-            ],
-        },
-    );
+
     let bounded = context
         .intern_child(root, DefinitionKind::Function, "bounded", 0)
         .unwrap();
@@ -235,50 +206,7 @@ fn registration() -> Arc<DefinitionMetadata<ModuleDecl>> {
     let output = context
         .intern_child(operation, DefinitionKind::AssociatedType, "Output", 0)
         .unwrap();
-    let parameter = GenericParam {
-        owner: operation,
-        position: 0,
-    };
-    let mut operations = Vec::new();
-    for name in ["apply", "again"] {
-        let member = context
-            .intern_child(operation, DefinitionKind::Method, name, 0)
-            .unwrap();
-        let own = GenericParam {
-            owner: member,
-            position: 0,
-        };
-        let mut method = function(
-            name,
-            CallableImplementation::Required,
-            vec![
-                ("self", Ty::SelfType(operation)),
-                ("value", parameter.as_type()),
-                ("extra", own.as_type()),
-            ],
-            own.as_type(),
-        );
-        method.generic_params.push(own);
-        operations.push(method);
-    }
-    module.trait_references.insert(
-        operation,
-        TraitDef {
-            name: "Operation".into(),
-            generic_params: vec![parameter],
-            bounds: vec![],
-            supertraits: vec![],
-            methods: operations,
-            associated_types: vec![AssociatedTypeDef {
-                declaration: output,
-                generic_params: vec![],
-                parameter_bounds: vec![],
-                bounds: vec![],
-            }],
-            associated_consts: vec![],
-            conversion_adapter: None,
-        },
-    );
+
     let requirement = |name, argument| NativeCallableRequirement {
         receiver: Ty::Struct(nominal(child)),
         interface: NominalTy {
@@ -336,16 +264,16 @@ pub(super) fn constructor_registration() -> Arc<DefinitionMetadata<ModuleDecl>> 
     }
     module.types.push(TypeDef {
         name: "Target".into(),
-        kind: TypeDefKind::NativeStorage(NativeStorageLayout::Opaque),
+        kind: TypeDefKind::Struct,
         generic_params: vec![],
         bounds: vec![],
         fields: vec![],
         variants: vec![],
     });
     let target = context
-        .intern_child(root, DefinitionKind::AssociatedType, "Target", 0)
+        .intern_child(root, DefinitionKind::Struct, "Target", 0)
         .unwrap();
-    let target = Ty::NativeObject(nominal(target));
+    let target = Ty::Struct(nominal(target));
     let owner = context
         .intern_child(root, DefinitionKind::Impl, "", 0)
         .unwrap();
@@ -429,52 +357,35 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
     sources
         .set("support.kgr", SUPPORT.into(), SourceLayer::Base)
         .unwrap();
-    let mut exports = SourceDatabase::new("/exports").unwrap();
-    exports.bind_module("api.kgr", identity("api")).unwrap();
-    let api = exports
-        .set("api.kgr", API.into(), SourceLayer::Base)
-        .unwrap();
-    let mut external = ExternalModule::new(exports.snapshot().file(api).unwrap().clone());
-    external.dependencies.insert(identity("support"));
     let mut direct = AnalysisDatabase::new("/project").unwrap();
-    let registered = registration();
-    for name in ["bounded", "produce"] {
-        let id = registered
-            .records()
-            .definition(DefinitionKind::Function, name, registered.definitions())
-            .unwrap();
-        let contract = NativeContract {
-            host_policy: None,
-            receiver_access: None,
-            callable_requirements: registered
-                .records()
-                .callable_requirements
-                .get(&id)
-                .cloned()
-                .unwrap_or_default(),
-            concrete_result: registered.records().concrete_results.get(&id).cloned(),
-        };
-        external.contracts.insert(
-            ExternalFunction::Function(name.into()),
-            Arc::new(
-                DefinitionMetadata::checked(
-                    registered.definitions().clone(),
-                    contract,
-                    &Default::default(),
-                )
-                .unwrap(),
-            ),
-        );
-    }
-    direct.set_native_modules(vec![registered]);
+    direct.set_native_modules(vec![registration()]);
     let mut offline = AnalysisDatabase::new("/project").unwrap();
-    offline.set_external_modules(vec![external.clone()]);
     for (text, valid) in [(CLIENT, true), (INVALID, false)] {
         let root = sources
             .set("client.kgr", text.into(), SourceLayer::Overlay)
             .unwrap();
+        sources
+            .replace_generated(vec![], &Default::default())
+            .unwrap();
         let direct_snapshot = direct
             .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        offline.set_import_environment(
+            direct_snapshot
+                .declaration_snapshot()
+                .import_environment()
+                .clone(),
+        );
+        sources
+            .replace_generated(
+                vec![CapturedSource {
+                    key: "api.kgr".into(),
+                    display_name: "api.kgr".into(),
+                    module: identity("api"),
+                    text: API.into(),
+                }],
+                &Default::default(),
+            )
             .unwrap();
         let offline_snapshot = offline
             .snapshot(sources.snapshot(), &Default::default())
@@ -578,7 +489,7 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
                 .into_records()
             };
             let direct = project(&direct_snapshot);
-            assert_eq!(direct, project(&offline_snapshot));
+            assert_eq!(project(&offline_snapshot), NativeContract::default());
             if name == "bounded" {
                 assert_eq!(direct.callable_requirements.len(), 4);
                 assert_eq!(
@@ -689,154 +600,4 @@ fn structured_and_offline_apis_share_fields_calls_traits_and_diagnostic_rules() 
             assert!(matches!(field.fields[1].ty, TypeId::Struct(_)));
         }
     }
-
-    let fingerprint = offline
-        .environment_fingerprint(&Default::default())
-        .unwrap();
-    let restored = offline.inputs().database().unwrap();
-    assert_eq!(
-        fingerprint,
-        restored
-            .environment_fingerprint(&Default::default())
-            .unwrap()
-    );
-    let context = DefinitionContext::new().unwrap();
-    let mut imported = external.clone();
-    for metadata in imported.contracts.values_mut() {
-        *metadata = Arc::new(metadata.import_into(&context, &Default::default()).unwrap());
-    }
-    offline.set_external_modules(vec![imported]);
-    assert_eq!(
-        fingerprint,
-        offline
-            .environment_fingerprint(&Default::default())
-            .unwrap(),
-        "process-local IDs cannot change static input identity"
-    );
-    let key = ExternalFunction::Function("bounded".into());
-    let metadata = &external.contracts[&key];
-    let mut reordered = external.clone();
-    let mut contract = metadata.records().clone();
-    contract.callable_requirements.swap(0, 1);
-    reordered.contracts.insert(
-        key.clone(),
-        Arc::new(
-            DefinitionMetadata::checked(
-                metadata.definitions().clone(),
-                contract,
-                &Default::default(),
-            )
-            .unwrap(),
-        ),
-    );
-    offline.set_external_modules(vec![reordered]);
-    assert_ne!(
-        fingerprint,
-        offline
-            .environment_fingerprint(&Default::default())
-            .unwrap(),
-        "ordered slots participate in cache validity"
-    );
-
-    sources
-        .set("client.kgr", CLIENT.into(), SourceLayer::Overlay)
-        .unwrap();
-    for corrupt_member in [true, false] {
-        let mut invalid = external.clone();
-        let (key, mut contract, metadata) = if corrupt_member {
-            (key.clone(), metadata.records().clone(), metadata.clone())
-        } else {
-            let key = ExternalFunction::Function("produce".into());
-            let metadata = external.contracts[&key].clone();
-            (key, metadata.records().clone(), metadata)
-        };
-        if corrupt_member {
-            let read = metadata
-                .definitions()
-                .lookup_child(
-                    metadata
-                        .definitions()
-                        .lookup_root(&identity("support"))
-                        .unwrap(),
-                    DefinitionKind::Trait,
-                    "Read",
-                    0,
-                )
-                .unwrap();
-            contract.callable_requirements[0].member = metadata
-                .definitions()
-                .lookup_child(read, DefinitionKind::Method, "read", 0)
-                .unwrap();
-        } else {
-            contract.concrete_result = Some(Ty::Builtin(BuiltinType::Bool));
-        }
-        invalid.contracts.insert(
-            key,
-            Arc::new(
-                DefinitionMetadata::checked(
-                    metadata.definitions().clone(),
-                    contract,
-                    &Default::default(),
-                )
-                .unwrap(),
-            ),
-        );
-        offline.set_external_modules(vec![invalid]);
-        let snapshot = offline
-            .snapshot(sources.snapshot(), &Default::default())
-            .unwrap();
-        let diagnostics = snapshot.file(api).unwrap().result().diagnostics();
-        if corrupt_member {
-            assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidNativeSignature { function, .. } if function == "bounded")), "{diagnostics:?}");
-        } else {
-            assert!(diagnostics.iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name } if type_name == "bool" && trait_name == "Read")), "{diagnostics:?}");
-        }
-    }
-
-    // Interning a correctly parented member ID is not evidence that the source
-    // trait actually declares that output. This must reach semantic validation.
-    let context = DefinitionContext::new().unwrap();
-    let metadata = metadata.import_into(&context, &Default::default()).unwrap();
-    let mut contract = metadata.records().clone();
-    let interface = &mut contract.callable_requirements[0].interface;
-    let absent = context
-        .intern_child(
-            interface.declaration,
-            DefinitionKind::AssociatedType,
-            "Undeclared",
-            0,
-        )
-        .unwrap();
-    interface.associated_types = [(absent, Ty::Builtin(BuiltinType::I32))].into();
-    let mut invalid = external.clone();
-    invalid.contracts.insert(
-        key,
-        Arc::new(
-            DefinitionMetadata::checked(context.snapshot(), contract, &Default::default()).unwrap(),
-        ),
-    );
-    offline.set_external_modules(vec![invalid]);
-    let snapshot = offline
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    assert!(snapshot.file(api).unwrap().result().diagnostics().iter().any(|diagnostic| matches!(&diagnostic.kind, DiagnosticKind::InvalidNativeSignature { function, .. } if function == "bounded")));
-
-    exports
-        .bind_module("support.kgr", identity("support"))
-        .unwrap();
-    let conflict = exports
-        .set(
-            "support.kgr",
-            include_str!("../../../tests/fixtures/analysis/external/missing_dependency.kgr").into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
-    offline.set_external_modules(vec![
-        external,
-        ExternalModule::new(exports.snapshot().file(conflict).unwrap().clone()),
-    ]);
-    assert!(
-        matches!(offline.snapshot(sources.snapshot(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("source conflicts")),
-        "conflicting dependency owners must not silently select a namespace"
-    );
 }

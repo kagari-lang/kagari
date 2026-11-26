@@ -1,8 +1,6 @@
 use super::*;
 use crate::{
-    analysis::{
-        AnalysisDatabase, core_source::packaged_modules, external::foundation::change_export,
-    },
+    analysis::{AnalysisDatabase, core_source::packaged_modules},
     declare_analysis, lower,
     tests::standard::standard_modules,
 };
@@ -17,12 +15,15 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
     let mut db = AnalysisDatabase::default();
 
     for input in packaged_modules() {
-        let mut text = input.source.text().to_owned();
+        let mut text = input.text().to_owned();
         mutate_source(&mut text);
-        if text != input.source.text() {
-            let mut altered = input.clone();
-            change_export(&mut altered, |_| text);
-            db.replace_core_fixture(altered);
+        if text != input.text() {
+            let mut sources = SourceDatabase::default();
+            sources
+                .bind_module(input.name(), input.module_identity().clone())
+                .unwrap();
+            let id = sources.set(input.name(), text, SourceLayer::Base).unwrap();
+            db.replace_core_fixture(sources.snapshot().file(id).unwrap().clone());
         }
     }
     let snapshot = db
@@ -99,6 +100,7 @@ fn incorrect_role_visibility_binders_parents_and_members_are_rejected() {
             "partial_eq",
         ),
         ("Some(T),", "Some(T, T),", "Option"),
+        ("Err(E),", "Err(T),", "Result"),
         ("pub enum Ordering", "enum Ordering", "Ordering"),
         (
             "fn hash(self) -> i64;",

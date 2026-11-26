@@ -22,6 +22,7 @@ mod factories;
 mod group_boundaries;
 mod groups;
 mod iteration;
+mod retention;
 mod scheduler;
 
 mod tasks;

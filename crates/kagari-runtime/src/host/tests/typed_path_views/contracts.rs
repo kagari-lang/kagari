@@ -744,11 +744,13 @@ fn rejects_roots_and_descriptors_that_exceed_host_path_policy() {
                 definitions: runtime.host().definitions(),
                 root_type: read_only_id,
                 result_type: i32_id,
-                segments: vec![HostPathSegmentDeclaration::Field(host_field(
-                    &runtime,
-                    read_only_id,
-                    "hp"
-                ))],
+                segments: vec![HostPathSegmentDeclaration::Virtual(
+                    HostVirtualSegmentDeclaration {
+                        name: "hp".into(),
+                        result: Ty::Builtin(BuiltinType::I32),
+                        access: PathAccess::ReadWrite,
+                    }
+                )],
                 access: PathAccess::ReadWrite,
                 schema_epoch: HostSchemaEpoch::new(0),
             })

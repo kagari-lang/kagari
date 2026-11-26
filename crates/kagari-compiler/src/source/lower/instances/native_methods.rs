@@ -134,7 +134,7 @@ impl InstancePlanner<'_> {
         let result = instantiate(&signature.return_type);
         self.native_method_call(
             NativeImport {
-                receiver_access: signature.policy.receiver_access,
+                receiver_access: None,
                 result_adapter: None,
                 generic: None,
                 callables: vec![],

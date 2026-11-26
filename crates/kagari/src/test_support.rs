@@ -1,5 +1,7 @@
 #[cfg(feature = "source")]
 pub(crate) mod cancellation;
+#[cfg(feature = "source")]
+pub(crate) mod declaration_cache;
 #[cfg(all(feature = "source", feature = "native"))]
 pub(crate) mod execution;
 

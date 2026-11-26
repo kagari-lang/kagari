@@ -1,6 +1,13 @@
 //! Frontend interpretation of language constructors and nominal Native interfaces.
 
-use crate::types::{NominalType, TypeId};
+use crate::{
+    DiagnosticBuffer,
+    analysis::error::AnalysisError,
+    declarations::Declarations,
+    hir::item::Module,
+    resolver::resolved::ResolvedName,
+    types::{NominalType, TypeId},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -9,9 +16,70 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
-    declaration::native::NativeTypeConstructor, range::RangeKind, scalar::BuiltinType,
+    declaration::{module::DeclarationError, native::NativeTypeConstructor},
+    range::RangeKind,
+    scalar::BuiltinType,
+    visibility::Visibility,
 };
+
+/// Inspect the collected identity (including kind and occurrence), not a candidate
+/// reconstructed from a spelling or selected by a producer.
+pub(crate) fn validate_constructors(
+    module: &Module,
+    declarations: &Declarations,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) -> Result<(), AnalysisError> {
+    for item in &module.native_types {
+        cancel.check()?;
+        if item.is_host
+            && let Some(first) = item.generic_params.first()
+        {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::GenericHostType {
+                    name: item.name.clone(),
+                })
+                .with_span(module.generic_parameter(*first).origin.diagnostic_span()),
+            );
+        }
+        let owner = declarations
+            .definition(ResolvedName::NativeType(item.id))
+            .expect("collected native declaration");
+        let definitions = declarations.definitions();
+        let constructor = if item.is_host {
+            // A Host has a Struct identity, but cannot claim a reserved Native constructor's name.
+            let view = definitions
+                .resolve(*owner)
+                .map_err(DefinitionMappingError::from)?;
+            NativeTypeConstructor::reserved_name(view.module(), &item.name)
+        } else {
+            NativeTypeConstructor::from_definition(*owner, definitions)
+        };
+        let Some(constructor) = constructor else {
+            continue;
+        };
+        if item.is_host
+            || item.visibility != Visibility::Public
+            || item.generic_params.len() != constructor.arity()
+            || !item.fields.is_empty()
+            || !item.bounds.is_empty()
+            || !item.trait_bounds.is_empty()
+            || item
+                .generic_params
+                .iter()
+                .any(|id| !module.generic_parameter(*id).bounds.is_empty())
+        {
+            return Err(DeclarationError(format!(
+                "invalid language constructor declaration shape for {}",
+                item.name
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
 
 /// Checked constructor identity, independent of registration storage/layout policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

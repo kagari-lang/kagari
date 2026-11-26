@@ -145,6 +145,10 @@ impl NativeObject {
         }
     }
 
+    pub(crate) fn operation_active(&self) -> bool {
+        self.operation_active
+    }
+
     pub(crate) fn enter_operation<'gc>(
         cx: &mut Scope<'gc>,
         owner: Gc<'gc, Self>,

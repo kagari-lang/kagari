@@ -30,12 +30,13 @@ use kagari_hir::{
     typeck::{
         scalar::ScalarValue,
         table::{
-            ResolvedAssociatedConst, ResolvedHostPath, ResolvedHostPlacePath,
-            ResolvedInterfaceCoercion, ResolvedIteration, propagation::ResolvedPropagation,
+            ResolvedAssociatedConst, ResolvedInterfaceCoercion, ResolvedIteration,
+            propagation::ResolvedPropagation,
         },
     },
     types::{NominalType, TypeId},
 };
+
 use std::collections::{HashMap, HashSet};
 
 /// An operation index belongs to one expanded body, never to a source arena.
@@ -108,6 +109,14 @@ pub enum ValueBinding {
     Static(DefinitionId),
 }
 
+/// Consecutive Host fields in projection order, starting at the evaluated root.
+#[derive(Debug, Clone)]
+pub struct HostFields<R> {
+    pub root: R,
+    pub owner: DefinitionId,
+    pub fields: Vec<(DefinitionId, TypeId)>,
+}
+
 /// Executable expression meaning, with names/fields/constructors already selected.
 #[derive(Debug, Clone)]
 pub enum CheckedExprKind {
@@ -166,7 +175,7 @@ pub enum CheckedExprKind {
         index: ExprId,
         operation: IndexRead,
     },
-    HostRead(ResolvedHostPath),
+    HostRead(HostFields<ExprId>),
     Struct {
         declaration: DefinitionId,
         fields: Vec<(DefinitionId, ExprId)>,
@@ -331,13 +340,13 @@ pub enum CheckedPlaceKind {
         index: ExprId,
         operation: IndexWrite,
     },
-    Host(ResolvedHostPlacePath),
+    Host(HostFields<PlaceId>),
     /// Preparation's evaluated prefix, with no resulting location or access operation.
     Diverging {
         base: Option<PlaceId>,
-        /// Host roots and read-only index receivers are read before dynamic operands.
+        /// A read-only index getter evaluates its receiver before its index operand.
         read_base: bool,
-        values: Vec<ExprId>,
+        value: Option<ExprId>,
     },
 }
 

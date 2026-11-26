@@ -1,0 +1,9 @@
+use crate::api::Pair;
+
+struct Explicit {}
+
+impl Pair for Explicit {
+    fn swapped(self, combine: fn(i32, i32) -> i32, first: i32, second: i32) -> bool {
+        true
+    }
+}

@@ -2,6 +2,7 @@
 
 use crate::{
     Runtime,
+    interpreter_tests::common::{compile_test_bytecode, round_trip_bytecode},
     native::{
         assembly::{ModuleDefinition, ModuleSetBuilder, draft::TraitImplementation},
         binding::{Codec, NativeBinding},
@@ -15,7 +16,10 @@ use crate::{
     test_support::{bytecode::load_bytecode, native::program::ProgramFixture},
     value::view::ValueView,
 };
-use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{ModuleRef, verified::VerifiedBytecodeProgram},
+};
 use kagari_common::identity::{
     DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -79,6 +83,44 @@ fn authored_future_rejects_a_competing_owner_and_wrong_storage_contract() {
         "{error}"
     );
     assert_eq!(runtime.modules().loaded_count(), 0);
+}
+
+#[test]
+fn unused_public_pin_rejects_a_private_trait_even_without_the_importer() {
+    let compile = |source| round_trip_bytecode(compile_test_bytecode(source));
+    let public = compile("pub trait Marker {} trait Local {}");
+    let baseline =
+        VerifiedBytecodeProgram::from_metadata(public.clone(), &Default::default()).unwrap();
+    let owner = &baseline.program().modules[baseline.program().root.index()].identity;
+    let definitions = baseline.definitions();
+    let id = definitions
+        .lookup_child(
+            definitions.lookup_root(owner).unwrap(),
+            DefinitionKind::Trait,
+            "Marker",
+            0,
+        )
+        .unwrap();
+    let catalog = DeclarationCatalog::default()
+        .with_verified_modules(&baseline, [owner])
+        .unwrap();
+    let mut importer = ModuleBuilder::new("example::importer", &catalog).unwrap();
+    importer
+        .reference_trait(&definitions.resolve(id).unwrap().to_path())
+        .unwrap();
+    let mut runtime = Runtime::default();
+    importer.finish().unwrap().install(&mut runtime).unwrap();
+
+    let private = compile("trait Marker {} trait Local {}");
+    let error = load_bytecode(&mut runtime, "owner", private).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("pinned source trait must be public: Marker"),
+        "{error}"
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+    load_bytecode(&mut runtime, "owner", public).unwrap();
 }
 
 #[test]
@@ -216,6 +258,7 @@ fn provider(wide: bool) -> NativeModule {
         vec![(entry, binding)],
         Default::default(),
         vec![],
+        Default::default(),
         &catalog,
     )
     .unwrap()

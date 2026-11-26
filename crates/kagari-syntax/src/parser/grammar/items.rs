@@ -428,6 +428,8 @@ impl Parser<'_> {
         let attributes = self.parse_attributes();
         let visibility = self.parse_visibility();
         let native_keyword = self.eat(TokenKind::NativeKw);
+        // Item lookahead admits only `host` as an identifier in this slot.
+        let host_modifier = native_keyword.and_then(|_| self.eat(TokenKind::Ident));
         let keyword = self.expect(TokenKind::TypeKw, DiagnosticKind::UnexpectedToken);
         let name = self.parse_name(DiagnosticKind::ExpectedFunctionName);
         let generics = self.parse_generic_params();
@@ -488,6 +490,7 @@ impl Parser<'_> {
                     bounds,
                     where_clause,
                     native_keyword: Required::Present(native_keyword),
+                    host_modifier,
                     fields,
                     terminator,
                 }))

@@ -3,16 +3,20 @@ use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{
         AnalysisDatabase, AnalysisSnapshot, FileAnalysis, declarations::DeclarationSnapshot,
-        external::ExternalModule,
     },
-    resolver::resolved::ResolvedName,
-    tests::test_analysis,
+    hir::item::function::FunctionImplementation,
+    semantic::signatures::FunctionImplementation as CheckedImplementation,
+    tests::{native_fixture::function_module, test_analysis},
 };
-use kagari_common::span::Span;
+use kagari_common::{
+    identity::{ModuleIdentity, metadata::DefinitionMetadata},
+    span::Span,
+};
 use kagari_source::{
     source::SourceExtent,
     source_database::{SourceDatabase, SourceLayer},
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn source_preparer(db: &mut AnalysisDatabase) -> SourcePreparer<'_> {
     SourcePreparer {
@@ -80,15 +84,8 @@ fn inline_views_share_each_requests_parse_and_retain_original_offsets() {
     assert_eq!(nested_source.span(range), physical.source().span(range));
 
     assert_eq!(user_files(&first, root).count(), 3);
-    assert_ne!(
-        physical.syntax().unwrap().location(),
-        first_declarations
-            .file(child_id)
-            .unwrap()
-            .syntax()
-            .unwrap()
-            .location(),
-    );
+    let child_location = child.syntax().unwrap().location();
+    assert_ne!(physical.syntax().unwrap().location(), child_location);
     for file in user_files(&first, root) {
         let parsed = &first_declarations.file(file.source().id()).unwrap().parsed;
         assert!(std::ptr::eq(
@@ -147,7 +144,13 @@ fn inline_views_share_each_requests_parse_and_retain_original_offsets() {
     );
 
     let declarations = second.declaration_snapshot();
+    assert!(
+        child_location
+            .resolve(physical.parsed.physical().unwrap())
+            .is_some()
+    );
     let physical = declarations.file(root).unwrap().parsed.physical().unwrap();
+    assert!(child_location.resolve(physical).is_none());
     for file in user_files(&second, root) {
         let parsed = &declarations.file(file.source().id()).unwrap().parsed;
         assert!(std::ptr::eq(parsed.physical().unwrap(), physical));
@@ -363,17 +366,27 @@ fn syntax_diagnostics_use_the_supplied_copy_mapping_even_for_the_same_revision()
 }
 
 #[test]
-fn external_sidecar_changes_reach_current_root_facts_only() {
+fn registration_policy_changes_reach_only_the_selected_owner_and_snapshot() {
     let source = Arc::new(SourceFile::new(
-        "/vendor/outcome.kgr",
-        "enum Outcome { Failed } mod child { enum Outcome { Failed } }",
+        "/vendor/defaults.kgr",
+        include_str!("../../../tests/fixtures/analysis/external/inline_native.kgr"),
     ));
     let id = source.id();
-    let input = ExternalModule::new(source);
-    let mut db = AnalysisDatabase::default();
-    db.set_external_modules(vec![input.clone()]);
+    let sources = SourceSnapshot::single_file(source);
+    let owner = ModuleIdentity::single_file("provider");
+    let provider = function_module(owner.clone(), "get", vec![], Ty::Builtin(BuiltinType::I32));
+    let policy = provider.records().functions[0]
+        .host_policy
+        .as_ref()
+        .unwrap();
+    let mut plain = provider.records().clone();
+    plain.functions[0].host_policy = None;
     let cancel = CancellationToken::default();
-    let before = db.snapshot(SourceSnapshot::default(), &cancel).unwrap();
+    let mut db = AnalysisDatabase::default();
+    db.set_native_modules(vec![Arc::new(
+        DefinitionMetadata::checked(provider.definitions().clone(), plain, &cancel).unwrap(),
+    )]);
+    let before = db.snapshot(sources.clone(), &cancel).unwrap();
     let child = before
         .declaration_snapshot()
         .files()
@@ -381,37 +394,40 @@ fn external_sidecar_changes_reach_current_root_facts_only() {
         .unwrap()
         .source()
         .id();
-    let mut changed = input;
-    changed
-        .enum_failures
-        .insert(("Outcome".into(), "Failed".into()));
-    db.set_external_modules(vec![changed]);
-    let after = db.snapshot(SourceSnapshot::default(), &cancel).unwrap();
-    for (snapshot, expected) in [(&before, false), (&after, true)] {
-        for (file, reports_failure) in [(id, expected), (child, false)] {
-            let file = snapshot.file(file).unwrap();
+    db.set_native_modules(vec![provider.clone()]);
+    let after = db.snapshot(sources, &cancel).unwrap();
+    for (snapshot, expected) in [(&before, None), (&after, Some(policy))] {
+        let registered = snapshot
+            .files()
+            .find(|file| file.source().module_identity() == &owner)
+            .unwrap();
+        for (file, expected) in [
+            (registered, expected),
+            (snapshot.file(id).unwrap(), None),
+            (snapshot.file(child).unwrap(), None),
+        ] {
             assert!(
                 file.result().diagnostics().is_empty(),
                 "{:?}",
                 file.result().diagnostics()
             );
             let facts = file.result().facts();
-            let enumeration = &facts.lowered.module.enums[0];
-            assert_eq!(enumeration.variants[0].reports_failure, reports_failure);
-            let definition = facts
-                .declarations
-                .definition(ResolvedName::Enum(enumeration.id))
-                .unwrap();
-            let checked = facts.aggregates.enumeration(definition).unwrap();
-            assert_eq!(checked.variants[0].reports_failure, reports_failure);
+            let function = &facts.lowered.module.functions[0];
+            let FunctionImplementation::Native(contract) = &function.implementation else {
+                panic!("expected native declaration")
+            };
+            assert_eq!(contract.host_policy.as_ref(), expected);
+            let CheckedImplementation::Native(contract) = &facts
+                .typed
+                .signatures()
+                .function(function.id)
+                .unwrap()
+                .implementation
+            else {
+                panic!("expected checked native declaration")
+            };
+            assert_eq!(contract.host_policy.as_ref(), expected);
         }
-        let declarations = snapshot.declaration_snapshot();
-        let root = declarations.file(id).unwrap();
-        let child = declarations.file(child).unwrap();
-        assert!(std::ptr::eq(
-            root.parsed.physical().unwrap(),
-            child.parsed.physical().unwrap()
-        ));
     }
     assert_eq!(
         before.file(id).unwrap().source().revision(),

@@ -8,9 +8,9 @@ use crate::{
     trait_bounds::shared,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
-        flow::inline_host, function_ref_exists, ir_binary_op, module_slot_ty, path_record,
-        register_ty, scalar, statics, verify_call_dst, verify_dynamic_path_args, verify_jump,
-        verify_standard_intrinsic_call,
+        flow::invalid_retained_slot, function_ref_exists, ir_binary_op, module_slot_ty,
+        path_record, register_ty, scalar, statics, verify_call_dst, verify_dynamic_path_args,
+        verify_jump, verify_standard_intrinsic_call,
     },
 };
 use kagari_abi::representation::ValueType;
@@ -114,13 +114,7 @@ pub(super) fn verify_instruction(
                 arguments.iter().zip(&callee.metadata.params).enumerate()
             {
                 expect_register_ty(function, *argument, *parameter, "Future capture")?;
-                if *parameter == ValueType::HostHandle
-                    || callee
-                        .metadata
-                        .semantic
-                        .params
-                        .get(&index)
-                        .is_some_and(inline_host)
+                if invalid_retained_slot(*parameter, callee.metadata.semantic.params.get(&index))
                     || !callee.metadata.semantic.params.contains_key(&index)
                     || function.metadata.semantic.slots.get(&argument.index())
                         != callee.metadata.semantic.params.get(&index)
@@ -356,8 +350,17 @@ pub(super) fn verify_instruction(
                     reason: "closure generic environment differs from its caller",
                 });
             }
-            for (capture, ty) in captures.iter().zip(&callee.metadata.params) {
+            for (index, (capture, ty)) in captures.iter().zip(&callee.metadata.params).enumerate() {
                 expect_register_ty(function, *capture, *ty, "closure capture")?;
+                let source = function.metadata.semantic.slots.get(&capture.index());
+                if invalid_retained_slot(*ty, source)
+                    || source != callee.metadata.semantic.params.get(&index)
+                {
+                    return Err(BytecodeVerificationError::InvalidOperation {
+                        function: function.id,
+                        reason: "invalid closure capture contract",
+                    });
+                }
             }
         }
         BytecodeInstruction::MakeCell { dst, value } => {

@@ -49,12 +49,7 @@ impl DeclarationCatalog {
                     .map_err(conflict)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut catalog = Self::declared(&modules, &context)?;
-        for module in &modules {
-            for (id, contract) in &module.trait_references {
-                catalog.insert(*id, contract.clone())?;
-            }
-        }
+        let catalog = Self::declared(&modules, &context)?;
         for module in &modules {
             catalog.validate_module_declarations(module)?;
         }

@@ -5,6 +5,7 @@ use crate::{
         binding::{BindingEntry, NativeResult},
         context::NativeCall,
         conversion::context::ConversionContext,
+        host::invoke_host,
     },
     value::place::{PublishedResult, ResultPlace},
     value_check,
@@ -38,6 +39,12 @@ impl NativeCall<'_> {
         let signature = function.type_signature()?;
         let result = match &function.binding.entry {
             BindingEntry::Callback(entry) => entry(self).map_err(|error| *error),
+            BindingEntry::PathOperation => {
+                let operation = function.path_operation.as_ref().ok_or_else(|| {
+                    RuntimeError::module_validation("unlinked native path operation")
+                })?;
+                invoke_host(self, |cx, args| operation.invoke(cx, args))
+            }
             BindingEntry::Primitive(primitive) => {
                 let arguments = self.arguments();
                 primitive

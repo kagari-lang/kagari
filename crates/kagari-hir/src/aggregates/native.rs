@@ -1,6 +1,5 @@
 //! Declared implementation selection uses checked contracts and bounded proofs.
 
-use crate::types::semantic::lower_type;
 use crate::{
     aggregates::{
         AggregateCatalog, implementations::ImplementationSearchLimits,
@@ -9,29 +8,12 @@ use crate::{
     typeck::{GenericBounds, table::match_implementation},
     types::{NominalType, TypeId, TypeSubstitution},
 };
-use kagari_common::identity::{ModuleIdentity, table::DefinitionTable};
-use kagari_types::declaration::native::NativeTypeConstructor;
-use kagari_types::declaration::ownership::ReceiverOwners;
+use kagari_common::identity::table::DefinitionTable;
 
 #[cfg(test)]
 mod tests;
 
 impl AggregateCatalog {
-    /// Resolves defining ownership from actual declarations, never input origin.
-    pub(crate) fn receiver_owner(
-        &self,
-        definitions: &DefinitionTable,
-        receiver: &TypeId,
-    ) -> Option<ModuleIdentity> {
-        let owners = ReceiverOwners::from_constructors(self.native_types().filter_map(|item| {
-            let constructor = NativeTypeConstructor::from_definition(item.id, definitions)?;
-            let module = definitions.resolve(item.id).ok()?.module();
-            Some((module, constructor))
-        }))
-        .ok()?;
-        owners.owner(&lower_type(receiver), definitions)
-    }
-
     /// Match the declared receiver without discharging its bounds. Recursive
     /// searches use this projection while retaining their own search budget.
     pub(crate) fn declared_implementation_pattern(

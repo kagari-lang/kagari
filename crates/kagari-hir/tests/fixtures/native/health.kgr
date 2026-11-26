@@ -1,0 +1,7 @@
+use alloc::string::String;
+
+pub trait Marker {}
+
+pub trait Health {
+    fn hp(self) -> i32;
+}

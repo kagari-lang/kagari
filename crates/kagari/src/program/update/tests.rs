@@ -1,4 +1,4 @@
-use crate::test_support::standard::standard_library;
+use crate::test_support::{declaration_cache::Cache, standard::standard_library};
 use crate::{
     engine::{
         KagariEngine,
@@ -30,7 +30,14 @@ use rstest::rstest;
 use std::{sync::Arc, thread};
 
 fn engine() -> KagariEngine {
+    configured_engine(None)
+}
+
+fn configured_engine(cache: Option<&Cache>) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
+    if let Some(cache) = cache {
+        builder.declaration_cache(&cache.0);
+    }
     builder
         .install_all(standard_library().modules().unwrap())
         .unwrap();
@@ -600,9 +607,14 @@ fn generic_alias_retargeting_compares_binders_bounds_and_results_without_instanc
     assert!(text(&runtime, &program, &second).contains("{ 20 }"));
 }
 
-#[test]
-fn standard_foundation_accepts_file_updates_without_complete_source_and_preserves_state() {
-    let engine = engine();
+#[rstest]
+#[case::structured(false)]
+#[case::published(true)]
+fn standard_foundation_accepts_file_updates_without_complete_source_and_preserves_state(
+    #[case] publish: bool,
+) {
+    let cache = publish.then(Cache::new);
+    let engine = configured_engine(cache.as_ref());
     let mut prepared = engine
         .compile(
             SourceFile::new(

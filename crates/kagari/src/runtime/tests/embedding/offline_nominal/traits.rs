@@ -3,20 +3,55 @@ use super::*;
 use crate::program::native::NativeCompiler;
 use crate::test_support::standard::standard_library;
 use crate::{context::JitPolicy, program::Compilation};
-use kagari_bytecode::artifact::KbcArtifact;
+use kagari_bytecode::{
+    artifact::KbcArtifact, program::verified::VerifiedBytecodeProgram,
+    verifier::BytecodeVerificationError,
+};
 use kagari_contract::types::PublicItem;
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
-    native::host,
+    native::{catalog::DeclarationCatalog, host},
     value::{carriers::RootedValue, kind::ObjectKind},
 };
-use kagari_source::diagnostic::DiagnosticKind;
-use kagari_types::{
-    callable::CallableImplementation,
-    declaration::{TraitDef, host::PathAccess},
-};
+use kagari_source::{diagnostic::DiagnosticKind, identity::FileId};
+use kagari_types::callable::CallableImplementation;
 use std::sync::{Arc, Mutex};
+
+fn verified_owner(engine: &KagariEngine, file: FileId) -> VerifiedBytecodeProgram {
+    let checked = engine
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+        .unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    artifact
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records()
+        .into_verified(&Default::default(), &definitions, &Default::default())
+        .unwrap()
+        .into_bytecode()
+}
+
+fn owner_catalog(baseline: &VerifiedBytecodeProgram) -> DeclarationCatalog {
+    let owner = &baseline.program().modules[baseline.program().root.index()].identity;
+    standard_library()
+        .declarations()
+        .catalog()
+        .with_verified_modules(baseline, [owner])
+        .unwrap()
+}
+
+fn trait_path(owner: &ModuleIdentity, name: &str) -> DefinitionPath {
+    DefinitionPath {
+        module: owner.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: name.into(),
+            occurrence: 0,
+        }],
+    }
+}
 
 #[test]
 fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
@@ -30,33 +65,17 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
     let file = author
         .set_source(uri, source.into(), SourceLayer::Base)
         .unwrap();
-    let checked = author
-        .compile_snapshot(author.source_snapshot(), file, &Default::default())
+    let baseline = verified_owner(&author, file);
+    let owner = &baseline.program().modules[baseline.program().root.index()].identity;
+    let mut builder = ModuleBuilder::new("native_scope", &owner_catalog(&baseline)).unwrap();
+    assert!(
+        builder
+            .reference_trait(&trait_path(owner, "Marker"))
+            .is_err()
+    );
+    let visible = builder
+        .reference_trait(&trait_path(owner, "Visible"))
         .unwrap();
-    let artifact = author.emit_artifact(&checked, Default::default()).unwrap();
-    let root = &artifact.records().program.modules[artifact.records().program.root.index()];
-    let abi = root
-        .trait_contracts
-        .iter()
-        .find(|contract| contract.abi.name == "Marker")
-        .unwrap();
-    let path = DefinitionPath {
-        module: root.identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Marker".into(),
-            occurrence: 0,
-        }],
-    };
-    let expected = DefinitionMetadata::checked(
-        artifact.definitions().clone(),
-        abi.abi.clone(),
-        &Default::default(),
-    )
-    .unwrap();
-    let mut builder =
-        ModuleBuilder::new("native_scope", standard_library().declarations().catalog()).unwrap();
-    let marker = builder.reference_trait(&path, expected).unwrap();
     let mut counter = builder.define_type("Counter").unwrap();
     counter
         .external(HostTypePolicy {
@@ -68,7 +87,7 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
     let counter = counter.finish().unwrap();
     builder
         .implement(counter, |group| {
-            group.trait_impl(marker.apply([])?, |_| Ok(()))
+            group.trait_impl(visible.apply([])?, |_| Ok(()))
         })
         .unwrap();
     let engine = KagariEngine::with_native_modules(
@@ -90,40 +109,35 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
 
     // Even the public sibling cannot be imported through the generated qualifier
     // by an ordinary source file. Only the explicit native dependency resolves it.
-    let family = path.module.package.0.strip_prefix("source-file:").unwrap();
+    let family = owner.package.0.strip_prefix("source-file:").unwrap();
+    let ordinary = engine
+        .set_source(
+            "ordinary.kgr",
+            format!("use __kagari_source_{family}::Visible; fn main() {{}}"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let signatures = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .unwrap();
     assert!(
-        engine
-            .compile_to_artifact(
-                SourceFile::new(
-                    "ordinary.kgr",
-                    format!("use __kagari_source_{family}::Visible; fn main() {{}}")
-                ),
-                Default::default(),
-            )
-            .is_err()
+        signatures
+            .file(ordinary)
+            .unwrap()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. }))
     );
 }
 
 #[test]
 fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
-    use kagari_runtime::native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type};
-    use kagari_types::declaration::host::{
-        HostCallPolicy, HostFunctionEffects, HostReflectionPolicy, HostTypePolicy,
-    };
-
     let trait_source = "pub trait Readable { type Output; fn get(self) -> Self::Output; fn again(self) -> Self::Output { self.get() } }";
     let module_identity = ModuleIdentity {
         package: PackageId("pkg".into()),
         path: vec!["api".into()],
     };
-    let trait_path = DefinitionPath {
-        module: module_identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Readable".into(),
-            occurrence: 0,
-        }],
-    };
+    let trait_path = trait_path(&module_identity, "Readable");
     // Obtain the exact portable expectation from the trait's checked source ABI.
     let author = KagariEngine::with_native_modules(
         Default::default(),
@@ -136,62 +150,12 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     author
         .set_source("mem://readable", trait_source.into(), SourceLayer::Base)
         .unwrap();
-    let checked = author
-        .compile_snapshot(author.source_snapshot(), file, &Default::default())
-        .unwrap();
-    let contract = author
-        .emit_artifact(&checked, ArtifactOptions::default())
-        .unwrap();
-    let definition = contract
-        .records()
-        .program
-        .modules
-        .iter()
-        .find(|module| module.identity == module_identity)
-        .unwrap()
-        .public_items
-        .iter()
-        .find_map(|item| match item {
-            PublicItem::Trait(trait_) => Some(trait_.clone()),
-            _ => None,
-        })
-        .unwrap();
-    let definition = DefinitionMetadata::checked(
-        contract.definitions().clone(),
-        definition,
-        &Default::default(),
-    )
-    .unwrap();
-    let catalog = standard_library().declarations().catalog();
-    let build_module = |definition: DefinitionMetadata<TraitDef>, inspect_authoring| {
-        let mut builder = ModuleBuilder::new("demo::counter", catalog).unwrap();
+    let baseline = verified_owner(&author, file);
+    let build_module = |baseline: &VerifiedBytecodeProgram, inspect_authoring| {
+        let mut builder = ModuleBuilder::new("demo::counter", &owner_catalog(baseline)).unwrap();
+        let interface = builder.reference_trait(&trait_path).unwrap();
         if inspect_authoring {
-            let mut native_contract = definition.records().clone();
-            let trait_id = definition.definitions().lookup(&trait_path).unwrap();
-            let method_id = definition
-                .definitions()
-                .lookup_child(trait_id, DefinitionKind::Method, "get", 0)
-                .unwrap();
-            native_contract.methods[0].implementation = CallableImplementation::Native(method_id);
-            assert!(
-                builder
-                    .reference_trait(
-                        &trait_path,
-                        DefinitionMetadata::checked(
-                            definition.definitions().clone(),
-                            native_contract,
-                            &Default::default()
-                        )
-                        .unwrap()
-                    )
-                    .is_err()
-            );
-        }
-        let interface = builder
-            .reference_trait(&trait_path, definition.clone())
-            .unwrap();
-        if inspect_authoring {
-            assert!(builder.reference_trait(&trait_path, definition).is_err());
+            assert!(builder.reference_trait(&trait_path).is_err());
         }
         let mut counter = builder.define_type("Counter").unwrap();
         counter
@@ -217,16 +181,16 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             .implement(counter.clone(), |group| {
                 group.trait_impl(interface.apply([])?, |methods| {
                     methods.associated_type("Output", Type::i32())?;
-                    methods.host_policy(
-                        "get",
-                        HostCallPolicy {
-                            passing: vec![HostPassingStyle::SharedBorrow],
-                            effects: Default::default(),
-                        },
-                    )?;
-                    methods.bind(
-                        "get",
-                        host::callback(|context, values| {
+                    let method_policy = HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow],
+                        effects: Default::default(),
+                    };
+                    methods.define_method(
+                        FunctionDecl::new("get")
+                            .parameter("self", counter.apply([])?)
+                            .returns(Type::i32())
+                            .host_policy(method_policy.clone()),
+                        host::callback(method_policy, |context, values| {
                             context.runtime_mut().collect_garbage().unwrap();
                             assert_eq!(values.len(), 1);
                             assert_eq!(values[0].kind(), Some(ObjectKind::HostRoot));
@@ -245,23 +209,24 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
                 })
             })
             .unwrap();
+        let make_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
         let make = builder
             .define_function(
                 FunctionDecl::new("make")
                     .returns(counter.apply([]).unwrap())
-                    .host_policy(HostCallPolicy {
-                        passing: vec![],
-                        effects: HostFunctionEffects {
-                            may_allocate: true,
-                            ..Default::default()
-                        },
-                    }),
+                    .host_policy(make_policy.clone()),
             )
             .unwrap();
         builder
             .bind(
                 make,
-                host::callback(|context, _| {
+                host::callback(make_policy, |context, _| {
                     let root = context.runtime().host().root(HostObjectId(7)).unwrap();
                     {
                         let root = context.runtime_mut().host_root_value(root).unwrap();
@@ -273,8 +238,12 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             .unwrap();
         builder.finish().unwrap()
     };
-    let module = build_module(definition, true);
-    assert_eq!(module.declaration().trait_references.len(), 1);
+    let module = build_module(&baseline, true);
+    assert_eq!(
+        module.required_source_traits().iter().collect::<Vec<_>>(),
+        [&trait_path]
+    );
+    let importer = module.declaration().identity.clone();
     assert!(module.declaration().traits.is_empty());
     let engine = KagariEngine::with_native_modules(
         Default::default(),
@@ -369,9 +338,18 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     let provider = omitted
         .modules
         .iter_mut()
-        .find(|module| !module.trait_references.is_empty())
+        .find(|module| module.identity == importer)
         .unwrap();
-    provider.trait_references.clear();
+    let required = definitions.snapshot().lookup(&trait_path).unwrap();
+    assert!(
+        provider
+            .trait_references
+            .iter()
+            .any(|r| r.declaration == required)
+    );
+    provider
+        .trait_references
+        .retain(|r| r.declaration != required);
     let omitted = KbcArtifact::from_program(
         omitted,
         Default::default(),
@@ -398,10 +376,14 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     let changed = engine
         .compile_snapshot(engine.source_snapshot(), main, &Default::default())
         .unwrap();
+    // The compiler derives the requirement from the changed owner. SDK export
+    // independently checks that product against its captured installation pin.
+    let error = engine
+        .emit_artifact(&changed, Default::default())
+        .unwrap_err();
     assert!(
-        engine
-            .emit_artifact(&changed, ArtifactOptions::default())
-            .is_err()
+        format!("{error:?}").contains("source trait references differ"),
+        "{error:?}"
     );
 
     // Compile a complete new provider configuration, then reject it against the
@@ -409,41 +391,14 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     author
         .set_source("mem://readable", changed_source.into(), SourceLayer::Base)
         .unwrap();
-    let source_contract = author
-        .emit_artifact(
-            &author
-                .compile_snapshot(author.source_snapshot(), file, &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
-        .unwrap();
-    let abi = source_contract
-        .records()
-        .program
-        .modules
-        .iter()
-        .find(|module| module.identity == module_identity)
-        .unwrap()
-        .public_items
-        .iter()
-        .find_map(|item| match item {
-            PublicItem::Trait(abi) => Some(abi.clone()),
-            _ => None,
-        })
-        .unwrap();
-    let definition = DefinitionMetadata::checked(
-        source_contract.definitions().clone(),
-        abi,
-        &Default::default(),
-    )
-    .unwrap();
+    let changed_owner = verified_owner(&author, file);
     let changed_engine = KagariEngine::with_native_modules(
         Default::default(),
         standard_library()
             .modules()
             .unwrap()
             .into_iter()
-            .chain(vec![build_module(definition, false)])
+            .chain(vec![build_module(&changed_owner, false)])
             .collect(),
     )
     .unwrap();
@@ -471,6 +426,30 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
             ArtifactOptions::default(),
         )
         .unwrap();
+    // Even before checking installation pins, verification rejects a carried
+    // requirement that omits the new default from its own reachable owner's ABI.
+    let mut inconsistent = changed.records().program.clone();
+    let required = changed.definitions().lookup(&trait_path).unwrap();
+    let requirement = inconsistent
+        .modules
+        .iter_mut()
+        .find(|m| m.identity == importer)
+        .unwrap()
+        .trait_references
+        .iter_mut()
+        .find(|r| r.declaration == required)
+        .unwrap();
+    let extra = requirement
+        .abi
+        .methods
+        .iter()
+        .position(|m| m.name == "extra")
+        .unwrap();
+    requirement.abi.methods.remove(extra);
+    assert!(matches!(
+        verify_program(&inconsistent, changed.definitions(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidInterfaceTable)
+    ));
     let changed =
         KbcArtifact::from_bytes(&changed.records().to_bytes(changed.definitions()).unwrap())
             .unwrap();
@@ -487,26 +466,13 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
 
 #[test]
 fn host_trait_table_is_checked_against_script_trait_signatures() {
-    use kagari_runtime::native::{adapter::NativeAdapter, builder::ModuleBuilder, types::Type};
-    use kagari_types::{
-        declaration::host::{HostCallPolicy, HostReflectionPolicy, HostTypePolicy},
-        scalar::BuiltinType,
-    };
-
     let source =
-        "use std::hash::Hash; trait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; }";
+        "use std::hash::Hash; pub trait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; }";
     let identity = ModuleIdentity {
         package: PackageId("pkg".into()),
         path: vec!["contract".into()],
     };
-    let trait_path = DefinitionPath {
-        module: identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Readable".into(),
-            occurrence: 0,
-        }],
-    };
+    let trait_path = trait_path(&identity, "Readable");
     let author = KagariEngine::with_native_modules(
         Default::default(),
         standard_library().modules().unwrap(),
@@ -522,28 +488,10 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             SourceLayer::Base,
         )
         .unwrap();
-    let artifact = author
-        .emit_artifact(
-            &author
-                .compile_snapshot(author.source_snapshot(), file, &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
-        .unwrap();
-    let abi = artifact.records().program.modules[artifact.records().program.root.index()]
-        .trait_contracts[0]
-        .abi
-        .clone();
-    let expected =
-        DefinitionMetadata::checked(artifact.definitions().clone(), abi, &Default::default())
-            .unwrap();
-    let standard = standard_library().declarations();
-    let providers = standard.catalog();
+    let providers = owner_catalog(&verified_owner(&author, file));
     let build_module = |ty: Type| {
-        let mut builder = ModuleBuilder::new("demo", providers).unwrap();
-        let readable = builder
-            .reference_trait(&trait_path, expected.clone())
-            .unwrap();
+        let mut builder = ModuleBuilder::new("demo", &providers).unwrap();
+        let readable = builder.reference_trait(&trait_path).unwrap();
         let mut counter = builder.define_type("Counter").unwrap();
         counter
             .external(HostTypePolicy {
@@ -566,7 +514,16 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             builder
                 .implement(counter.clone(), |group| {
                     group.trait_impl(readable.apply([ty.clone()])?, |methods| {
-                        methods.bind("extra", host::callback(|_, _| Ok(ValueView::unit())))
+                        methods.define_method(
+                            FunctionDecl::new("extra").parameter("self", counter.apply([])?),
+                            host::callback(
+                                HostCallPolicy {
+                                    passing: vec![HostPassingStyle::SharedBorrow],
+                                    effects: Default::default(),
+                                },
+                                |_, _| Ok(ValueView::unit()),
+                            ),
+                        )
                     })
                 })
                 .unwrap_err()
@@ -575,15 +532,20 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
         );
         builder
             .implement(counter, |group| {
-                group.trait_impl(readable.apply([ty])?, |methods| {
-                    methods.host_policy(
-                        "get",
-                        HostCallPolicy {
-                            passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
-                            effects: Default::default(),
-                        },
-                    )?;
-                    methods.bind("get", host::callback(|_, args| Ok(args[1])))
+                let receiver = group.receiver();
+                group.trait_impl(readable.apply([ty.clone()])?, |methods| {
+                    let method_policy = HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                        effects: Default::default(),
+                    };
+                    methods.define_method(
+                        FunctionDecl::new("get")
+                            .parameter("self", receiver)
+                            .parameter("amount", ty.clone())
+                            .returns(ty)
+                            .host_policy(method_policy.clone()),
+                        host::callback(method_policy, |_, args| Ok(args[1])),
+                    )
                 })
             })
             .unwrap();
@@ -601,9 +563,13 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
     let CallableImplementation::Native(id) = entry.function.implementation else {
         unreachable!()
     };
-    let binding = host::callback(|_, args| Ok(args[1]))
-        .prepare(&entry.function, providers)
-        .unwrap();
+    let binding = host::callback(
+        HostCallPolicy {
+            passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+            effects: Default::default(),
+        },
+        |_, args| Ok(args[1]),
+    );
     let validate = |candidate| {
         let candidate = DefinitionMetadata::checked(
             declaration.definitions().clone(),
@@ -611,7 +577,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
             &Default::default(),
         )
         .unwrap();
-        ModuleBuilder::from_declaration(candidate, providers, [(id, binding.clone())].into())?
+        ModuleBuilder::from_declaration(candidate, &providers, [(id, binding.clone())].into())?
             .finish()
     };
     validate(declaration.records().clone()).unwrap();
@@ -720,23 +686,14 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
 
 #[test]
 fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
-    use kagari_runtime::native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type};
-    use kagari_types::declaration::host::{
-        HostCallPolicy, HostFunctionEffects, HostReflectionPolicy, HostTypePolicy,
-    };
-    let source = include_str!("../../../../../../../examples/host-trait-bound.kgr");
+    // The example's local trait must be public for a foreign native implementation.
+    let source = include_str!("../../../../../../../examples/host-trait-bound.kgr").to_owned();
+    let private_source = source.replace("pub trait Readable", "trait Readable");
     let identity = ModuleIdentity {
         package: PackageId("pkg".into()),
         path: vec!["host_trait".into()],
     };
-    let trait_path = DefinitionPath {
-        module: identity.clone(),
-        path: vec![DefinitionPathSegment {
-            kind: DefinitionKind::Trait,
-            name: "Readable".into(),
-            occurrence: 0,
-        }],
-    };
+    let trait_path = trait_path(&identity, "Readable");
     let author = KagariEngine::with_native_modules(
         Default::default(),
         standard_library().modules().unwrap(),
@@ -753,31 +710,11 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     author
         .set_source("mem://host-trait-bound", contract_source, SourceLayer::Base)
         .unwrap();
-    let contract = author
-        .emit_artifact(
-            &author
-                .compile_snapshot(author.source_snapshot(), file, &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
-        .unwrap();
-    let abi = contract.records().program.modules[contract.records().program.root.index()]
-        .trait_contracts
-        .iter()
-        .find(|contract| contract.abi.name == "Readable")
-        .unwrap()
-        .abi
-        .clone();
-    let expected =
-        DefinitionMetadata::checked(contract.definitions().clone(), abi, &Default::default())
-            .unwrap();
+    let providers = owner_catalog(&verified_owner(&author, file));
     let calls = Arc::new(Mutex::new(Vec::new()));
     let build_module = |implemented| {
-        let mut builder =
-            ModuleBuilder::new("demo", standard_library().declarations().catalog()).unwrap();
-        let readable = builder
-            .reference_trait(&trait_path, expected.clone())
-            .unwrap();
+        let mut builder = ModuleBuilder::new("demo", &providers).unwrap();
+        let readable = builder.reference_trait(&trait_path).unwrap();
         let mut counter = builder.define_type("Counter").unwrap();
         counter
             .external(HostTypePolicy {
@@ -795,17 +732,18 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                         (Type::bool(), "flag", RootedValue::from(true)),
                     ] {
                         let trace = calls.clone();
-                        group.trait_impl(readable.apply([ty])?, |methods| {
-                            methods.host_policy(
-                                "get",
-                                HostCallPolicy {
-                                    passing: vec![HostPassingStyle::SharedBorrow],
-                                    effects: Default::default(),
-                                },
-                            )?;
-                            methods.bind(
-                                "get",
-                                host::callback(move |cx, args| {
+                        let receiver = group.receiver();
+                        group.trait_impl(readable.apply([ty.clone()])?, |methods| {
+                            let method_policy = HostCallPolicy {
+                                passing: vec![HostPassingStyle::SharedBorrow],
+                                effects: Default::default(),
+                            };
+                            methods.define_method(
+                                FunctionDecl::new("get")
+                                    .parameter("self", receiver)
+                                    .returns(ty)
+                                    .host_policy(method_policy.clone()),
+                                host::callback(method_policy, move |cx, args| {
                                     trace.lock().unwrap().push(name);
                                     assert_eq!(args.len(), 1);
                                     assert_eq!(args[0].kind(), Some(ObjectKind::HostRoot));
@@ -819,24 +757,25 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
                 })
                 .unwrap();
         }
+        let make_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
         let make = builder
             .define_function(
                 FunctionDecl::new("make")
                     .returns(counter.apply([]).unwrap())
-                    .host_policy(HostCallPolicy {
-                        passing: vec![],
-                        effects: HostFunctionEffects {
-                            may_allocate: true,
-                            ..Default::default()
-                        },
-                    }),
+                    .host_policy(make_policy.clone()),
             )
             .unwrap();
         let trace = calls.clone();
         builder
             .bind(
                 make,
-                host::callback(move |context, _| {
+                host::callback(make_policy, move |context, _| {
                     trace.lock().unwrap().push("make");
                     let root = context.runtime().host().root(HostObjectId(7)).unwrap();
                     {
@@ -864,8 +803,23 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         .bind_module("mem://host-trait-bound", identity.clone())
         .unwrap();
     engine
-        .set_source("mem://host-trait-bound", source.into(), SourceLayer::Base)
+        .set_source("mem://host-trait-bound", source.clone(), SourceLayer::Base)
         .unwrap();
+    // A pin from the public baseline cannot grant access after the target turns private.
+    engine
+        .set_source(
+            "mem://host-trait-bound",
+            private_source,
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let error = engine
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("KG_RESOLVE_IMPORT_NOT_PUBLIC"),
+        "{error:?}"
+    );
     let foreign = engine
         .bind_module(
             "mem://private-trait-user",
@@ -885,27 +839,24 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     let signatures = engine
         .signatures(engine.source_snapshot(), &Default::default())
         .unwrap();
+    let diagnostics = signatures.file(foreign).unwrap().diagnostics();
     assert!(
-        signatures
-            .file(foreign)
-            .unwrap()
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::ImportNotPublic { .. }))
+        matches!(diagnostics, [d] if matches!(&d.kind, DiagnosticKind::ImportNotPublic { path } if path == "pkg::host_trait::Readable")),
+        "{diagnostics:?}"
     );
     engine.close_overlay("mem://private-trait-user").unwrap();
+    engine.close_overlay("mem://host-trait-bound").unwrap();
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
     let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let executable = &artifact.records().program.modules[artifact.records().program.root.index()];
-    assert_eq!(executable.trait_contracts.len(), 1);
-    assert_eq!(executable.trait_contracts[0].abi.name, "Readable");
+    assert!(executable.trait_contracts.is_empty());
     assert!(
-        !executable
+        executable
             .public_items
             .iter()
-            .any(|item| matches!(item, PublicItem::Trait(_)))
+            .any(|item| matches!(item, PublicItem::Trait(abi) if abi.name == "Readable"))
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         calls.lock().unwrap().clear();
@@ -973,7 +924,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         .bind_module("mem://host-trait-bound", identity)
         .unwrap();
     unimplemented
-        .set_source("mem://host-trait-bound", source.into(), SourceLayer::Base)
+        .set_source("mem://host-trait-bound", source, SourceLayer::Base)
         .unwrap();
     let error = unimplemented
         .compile_snapshot(unimplemented.source_snapshot(), file, &Default::default())

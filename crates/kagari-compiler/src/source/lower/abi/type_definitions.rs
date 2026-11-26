@@ -1,7 +1,10 @@
 //! Lower nominal declarations once, independently of public export authority.
 
 use crate::source::{
-    lower::abi::{abi_parameters, abi_type, checked_bounds},
+    lower::{
+        MirLoweringError,
+        abi::{abi_parameters, abi_type, checked_bounds},
+    },
     types::native_representation,
 };
 use kagari_hir::{
@@ -12,7 +15,10 @@ use kagari_types::{
     visibility::Visibility,
 };
 
-pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, TypeDeclaration) {
+pub(super) fn lower(
+    module: &CheckedModule<'_>,
+    item: Item,
+) -> Result<(Visibility, TypeDeclaration), MirLoweringError> {
     let headers = module.headers();
     let environment = module.environment();
     let definitions = environment.definitions();
@@ -89,8 +95,20 @@ pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, Type
             let signature = catalog
                 .native_type(&declaration)
                 .expect("admitted native type contract");
-            let definition = if let Some(host) = &signature.host {
-                host.definition.as_ref().clone()
+            let definition = if signature.is_host {
+                let schema = module
+                    .registered_host_schemas()
+                    .iter()
+                    .find(|schema| schema.declaration == declaration)
+                    .ok_or_else(|| {
+                        MirLoweringError::MissingHostDeclaration(
+                            definitions
+                                .resolve(declaration)
+                                .expect("admitted Host identity")
+                                .to_path(),
+                        )
+                    })?;
+                schema.definition.clone()
             } else {
                 TypeDef {
                     name: item.name.clone(),
@@ -105,11 +123,11 @@ pub(super) fn lower(module: &CheckedModule<'_>, item: Item) -> (Visibility, Type
         }
         _ => unreachable!("nominal type declaration"),
     };
-    (
+    Ok((
         visibility,
         TypeDeclaration {
             declaration,
             definition,
         },
-    )
+    ))
 }

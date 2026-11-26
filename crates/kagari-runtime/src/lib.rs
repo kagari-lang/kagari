@@ -252,9 +252,9 @@ impl Runtime {
             metadata_ids: MetadataIds::default(),
             resources,
             types,
+            host_borrows: HostBorrowTable::for_registry(host.owner()),
             host,
             native_entries,
-            host_borrows: HostBorrowTable::default(),
 
             modules: ModuleStore::default(),
             structure_layouts: StructStorageLayouts::default(),
@@ -597,6 +597,15 @@ impl Runtime {
         schema_epoch: host::HostSchemaEpoch,
     ) -> Result<host::HostRootHandle, RuntimeError> {
         self.host.register_root(object_id, type_id, schema_epoch)
+    }
+
+    /// Revoke this runtime's live root and permanently reserve its object ID.
+    /// Shared or unique borrows must end before the root can be retired.
+    pub fn retire_host_root(&mut self, root: host::HostRootHandle) -> Result<(), RuntimeError> {
+        self.resources.ensure_synchronous_thread()?;
+        self.resources.ensure_execution_allowed()?;
+        self.reject_candidate_external_access()?;
+        self.host.retire_root(root, &self.host_borrows)
     }
 
     pub fn register_host_path_descriptor(

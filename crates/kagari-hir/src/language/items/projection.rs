@@ -11,7 +11,7 @@ use crate::{
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{AssociatedTypeDef, FnDecl, Param, TraitDef, TypeDef, TypeDefKind, VariantDef},
     ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
@@ -67,7 +67,7 @@ fn method(
         name: actual.name.clone(),
         implementation,
         host_policy,
-        method_policy: actual.policy,
+        method_policy: MethodPolicy::default(),
         generic_params: parameters(local),
         bounds: actual
             .bounds

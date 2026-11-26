@@ -136,6 +136,19 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         context.cancel,
     )
     .map_err(|_| context.error(Error::InvalidPublicAbi))?;
+    host::validate_path_operations(
+        &module.abi.native_declarations,
+        &module.abi.named_declarations,
+        &module.external_types,
+        context.definitions,
+        context.cancel,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            _ => Error::InvalidHostInterface,
+        })
+    })?;
     if !native_signatures_match(
         &module.abi.public_items,
         &module.abi.native_declarations,

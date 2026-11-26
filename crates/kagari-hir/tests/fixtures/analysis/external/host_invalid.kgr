@@ -1,9 +1,7 @@
 use host::Player;
 
-async fn capture(player: Player) {}
-
 fn denied(player: Player) {
     player.rank = 3;
     player.hidden;
-    player.sealed;
+    player[0];
 }

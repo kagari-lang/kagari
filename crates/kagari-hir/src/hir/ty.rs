@@ -1,6 +1,9 @@
 //! Unchecked source/structured type references, distinct from semantic `crate::types` facts.
 
-use kagari_common::identity::{ModuleIdentity, table::DefinitionId};
+use kagari_common::identity::{
+    ModuleIdentity,
+    table::{DefinitionId, DefinitionView},
+};
 use smallvec::SmallVec;
 
 use crate::hir::{ids::TypeRefId, origin::NodeOrigin};
@@ -15,6 +18,15 @@ use crate::hir::{ids::TypeRefId, origin::NodeOrigin};
 pub struct DefinitionExposure {
     pub module: ModuleIdentity,
     pub path: Vec<String>,
+}
+
+impl DefinitionExposure {
+    pub(crate) fn defining(view: DefinitionView<'_>) -> Self {
+        Self {
+            module: view.module().clone(),
+            path: view.segments().map(|part| part.name.to_owned()).collect(),
+        }
+    }
 }
 
 /// One unresolved type-syntax row in HirNodes.types, addressed by TypeRefId.

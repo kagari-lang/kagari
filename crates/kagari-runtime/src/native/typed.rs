@@ -160,7 +160,6 @@ fn invoke<A: FromKagariArguments, R: IntoKagari>(
             function: Some(function),
         };
         context.conversion.check_elements(values.len())?;
-        loans::check_receiver_storage(&context, function.binding.receiver_access, types)?;
         for (index, ty) in types.iter().enumerate() {
             if index != 0 && index.is_multiple_of(1024) {
                 context.poll()?;

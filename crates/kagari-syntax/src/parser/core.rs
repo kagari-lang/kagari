@@ -191,7 +191,11 @@ impl<'a> Parser<'a> {
     }
 
     pub(crate) fn current_text(&self) -> &str {
-        let span = self.lexical.span(self.cursor);
+        self.token_text(self.cursor)
+    }
+
+    pub(crate) fn token_text(&self, index: usize) -> &str {
+        let span = self.lexical.span(index);
         &self.source.text()[span.start..span.end]
     }
 

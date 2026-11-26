@@ -50,7 +50,7 @@ impl ModuleLowering {
             functions: Vec::new(),
             layouts: Default::default(),
             bridges: Default::default(),
-            abi: abi::collect_module_abi(module),
+            abi: abi::collect_module_abi(module)?,
             classifications: Vec::new(),
             source_bodies: Vec::new(),
             failed: false,

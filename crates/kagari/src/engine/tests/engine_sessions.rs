@@ -24,7 +24,7 @@ fn constructors_do_not_install_implicit_library_providers() {
         KagariEngine::with_native_modules(Default::default(), vec![]).unwrap(),
     ];
     for engine in engines {
-        assert!(engine.native_declaration_sources().is_empty());
+        assert!(engine.native_analysis.inputs().native_modules().is_empty());
         let artifact = engine
             .compile_to_artifact(
                 SourceFile::new(
@@ -72,8 +72,8 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
     // Equal module identities do not authorize sharing bindings across engines.
     let first = provider(42);
     let second = provider(99);
-    assert_eq!(first.native_declaration_sources().len(), 1);
-    assert_eq!(second.native_declaration_sources().len(), 1);
+    assert_eq!(first.native_analysis.inputs().native_modules().len(), 1);
+    assert_eq!(second.native_analysis.inputs().native_modules().len(), 1);
     let stale = first
         .set_source(
             "memory://stale.kgr",
@@ -98,13 +98,9 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
     let inputs = first.analysis.borrow().inputs();
     assert_eq!(authored.len(), inputs.core_modules().len());
     for core in inputs.core_modules() {
-        assert!(
-            authored
-                .iter()
-                .any(|file| file.source().id() == core.source.id())
-        );
+        assert!(authored.iter().any(|file| file.source().id() == core.id()));
     }
-    assert!(first.analysis.borrow().inputs().native_sources().is_none());
+
     for (engine, answer) in [(&first, 42), (&second, 99)] {
         let session = engine.new_session(Default::default());
         assert_eq!(session.source_snapshot().files().count(), 0);

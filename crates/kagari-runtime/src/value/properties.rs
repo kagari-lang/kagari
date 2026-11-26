@@ -3,14 +3,20 @@ use crate::value::{aggregates::tuples::TupleObject, carriers::ScopedValue, kind:
 use kagari_gc::{access::Scope, error::GcError};
 
 /// Tuple membership is immutable, so these facts never need invalidation. Other
-/// persistent objects admit only storable fields at their checked write boundary.
+/// aggregate stores keep their own checked write boundaries.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ValueProperties {
     pub(crate) storable: bool,
+    /// Direct or tuple-nested path views cannot enter retained computations.
+    /// Mutable descendants and active loans require a fresh graph walk.
+    pub(crate) retainable: bool,
 }
 
 impl ValueProperties {
-    const ORDINARY: Self = Self { storable: true };
+    const ORDINARY: Self = Self {
+        storable: true,
+        retainable: true,
+    };
 
     pub(crate) fn of<'gc>(cx: &Scope<'gc>, value: ScopedValue<'gc>) -> Result<Self, GcError> {
         match value.kind() {
@@ -19,7 +25,10 @@ impl ValueProperties {
                     cx.downcast::<TupleObject>(value.object().ok_or(GcError::Representation)?)?;
                 Ok(cx.read(object, TupleObject::properties))
             }
-            Some(ObjectKind::HostRoot | ObjectKind::HostPath) => Ok(Self { storable: false }),
+            Some(kind @ (ObjectKind::HostRoot | ObjectKind::HostPath)) => Ok(Self {
+                storable: false,
+                retainable: kind == ObjectKind::HostRoot,
+            }),
             _ => Ok(Self::ORDINARY),
         }
     }
@@ -32,6 +41,7 @@ impl ValueProperties {
         for value in values {
             let child = Self::of(cx, *value)?;
             properties.storable &= child.storable;
+            properties.retainable &= child.retainable;
         }
         Ok(properties)
     }

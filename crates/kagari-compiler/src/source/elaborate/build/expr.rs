@@ -162,15 +162,11 @@ impl Builder<'_, '_> {
         if let Some(scalar) = facts.scalar {
             return Ok(CheckedExprKind::Constant(scalar.clone()));
         }
-        if let Some(host) = facts.host_path {
-            if host.root == id {
-                return Err(self.error(Some(span), "recursive host read root"));
-            }
+        if matches!(syntax, ExprKind::Field { .. })
+            && let Some(host) = self.host_read(id, span)?
+        {
             self.expression(host.root)?;
-            for (_, expr) in &host.dynamic_arguments {
-                self.expression(*expr)?;
-            }
-            return Ok(CheckedExprKind::HostRead(host.clone()));
+            return Ok(CheckedExprKind::HostRead(host));
         }
         Ok(match syntax {
             ExprKind::Missing | ExprKind::Literal(_) => {

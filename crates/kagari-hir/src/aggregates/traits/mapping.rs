@@ -53,7 +53,6 @@ impl RemapDefinitions for MethodSignature {
                 .as_ref()
                 .map(|value| (value).remap_definitions(mapper))
                 .transpose()?,
-            policy: self.policy,
             id: mapper.reference(&self.id)?,
             owner: mapper.reference(&self.owner)?,
             slot: self.slot,

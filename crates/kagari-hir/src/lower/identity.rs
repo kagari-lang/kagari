@@ -49,11 +49,6 @@ impl DefinitionReferences for LoweredModule {
                 visit(declaration)?;
             }
         }
-        for item in &self.module.native_types {
-            if let Some(host) = &item.host {
-                host.visit_definition_ids(visit, cancel)?;
-            }
-        }
         for item in &self.module.traits {
             if let Some(relationship) = &item.conversion_adapter {
                 relationship.visit_definition_ids(visit, cancel)?;

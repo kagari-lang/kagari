@@ -4,9 +4,8 @@ use crate::{
     analysis::{
         AnalysisDatabase,
         error::AnalysisError,
-        external::evidence,
         ownership,
-        source_preparation::{self, ParsedModule, SourcePreparer},
+        source_preparation::{self, ParsedModule, PreparedSource, SourcePreparer},
     },
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
@@ -15,12 +14,8 @@ use crate::{
     native::{adoption, api::preparation::NativeFiles, paths::LibraryPaths},
     resolver::resolved::DeclarationNames,
 };
-use kagari_types::declaration::native::NativeTypeConstructor;
 
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, mapping::DefinitionMappingError, metadata::DefinitionMetadata},
-};
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::{FileId, Revision},
@@ -28,10 +23,7 @@ use kagari_source::{
     source_database::SourceSnapshot,
 };
 use kagari_syntax::ast::module::ModuleSyntax;
-use kagari_types::declaration::{
-    module::{DeclarationError, ModuleDecl},
-    ownership::ReceiverOwners,
-};
+use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
@@ -184,11 +176,21 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<DeclarationSnapshot, AnalysisError> {
         cancel.check()?;
-        let mut lowered_files = self.prepare_external(cancel)?;
-        let paths = Arc::new(LibraryPaths::new(
-            &self.native_modules,
-            self.libraries.all(),
-        ));
+        let mut lowered_files = self.prepare_core(cancel)?;
+        let paths = Arc::new(
+            LibraryPaths::new(&self.native_modules, &self.core).with_importers(
+                &self.native_modules,
+                &self.import_environment,
+                source.packages(),
+            ),
+        );
+        if self
+            .native_files
+            .get()
+            .is_some_and(|files| !files.matches_paths(&paths))
+        {
+            self.native_files.take();
+        }
         let native_files = match self.native_files.get() {
             Some(files) => {
                 let attached = files.attach(cancel);
@@ -197,14 +199,7 @@ impl AnalysisDatabase {
             }
             None => {
                 let modules = adoption::adopt(&self.native_modules, &self.definitions, cancel)?;
-                let prepared = NativeFiles::new(
-                    modules,
-                    paths.clone(),
-                    self.native_sources.as_deref(),
-                    &self.source_root,
-                    self.parse_limits,
-                    cancel,
-                );
+                let prepared = NativeFiles::new(modules, paths.clone(), &self.source_root, cancel);
                 cancel.check()?;
                 let prepared = prepared?;
                 let attached = prepared.attach(cancel);
@@ -216,21 +211,27 @@ impl AnalysisDatabase {
                 attached
             }
         };
-        for (parsed, lowered) in native_files {
-            if lowered_files.values().any(|(_, external)| {
-                external.source.module_identity() == lowered.source.module_identity()
+        for lowered in native_files {
+            if lowered_files.values().any(|file| {
+                file.lowered.source.module_identity() == lowered.source.module_identity()
             }) {
                 return Err(DeclarationError(
-                    "external module conflicts with installed provider".into(),
+                    "bundled module conflicts with registered provider".into(),
                 )
                 .into());
             }
             if lowered_files
-                .insert(lowered.source.id(), (ParsedModule::root(parsed), lowered))
+                .insert(
+                    lowered.source.id(),
+                    PreparedSource {
+                        parsed: ParsedModule::structured(),
+                        lowered,
+                    },
+                )
                 .is_some()
             {
                 return Err(DeclarationError(
-                    "external file conflicts with installed provider".into(),
+                    "bundled file conflicts with registered provider".into(),
                 )
                 .into());
             }
@@ -239,64 +240,36 @@ impl AnalysisDatabase {
             inline_ids: &mut self.inline_ids,
             limits: self.parse_limits,
         };
-        for (id, prepared) in source_preparation::prepare(preparer, &source, cancel)? {
-            if lowered_files.values().any(|(_, library)| {
-                library.source.id() == id
-                    || library.source.module_identity() == prepared.lowered.source.module_identity()
-            }) {
+        let project = source_preparation::prepare(preparer, &source, cancel)?;
+        // Competing library owners are input errors; two project files claiming one
+        // module must both reach the import solver so it can diagnose ambiguity.
+        for (id, prepared) in &project {
+            cancel.check()?;
+            if lowered_files.contains_key(id)
+                || lowered_files.values().any(|library| {
+                    library.lowered.source.module_identity()
+                        == prepared.lowered.source.module_identity()
+                })
+            {
                 return Err(DeclarationError(
                     "source conflicts with library declaration input".into(),
                 )
                 .into());
             }
-            lowered_files.insert(id, (prepared.parsed, prepared.lowered));
         }
-        let mut constructors = Vec::new();
-        for (_, lowered) in lowered_files.values() {
-            let root = self
-                .definitions
-                .intern_root(lowered.source.module_identity())
-                .map_err(DefinitionMappingError::from)?;
-            for item in &lowered.module.native_types {
-                cancel.check()?;
-                let id = self
-                    .definitions
-                    .intern_child(root, DefinitionKind::AssociatedType, &item.name, 0)
-                    .map_err(DefinitionMappingError::from)?;
-                if let Some(constructor) =
-                    NativeTypeConstructor::from_definition(id, &self.definitions.snapshot())
-                {
-                    if item.host.is_some()
-                        || item.generic_params.len() != constructor.arity()
-                        || !item.fields.is_empty()
-                    {
-                        return Err(DeclarationError(format!(
-                            "invalid language constructor declaration shape for {}",
-                            item.name
-                        ))
-                        .into());
-                    }
-                    constructors.push((lowered.source.module_identity(), constructor));
-                }
-            }
-        }
-        ReceiverOwners::from_constructors(constructors)?;
-        evidence::validate_schema_closure(
-            lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
-            cancel,
-        )?;
+        lowered_files.extend(project);
         #[cfg(test)]
         let limits = self.import_solver_limits;
         #[cfg(not(test))]
         let limits = None;
         let environment = self.import_scopes(
-            lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
+            lowered_files.values().map(|file| file.lowered.as_ref()),
             source.packages(),
             &paths,
             cancel,
         )?;
         let graph = Arc::new(ModuleGraph::build_with_environment(
-            lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
+            lowered_files.values().map(|file| file.lowered.as_ref()),
             &self.definitions,
             source.packages(),
             &environment,
@@ -304,7 +277,7 @@ impl AnalysisDatabase {
             limits,
         )?);
         let mut files = BTreeMap::new();
-        for (id, (parsed, lowered)) in lowered_files {
+        for (id, PreparedSource { parsed, lowered }) in lowered_files {
             cancel.check()?;
             let imports = graph
                 .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
@@ -334,11 +307,13 @@ impl AnalysisDatabase {
             files.insert(id, file);
         }
         cancel.check()?;
-        Ok(DeclarationSnapshot {
+        let snapshot = DeclarationSnapshot {
             native_modules: self.native_modules.clone(),
             revision: source.revision(),
             graph,
             files: Arc::new(files),
-        })
+        };
+        snapshot.validate_registered_exports(cancel)?;
+        Ok(snapshot)
     }
 }

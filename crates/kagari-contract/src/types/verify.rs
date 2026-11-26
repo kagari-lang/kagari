@@ -13,8 +13,8 @@ use kagari_common::{
     },
 };
 use kagari_types::declaration::verify::{
-    Parameters, aggregate_shape_valid, bounds_valid, function_valid, parameters,
-    scalar_const_valid, trait_reference_valid, trait_valid, type_valid,
+    Parameters, bounds_valid, function_valid, parameters, scalar_const_valid,
+    trait_reference_valid, trait_valid, type_definition_valid, type_valid,
 };
 
 use kagari_types::{
@@ -89,20 +89,7 @@ pub fn validate(
                 aggregate_names.insert(&ty.name)
                     // Interface fields are frontend facts until native field adapters exist.
                     && (!matches!(ty.kind, TypeDefKind::NativeStorage(_)) || ty.fields.is_empty())
-                    && aggregate_shape_valid(ty, cancel)
-                    && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(
-                        |params| {
-                            bounds_valid(&ty.bounds, &params, cancel, definitions)
-                                && ty.fields.iter().all(|field| {
-                                    type_valid(&field.ty, &params, None, cancel, definitions)
-                                })
-                                && ty
-                                    .variants
-                                    .iter()
-                                    .flat_map(|variant| &variant.payload)
-                                    .all(|ty| type_valid(ty, &params, None, cancel, definitions))
-                        },
-                    )
+                    && type_definition_valid(ty, owner, cancel, definitions)
             }
             PublicItem::Trait(ty) => {
                 trait_names.insert(&ty.name)
@@ -433,14 +420,7 @@ pub fn interface_contract_matches(
             cancel.check().is_ok()
                 && interface.methods.iter().any(|declared| {
                     declared.name == method.name
-                        && same_method_contract(
-                            declared,
-                            method,
-                            instance,
-                            table,
-                            cancel,
-                            definitions,
-                        )
+                        && same_method_contract(declared, method, instance, table, cancel)
                         && matched.insert(&declared.name)
                 })
         })
@@ -593,11 +573,14 @@ fn method_origins_valid(
             && definitions.parent(origin.placement) == Ok(Some(table.declaration))
             && definitions.lookup_child(instance.declaration, DefinitionKind::Method, name.name, 0)
                 == Some(origin.authored)
-            && interface.methods.iter().any(|method| {
-                method.name == name.name
-                    && !matches!(method.implementation, CallableImplementation::Required)
+            && interface.methods.iter().any(|declared| {
+                declared.name == name.name
+                    && declared.implementation != CallableImplementation::Required
+                    && table.methods.iter().any(|implemented| {
+                        implemented.name == name.name
+                            && implemented.implementation == declared.implementation
+                    })
             })
-            && table.methods.iter().any(|method| method.name == name.name)
     })
 }
 
@@ -607,7 +590,6 @@ fn same_method_contract(
     instance: &NominalTy,
     table: &InterfaceTable,
     cancel: &CancellationToken,
-    definitions: &DefinitionTable,
 ) -> bool {
     if declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
@@ -644,11 +626,8 @@ fn same_method_contract(
         instance,
         table,
         &normalize,
-        MethodMatchContext {
-            defer_projection: true,
-            cancel,
-            definitions,
-        },
+        true,
+        cancel,
     )
 }
 
@@ -690,20 +669,11 @@ pub fn interface_methods_match(
                         instance,
                         table,
                         &normalize_method,
-                        MethodMatchContext {
-                            defer_projection: false,
-                            cancel,
-                            definitions,
-                        },
+                        false,
+                        cancel,
                     )
                 })
         })
-}
-
-struct MethodMatchContext<'a> {
-    defer_projection: bool,
-    cancel: &'a CancellationToken,
-    definitions: &'a DefinitionTable,
 }
 
 fn method_contract_matches(
@@ -712,13 +682,9 @@ fn method_contract_matches(
     instance: &NominalTy,
     table: &InterfaceTable,
     normalize: &impl Fn(&Ty) -> Result<Ty, TypeTransformError>,
-    context: MethodMatchContext<'_>,
+    defer_projection: bool,
+    cancel: &CancellationToken,
 ) -> bool {
-    let MethodMatchContext {
-        defer_projection,
-        cancel,
-        definitions,
-    } = context;
     if matches!(implemented.implementation, CallableImplementation::Required)
         || declared.generic_params.len() != implemented.generic_params.len()
         || declared.params.len() != implemented.params.len()
@@ -742,34 +708,6 @@ fn method_contract_matches(
         normalize(&ty)
     };
     let actual = |ty: &Ty| normalize(ty);
-    if !declared.method_policy.override_allowed {
-        if declared.implementation != implemented.implementation {
-            return false;
-        }
-        let Some(authored) = definitions.lookup_child(
-            instance.declaration,
-            DefinitionKind::Method,
-            &declared.name,
-            0,
-        ) else {
-            return false;
-        };
-        let Some(placement) = definitions.lookup_child(
-            table.declaration,
-            DefinitionKind::Method,
-            &implemented.name,
-            0,
-        ) else {
-            return false;
-        };
-        if !table
-            .method_origins
-            .iter()
-            .any(|origin| origin.placement == placement && origin.authored == authored)
-        {
-            return false;
-        }
-    }
     let signatures = iter::once(expected(&declared.return_type))
         .chain(iter::once(actual(&implemented.return_type)))
         .chain(declared.params.iter().map(|p| expected(&p.ty)))

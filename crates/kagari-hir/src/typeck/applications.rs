@@ -119,7 +119,7 @@ fn validate_shape(
                         .map(|contract| contract.generic_params.len()),
                     TypeId::NativeObject(_) => catalog
                         .native_type(&instance.declaration)
-                        .filter(|contract| contract.host.is_none())
+                        .filter(|contract| !contract.is_host)
                         .map(|contract| contract.generic_params.len()),
                     _ => unreachable!(),
                 }
@@ -158,9 +158,10 @@ fn validate_shape(
                 Some(interface.as_ref())
             }
             TypeId::Host(id) => {
-                if !catalog.native_type(id).is_some_and(|contract| {
-                    contract.generic_params.is_empty() && contract.host.is_some()
-                }) {
+                if !catalog
+                    .native_type(id)
+                    .is_some_and(|contract| contract.generic_params.is_empty() && contract.is_host)
+                {
                     return Err("host type is missing its declared Host representation");
                 }
                 None
@@ -818,17 +819,6 @@ pub(crate) fn validate_signatures(
             else {
                 continue;
             };
-            if !method.allows_override() {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                        trait_name: contract.declaration.name.clone(),
-                        method_name: method.name.clone(),
-                        reason: "this method declaration forbids overriding".into(),
-                    })
-                    .with_span(span),
-                );
-                continue;
-            }
             check::compare_method_contract(
                 method,
                 actual,
@@ -836,6 +826,8 @@ pub(crate) fn validate_signatures(
                     definitions,
                     trait_name: &contract.declaration.name,
                     method_name: &method.name,
+                    trait_bounds: &contract.bounds,
+                    impl_bounds: &available,
                     trait_generic_count: contract.generic_params.len(),
                     impl_generic_count: impl_block.generic_params.len(),
                     receiver,

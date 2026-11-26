@@ -1,0 +1,15 @@
+use game::objects as api;
+
+pub fn replace() {
+    api::make().set_score(1, 2, 21)
+}
+
+fn main() -> i32 {
+    val player = api::make();
+    val sum = player.add_score(api::first(), api::second(), api::rhs());
+    if sum == player.read_score(1, 2) {
+        sum
+    } else {
+        0
+    }
+}

@@ -18,7 +18,6 @@ use kagari_types::{
     declaration::{
         FnDecl, TypeDefKind, VariantDef,
         names::{ExportName, NameNamespace},
-        native::NativeTypeConstructor,
     },
     scalar::BuiltinType,
 };
@@ -32,6 +31,13 @@ fn owner(name: &str) -> ModuleIdentity {
     ModuleIdentity {
         package: PackageId("assembly-test".into()),
         path: vec![name.into()],
+    }
+}
+
+fn string_module() -> ModuleIdentity {
+    ModuleIdentity {
+        package: PackageId("std".into()),
+        path: vec!["string".into()],
     }
 }
 
@@ -73,12 +79,11 @@ fn declaration_projection_never_prepares_factories_and_native_projection_is_iden
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
     let recipe_count = recipes.clone();
     let factory_count = factories.clone();
-    set.add(ModuleDefinition::new(owner("string"), move |module| {
+    set.add(ModuleDefinition::new(string_module(), move |module| {
         recipe_count.fetch_add(1, Ordering::SeqCst);
         module.documentation("String owner");
         module.package_alias("test");
         module.prelude(true);
-        module.define_constructor("String", NativeTypeConstructor::String)?;
         module.inherent(Type::scalar(BuiltinType::String), |methods| {
             assert!(
                 methods
@@ -182,31 +187,27 @@ fn direct_and_factory_adapters_can_own_thread_local_preparation_state() {
     let prepare_count = prepared.clone();
     let factory_count = factories.clone();
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
-    set.add(ModuleDefinition::new(
-        owner("local_preparation"),
-        move |module| {
-            module.define_constructor("String", NativeTypeConstructor::String)?;
-            let local = Rc::new(Cell::new(0));
-            module.inherent(Type::scalar(BuiltinType::String), |methods| {
-                methods.define(MethodDecl::static_method("direct").implementation(
-                    LocalPreparation {
-                        local: local.clone(),
-                        prepared: prepare_count.clone(),
-                    },
-                ))?;
-                methods.define(MethodDecl::static_method("factory").implementation_with(
-                    move |_| {
-                        factory_count.fetch_add(1, Ordering::SeqCst);
-                        Ok(LocalPreparation {
-                            local,
-                            prepared: prepare_count,
-                        })
-                    },
-                ))?;
-                Ok(())
-            })
-        },
-    ))
+    set.add(ModuleDefinition::new(string_module(), move |module| {
+        let local = Rc::new(Cell::new(0));
+        module.inherent(Type::scalar(BuiltinType::String), |methods| {
+            methods.define(MethodDecl::static_method("direct").implementation(
+                LocalPreparation {
+                    local: local.clone(),
+                    prepared: prepare_count.clone(),
+                },
+            ))?;
+            methods.define(MethodDecl::static_method("factory").implementation_with(
+                move |_| {
+                    factory_count.fetch_add(1, Ordering::SeqCst);
+                    Ok(LocalPreparation {
+                        local,
+                        prepared: prepare_count,
+                    })
+                },
+            ))?;
+            Ok(())
+        })
+    }))
     .unwrap();
     let assembly = set.finish().unwrap();
     let snapshot = assembly.declarations();
@@ -226,8 +227,7 @@ fn direct_and_factory_adapters_can_own_thread_local_preparation_state() {
 #[test]
 fn fluent_configuration_composes_once_after_signature_setters() {
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
-    set.add(ModuleDefinition::new(owner("configuration"), |module| {
-        module.define_constructor("String", NativeTypeConstructor::String)?;
+    set.add(ModuleDefinition::new(string_module(), |module| {
         let calls = Rc::new(RefCell::new(vec![]));
         let first_calls = calls.clone();
         let second_calls = calls.clone();

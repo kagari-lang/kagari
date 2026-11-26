@@ -1,4 +1,4 @@
-//! Shared static validation for Native contract sidecars and structured inputs.
+//! Validate Native contracts in the checked declaration environment.
 
 use crate::{
     DiagnosticBuffer,
@@ -14,7 +14,7 @@ use crate::{
     },
     types::{
         NominalType, TypeId, TypeSubstitution,
-        semantic::{lower_type, raise_nominal_type, raise_type},
+        semantic::{raise_nominal_type, raise_type},
     },
 };
 use kagari_common::{
@@ -24,12 +24,10 @@ use kagari_common::{
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
-    callable::{CallableImplementation, MethodPolicy},
     declaration::{
-        FnDecl, Param, host::function_policy_valid, names::NameNamespace,
-        native::NativeTypeConstructor, requirement::NativeCallableRequirement, verify::type_valid,
+        names::NameNamespace, requirement::NativeCallableRequirement, verify::type_valid,
     },
-    ty::{GenericParam, Ty},
+    ty::Ty,
 };
 
 #[cfg(test)]
@@ -263,44 +261,6 @@ pub(super) fn validate(
     cancel: &CancellationToken,
 ) {
     let definitions = declarations.definitions();
-    for item in &lowered.module.native_types {
-        let Some(id) = declarations.definition(ResolvedName::NativeType(item.id)) else {
-            continue;
-        };
-        if let Some(constructor) = NativeTypeConstructor::from_definition(*id, definitions)
-            && (item.host.is_some()
-                || constructor.arity() != item.generic_params.len()
-                || !item.fields.is_empty())
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
-                    function: item.name.clone(),
-                    binding: "invalid language constructor declaration shape".into(),
-                })
-                .with_span(item.origin.diagnostic_span()),
-            );
-        }
-    }
-    for method in lowered.module.traits.iter().flat_map(|item| &item.methods) {
-        if !method.override_allowed
-            && matches!(
-                lowered.module.functions[method.function.index()].implementation,
-                FunctionImplementation::Required
-            )
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
-                    function: method.name.clone(),
-                    binding: "required methods must permit implementation".into(),
-                })
-                .with_span(
-                    lowered.module.functions[method.function.index()]
-                        .origin
-                        .diagnostic_span(),
-                ),
-            );
-        }
-    }
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             return;
@@ -312,33 +272,6 @@ pub(super) fn validate(
         else {
             continue;
         };
-        if let FunctionImplementation::Native(contract) = &function.implementation
-            && contract.receiver_access.is_some()
-            && (function.kind != FunctionKind::ImplMethod
-                || !signature.params.first().is_some_and(|param| {
-                    param.name == "self"
-                        && !param.ty.is_unresolved()
-                        && matches!(
-                            param.ty,
-                            TypeId::Struct(_)
-                                | TypeId::NativeObject(_)
-                                | TypeId::Generic(_)
-                                | TypeId::SelfType(_)
-                        )
-                }))
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
-                    function: function.name.clone(),
-                    binding: "receiver policy requires an eligible nominal self parameter".into(),
-                })
-                .with_span(
-                    lowered.module.functions[function.id.index()]
-                        .origin
-                        .diagnostic_span(),
-                ),
-            );
-        }
         let FunctionImplementation::Native(contract) = &function.implementation else {
             continue;
         };
@@ -350,50 +283,7 @@ pub(super) fn validate(
         {
             continue;
         }
-        let declaration = declarations
-            .definition(ResolvedName::Function(function.id))
-            .expect("checked function identity");
-        let policy_surface = FnDecl {
-            name: signature.name.clone(),
-            implementation: CallableImplementation::Native(*declaration),
-            host_policy: contract.host_policy.clone(),
-            method_policy: MethodPolicy {
-                receiver_access: contract.receiver_access,
-                ..Default::default()
-            },
-            generic_params: signature
-                .generic_params
-                .iter()
-                .map(|parameter| GenericParam {
-                    owner: parameter.owner,
-                    position: parameter.position,
-                })
-                .collect(),
-            bounds: Vec::new(),
-            params: signature
-                .params
-                .iter()
-                .map(|param| Param {
-                    name: param.name.clone(),
-                    ty: lower_type(&param.ty),
-                    mutable: param.writeability.is_var(),
-                })
-                .collect(),
-            return_type: lower_type(&signature.return_type),
-        };
-        if !function_policy_valid(&policy_surface, definitions) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
-                    function: function.name.clone(),
-                    binding: "invalid Host passing or effect policy".into(),
-                })
-                .with_span(
-                    lowered.module.functions[function.id.index()]
-                        .origin
-                        .diagnostic_span(),
-                ),
-            );
-        }
+
         if contract.callable_requirements.is_empty() && contract.concrete_result.is_none() {
             continue;
         }

@@ -11,7 +11,7 @@ use kagari_hir::{
     types::semantic::lower_type,
 };
 use kagari_types::{
-    callable::CallableImplementation,
+    callable::{CallableImplementation, MethodPolicy},
     declaration::{AssociatedConstDef, AssociatedTypeDef, FnDecl, Param, TraitDef},
     ty::NominalTy,
 };
@@ -35,7 +35,7 @@ pub(super) fn declared_method(module: &CheckedModule<'_>, method: &MethodSignatu
         name: method.name.clone(),
         implementation,
         host_policy,
-        method_policy: method.policy,
+        method_policy: MethodPolicy::default(),
         generic_params: abi_parameters(&method.generic_params),
         bounds: checked_bounds(catalog, definitions, &method.bounds),
         params: method

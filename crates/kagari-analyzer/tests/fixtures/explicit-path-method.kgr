@@ -1,0 +1,7 @@
+fn read(item: left::Item, index: i32) -> i32 {
+    item.read_selected(index)
+}
+
+fn undeclared(item: left::Item, index: i32) -> i32 {
+    item[index].selected
+}

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    analysis::{AnalysisDatabase, AnalysisSnapshot, external::ExternalModule},
+    analysis::{AnalysisDatabase, AnalysisSnapshot},
     hir::ids::FieldOwner,
     resolver::resolved::ResolvedName,
 };
@@ -12,11 +12,23 @@ fn analyze(text: &str) -> (AnalysisSnapshot, FileId) {
     let source = Arc::new(SourceFile::new("/exports/native_fields.kgr", text));
     let id = source.id();
     let mut database = AnalysisDatabase::new("/project").unwrap();
-    database.set_external_modules(vec![ExternalModule::new(source)]);
     let snapshot = database
-        .snapshot(SourceSnapshot::default(), &Default::default())
+        .snapshot(SourceSnapshot::single_file(source), &Default::default())
         .unwrap();
     (snapshot, id)
+}
+
+#[test]
+fn unused_generic_host_declaration_is_rejected_at_its_binder() {
+    let text = "native type Storage<T>; native host type Handle<T>;";
+    let (snapshot, id) = analyze(text);
+    let file = snapshot.file(id).unwrap();
+    let [error] = file.result().diagnostics() else {
+        panic!("{:?}", file.result().diagnostics());
+    };
+    assert!(matches!(&error.kind, DiagnosticKind::GenericHostType { name } if name == "Handle"));
+    assert_eq!(error.span.unwrap().start, text.rfind('T').unwrap());
+    assert!(snapshot.check_program(id, &Default::default()).is_err());
 }
 
 #[test]
@@ -26,13 +38,7 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
     let file = snapshot.file(id).unwrap();
     let facts = file.result().facts();
     let lowered = &facts.lowered;
-    assert!(
-        lowered
-            .module
-            .native_types
-            .iter()
-            .all(|item| item.host.is_none())
-    );
+    assert!(lowered.module.native_types.iter().all(|item| !item.is_host));
     let cell = &lowered.module.native_types[0];
     let field = &cell.fields[0];
     assert_eq!(field.id.owner(), FieldOwner::NativeType(cell.id));
@@ -103,7 +109,7 @@ fn native_fields_share_ownership_types_and_assignment_rules_without_storage_auth
         .definition(ResolvedName::NativeType(cell.id))
         .unwrap();
     let signature = catalog.native_type(owner).unwrap();
-    assert!(signature.host.is_none());
+    assert!(!signature.is_host);
     assert_eq!(signature.fields.len(), 3);
     let checked_field = &signature.fields[0];
     assert_eq!(catalog.field(&checked_field.id), Some(checked_field));

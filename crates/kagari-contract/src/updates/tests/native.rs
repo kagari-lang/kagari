@@ -60,6 +60,7 @@ fn native_application_retains_each_exact_module_owned_adapter_environment() {
     let binding = f.identity("native_binding").declaration;
     let instance = f.identity("native");
     let declaration = NativeDeclaration {
+        path_operation: None,
         concrete_result: None,
         declaration: instance.declaration,
         function: FnDecl {

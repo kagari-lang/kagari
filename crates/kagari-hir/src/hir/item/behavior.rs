@@ -173,8 +173,6 @@ pub struct TraitMethod {
     pub origin: NodeOrigin,
     /// Exact written name when available.
     pub name_span: Option<Span>,
-    /// Required methods must permit implementation; defaults may prohibit overrides.
-    pub override_allowed: bool,
     /// Whether syntax supplied a default method body.
     pub has_default: bool,
     /// Source-map-wide trait-method identity, not the method's local ordinal.

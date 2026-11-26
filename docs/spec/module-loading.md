@@ -91,8 +91,9 @@ belongs to host/tool policy.
 Each analysis request parses and lowers current source inputs and checks the stages
 it requests, without consulting previous source parses or semantic results. Inline
 modules share the physical parse within the request, and retained snapshots remain
-queryable without a new request. Validated Native registration inputs, including
-any supplied presentation parses, can be retained independently.
+queryable without a new request. Validated registration metadata can be retained independently; its HIR is
+allocated afresh. Generated documents are ordinary source inputs to an editor
+request, not retained parses attached to registrations.
 
 [Package build inputs](packages.md#build-inputs-and-updates) define complete
 closure/environment identity and affected-root reporting. Current CLI shared storage
@@ -137,13 +138,13 @@ Embedding hosts supply their own approved providers. Only declared module trees
 and dependencies are captured, with the loader's canonical-path and resource limits.
 Workspace ownership, dependency names and source visibility remain package/HIR rules.
 
-All project members share `<workspace>/target/kagari`: generated native declaration
-views live under `declarations`, and `build` writes complete `.kbc` products under
-`programs`. Source/package `run` prepares verified code directly: it publishes no
-incidental artifact and prints no `built` path. Package acquisition, lockfile policy
-and declaration views remain the same; `run --output` is invalid.
-Products are addressed by checked source/selection/alias inputs, native and offline
-Host contracts, query limits, the compiler contract identifier and emitted bytes.
+Project `build` writes complete `.kbc` products under the shared
+`<workspace>/target/kagari/programs` directory. Source/package `run` prepares
+verified code directly: it publishes no incidental artifact and prints no `built`
+path. Both use the same package acquisition, lockfile policy and structured
+registrations. Neither reads or writes generated Native declarations; `run --output`
+is invalid. Products are addressed by checked source/selection/alias inputs,
+registration contracts, query limits, the compiler contract identifier and emitted bytes.
 Matching complete inputs and output bytes can share a file; edits retain earlier
 products. Publication of shared
 products is atomic and checks existing bytes before reuse. This is output storage,

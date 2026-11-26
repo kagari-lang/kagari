@@ -1,7 +1,12 @@
-use crate::tests::common::compilation;
-use crate::tests::standard::standard_modules;
 use crate::{
-    bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir, tests::common,
+    bytecode::lower_program_to_bytecode,
+    source::program::{
+        InstallationTraitRequirements, SourceProgramError, lower_program_with_installation,
+    },
+    tests::{
+        common::{self, compilation},
+        standard::standard_modules,
+    },
 };
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::{
@@ -11,8 +16,9 @@ use kagari_contract::types::{PublicItem, named::NamedContract};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
+    callable::CallableImplementation,
     declaration::{
-        TypeDef, TypeDefKind,
+        FnDecl, Param, TypeDef, TypeDefKind,
         host::{
             HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
             HostTypeOwnership, HostTypePolicy, PathAccess,
@@ -24,9 +30,20 @@ use kagari_types::{
 };
 use std::sync::Arc;
 
-/// Author the native provider against the checked source trait, then lower the
-/// complete closure through the ordinary compiler. No legacy host records are
-/// synthesized after lowering.
+pub(super) fn root_owner() -> ModuleIdentity {
+    ModuleIdentity {
+        package: PackageId("pkg".into()),
+        path: vec!["root".into()],
+    }
+}
+
+pub(super) fn provider_owner() -> ModuleIdentity {
+    // A child module has ordinary lexical access to the private-trait cases.
+    let mut owner = root_owner();
+    owner.path.push("provider".into());
+    owner
+}
+
 pub(super) fn readable_program(source: &str, context: &DefinitionContext) -> BytecodeProgram {
     readable_sources(&[("root", source)], false, context)
 }
@@ -36,6 +53,15 @@ pub(super) fn readable_sources(
     host_argument: bool,
     context: &DefinitionContext,
 ) -> BytecodeProgram {
+    readable_sources_with(inputs, host_argument, context, |_| Default::default()).unwrap()
+}
+
+pub(super) fn readable_sources_with(
+    inputs: &[(&str, &str)],
+    host_argument: bool,
+    context: &DefinitionContext,
+    configure: impl FnOnce(&mut ModuleDecl) -> InstallationTraitRequirements,
+) -> Result<BytecodeProgram, SourceProgramError> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, source) in inputs {
@@ -49,50 +75,16 @@ pub(super) fn readable_sources(
                 },
             )
             .unwrap();
-        root = Some(
-            sources
-                .set(&uri, (*source).into(), SourceLayer::Base)
-                .unwrap(),
-        );
+        let text = if *name == "root" {
+            format!("use pkg::root::provider::Counter;\n{source}")
+        } else {
+            (*source).to_owned()
+        };
+        root = Some(sources.set(&uri, text, SourceLayer::Base).unwrap());
     }
-    let root = root.unwrap();
-    let mut database = AnalysisDatabase::default();
-    database.set_native_modules(standard_modules());
-    let snapshot = database
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
-    let original = common::adopt_bytecode(
-        context,
-        lower_program_to_bytecode(&ir, &Default::default())
-            .map(|program| program.into_unverified())
-            .unwrap(),
-    );
-    let source_module = &original.modules[original.root.index()];
-    let contract = source_module
-        .public_items
-        .iter()
-        .find_map(|item| match item {
-            PublicItem::Trait(contract) if contract.name == "Readable" => Some(contract.clone()),
-            _ => None,
-        })
-        .or_else(|| {
-            source_module
-                .trait_contracts
-                .iter()
-                .find(|contract| contract.abi.name == "Readable")
-                .map(|contract| contract.abi.clone())
-        })
-        .unwrap();
-    let source_owner = context.intern_root(&source_module.identity).unwrap();
-    let trait_id = context
-        .intern_child(source_owner, DefinitionKind::Trait, "Readable", 0)
-        .unwrap();
-    let mut provider = ModuleDecl::new(ModuleIdentity {
-        package: PackageId("demo".into()),
-        path: vec![],
-    });
+    let source_owner = context.intern_root(&root_owner()).unwrap();
+    let mut provider = ModuleDecl::new(provider_owner());
+    provider.dependencies.insert(root_owner());
     provider.types.push(TypeDef {
         name: "Counter".into(),
         kind: TypeDefKind::Host(HostTypePolicy {
@@ -115,82 +107,78 @@ pub(super) fn readable_sources(
     } else {
         Ty::Builtin(BuiltinType::I32)
     };
-    let mut contracts = vec![(trait_id, contract, vec![argument], "get")];
+    let mut implementations = vec![("Readable", vec![argument.clone()], "get", argument)];
     if host_argument {
-        let marker = source_module
-            .trait_contracts
-            .iter()
-            .find(|contract| contract.abi.name == "Marker")
-            .unwrap();
-        contracts.push((marker.declaration, marker.abi.clone(), vec![], "mark"));
+        implementations.push(("Marker", vec![], "mark", Ty::Builtin(BuiltinType::I32)));
     }
-    for (trait_id, contract, arguments, method_name) in contracts {
+    for (index, (trait_name, arguments, method, result)) in implementations.into_iter().enumerate()
+    {
+        let declaration = context
+            .intern_child(source_owner, DefinitionKind::Trait, trait_name, 0)
+            .unwrap();
+        let implementation = context
+            .intern_child(owner, DefinitionKind::Impl, "", index as u32)
+            .unwrap();
         let binding = context
-            .intern_child(
-                owner,
-                DefinitionKind::Function,
-                &format!("{method_name}_binding"),
-                0,
-            )
+            .intern_child(implementation, DefinitionKind::Method, method, 0)
             .unwrap();
-        provider.trait_references.insert(trait_id, contract.clone());
-        provider
-            .implement_trait(
-                &contract,
-                ImplDecl {
-                    generic_params: vec![],
-                    bounds: vec![],
-                    trait_type: Some(NominalTy {
-                        declaration: trait_id,
-                        arguments,
-                        associated_types: Default::default(),
-                    }),
-                    for_type: Ty::Host(counter),
-                    methods: vec![],
-                },
-                &[(method_name, binding)],
-                context,
-            )
-            .unwrap();
-        provider.implementations.last_mut().unwrap().methods[0].host_policy =
-            Some(HostCallPolicy {
-                passing: vec![HostPassingStyle::SharedBorrow],
-                effects: HostFunctionEffects::default(),
-            });
+        provider.implementations.push(ImplDecl {
+            generic_params: vec![],
+            bounds: vec![],
+            trait_type: Some(NominalTy {
+                declaration,
+                arguments,
+                associated_types: Default::default(),
+            }),
+            for_type: Ty::Host(counter),
+            methods: vec![FnDecl {
+                name: method.into(),
+                implementation: CallableImplementation::Native(binding),
+                generic_params: vec![],
+                bounds: vec![],
+                method_policy: Default::default(),
+                host_policy: Some(HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: HostFunctionEffects::default(),
+                }),
+                params: vec![Param {
+                    name: "self".into(),
+                    mutable: false,
+                    ty: Ty::Host(counter),
+                }],
+                return_type: result,
+            }],
+        });
     }
-    provider.collect_definitions(context).unwrap();
-    let provider = Arc::new(
-        DefinitionMetadata::checked(context.snapshot(), provider, &Default::default()).unwrap(),
-    );
+    let installation = configure(&mut provider);
+    let definitions = provider.collect_definitions(context).unwrap();
+    let provider =
+        Arc::new(DefinitionMetadata::checked(definitions, provider, &Default::default()).unwrap());
     let mut catalog = standard_modules();
     catalog.push(provider);
+    let mut database = AnalysisDatabase::default();
     database.set_native_modules(catalog);
-    let (name, source) = inputs.last().unwrap();
-    sources
-        .set(
-            &format!("mem://{name}"),
-            format!("use demo::Counter;\n{source}"),
-            SourceLayer::Base,
-        )
-        .unwrap();
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let ir = lower_program_to_mir(&compilation(&checked), &Default::default()).unwrap();
-    common::adopt_bytecode(
+    let checked = snapshot
+        .check_program(root.unwrap(), &Default::default())
+        .unwrap();
+    let input = compilation(&checked);
+    let ir = lower_program_with_installation(&input, &Default::default(), &installation, None)?;
+    Ok(common::adopt_bytecode(
         context,
         lower_program_to_bytecode(&ir, &Default::default())
-            .map(|program| program.into_unverified())
-            .unwrap(),
-    )
+            .unwrap()
+            .into_unverified(),
+    ))
 }
 
 pub(super) fn replace_readable_result(program: &mut BytecodeProgram, result: Ty) {
     let provider = program
         .modules
         .iter_mut()
-        .find(|module| module.identity.package.0 == "demo")
+        .find(|module| module.identity == provider_owner())
         .unwrap();
     let table = provider
         .public_items
@@ -217,7 +205,6 @@ pub(super) fn replace_readable_result(program: &mut BytecodeProgram, result: Ty)
             header.trait_type = Some(table.trait_type.clone());
         }
     }
-
     for declaration in &mut provider.native_declarations {
         if declaration.function.name == "get" {
             declaration.function.return_type = result.clone();

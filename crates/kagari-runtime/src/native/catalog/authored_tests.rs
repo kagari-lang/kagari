@@ -26,6 +26,7 @@ use kagari_contract::types::{PublicItem, TraitContract};
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
+    callable::CallableImplementation,
     declaration::{
         TypeDeclaration, TypeDef, TypeDefKind,
         host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
@@ -169,6 +170,13 @@ fn verified_public_owners_support_pre_engine_authoring_and_importer_scoped_admis
         )
         .unwrap();
     let later = later.finish().unwrap();
+    assert!(
+        later
+            .required_source_trait_contract(&read)
+            .unwrap_err()
+            .to_string()
+            .contains("not a mandatory source trait")
+    );
     let mut runtime = Runtime::default();
     modules[0].install(&mut runtime).unwrap();
     assert!(!runtime.native_entries.catalog.contains_module(owner));
@@ -189,6 +197,10 @@ fn verified_public_owners_support_pre_engine_authoring_and_importer_scoped_admis
     assert!(runtime.native_entries.owned_traits.is_empty());
     for (case, diagnostic) in [
         (Product::Sibling, "requires reachable authored owner"),
+        (
+            Product::ExtraDefault,
+            "requires the exact public authored trait",
+        ),
         (
             Product::ChangedPayload,
             "requires the exact public authored type",
@@ -228,7 +240,45 @@ fn verified_public_owners_support_pre_engine_authoring_and_importer_scoped_admis
             admission_product(&program, &facade, Product::PrivateTrait, None),
         )
         .unwrap();
+    // An explicit pin without an impl, export, binding or call has the same obligation.
+    let mut pin_only = ModuleBuilder::from_declaration(
+        DefinitionMetadata::checked(
+            catalog.definitions(),
+            ModuleDecl::new(facade.clone()),
+            &Default::default(),
+        )
+        .unwrap(),
+        &catalog,
+        Default::default(),
+    )
+    .unwrap();
+    pin_only.reference_trait(&read).unwrap();
+    assert!(pin_only.reference_trait(&read).is_err());
+    let pin_only = pin_only.finish().unwrap();
+    assert_eq!(
+        pin_only.required_source_traits().iter().collect::<Vec<_>>(),
+        [&read]
+    );
+    let expected = pin_only
+        .required_source_trait_contract(&read)
+        .unwrap()
+        .import_into(catalog.types.context(), &Default::default())
+        .unwrap();
+    assert_eq!(expected.records(), interface.contract.as_ref());
+    let mut pinned_runtime = Runtime::default();
+    pin_only.install(&mut pinned_runtime).unwrap();
+    let omitted = admission_product(&program, &facade, Product::Omitted, None);
+    let error = pinned_runtime
+        .load_verified_program("pin-only", omitted)
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("source trait references differ"),
+        "{error}"
+    );
     let valid = admission_product(&program, &facade, Product::Matching, None);
+    pinned_runtime
+        .load_verified_program("pin-only", valid.clone())
+        .unwrap();
     runtime.load_verified_program("facade", valid).unwrap();
 
     let product = admission_product(&program, &facade, Product::Matching, Some(&later));
@@ -304,7 +354,9 @@ fn verified_public_owners_support_pre_engine_authoring_and_importer_scoped_admis
 
 enum Product {
     Matching,
+    Omitted,
     ChangedPayload,
+    ExtraDefault,
     PrivateTrait,
     Sibling,
 }
@@ -344,6 +396,20 @@ fn admission_product(
                 .unwrap();
             ty.variants[0].payload[0] = Type::bool().abi().clone();
         }
+        Product::ExtraDefault => {
+            let read = owner
+                .public_items
+                .iter_mut()
+                .find_map(|item| match item {
+                    PublicItem::Trait(abi) if abi.name == "Read" => Some(abi),
+                    _ => None,
+                })
+                .unwrap();
+            let mut extra = read.methods[0].clone();
+            extra.name = "extra".into();
+            extra.implementation = CallableImplementation::Script;
+            read.methods.push(extra);
+        }
         Product::PrivateTrait => {
             let index = owner
                 .public_items
@@ -362,7 +428,25 @@ fn admission_product(
         }
         _ => {}
     }
-    let inferred = owner.trait_contracts.clone();
+    let inferred = if matches!(case, Product::PrivateTrait) {
+        owner.trait_contracts.clone()
+    } else if matches!(case, Product::Omitted | Product::Sibling) {
+        vec![]
+    } else {
+        owner
+            .public_items
+            .iter()
+            .filter_map(|item| match item {
+                PublicItem::Trait(abi) => Some(TraitContract {
+                    declaration: context
+                        .intern(&path(&owner.identity, DefinitionKind::Trait, &abi.name))
+                        .unwrap(),
+                    abi: abi.clone(),
+                }),
+                _ => None,
+            })
+            .collect()
+    };
     // The root reaches both branches even when the installed facade cannot reach the owner.
     let mut modules = vec![
         BytecodeModule {

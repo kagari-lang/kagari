@@ -282,10 +282,7 @@ impl Flow<'_> {
                     self.charge(self.registers)?;
                     for (slot, &physical) in self.function.metadata.slots.iter().enumerate() {
                         let semantic = self.function.metadata.semantic.slots.get(&slot);
-                        if contains(&live, slot)
-                            && (physical == ValueType::HostHandle
-                                || semantic.is_some_and(inline_host))
-                        {
+                        if contains(&live, slot) && invalid_retained_slot(physical, semantic) {
                             return Err(self.invalid("host capability live across await"));
                         }
                     }
@@ -334,10 +331,13 @@ fn charge(function: &BytecodeFunction, budget: &mut FlowBudget, count: usize) ->
     Ok(())
 }
 
-pub(super) fn inline_host(ty: &Ty) -> bool {
-    match ty {
-        Ty::Host(_) => true,
-        Ty::Tuple(items) => items.iter().any(inline_host),
+// A host-typed heap slot can be a captured cell. Neither its annotation nor
+// HostHandle proves durability: publication and parking must check actual values
+// (including tuple contents) and reject scoped borrows, views and active guards.
+pub(super) fn invalid_retained_slot(physical: ValueType, semantic: Option<&Ty>) -> bool {
+    match (physical, semantic) {
+        (ValueType::HostHandle | ValueType::HeapObject, Some(Ty::Host(_))) => false,
+        (ValueType::HostHandle, _) | (_, Some(Ty::Host(_))) => true,
         _ => false,
     }
 }

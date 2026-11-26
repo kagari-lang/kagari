@@ -81,12 +81,23 @@ fn registered_enum_views_are_parsed_with_full_documentation_and_owning_sites() {
     let data = event.variant("Data").unwrap();
     let module = Arc::new(module.finish().unwrap().to_declaration());
     let providers = vec![module.clone()];
-    let generated = declaration_source(&module, &providers).unwrap();
-    let mut database = AnalysisDatabase::default();
-    database
-        .set_native_sources(providers, vec![generated.clone()])
+    let mut publisher = AnalysisDatabase::default();
+    publisher.set_native_modules(providers);
+    let declarations = publisher
+        .declarations(Default::default(), &Default::default())
         .unwrap();
-    let sources = SourceDatabase::default();
+    let generated = declarations
+        .render_native_document(&module, &Default::default())
+        .unwrap();
+    let mut database = AnalysisDatabase::default();
+    database.set_import_environment(declarations.import_environment().clone());
+    let mut sources = SourceDatabase::default();
+    sources
+        .bind_module(&generated.uri, module.records().identity.clone())
+        .unwrap();
+    sources
+        .set(&generated.uri, generated.text.clone(), SourceLayer::Base)
+        .unwrap();
     let snapshot = database
         .declarations(sources.snapshot(), &Default::default())
         .unwrap();
@@ -145,34 +156,6 @@ fn source_analysis_uses_registered_enum_constructors_and_patterns() {
         analysis.result().diagnostics().is_empty(),
         "{:?}",
         analysis.result().diagnostics()
-    );
-}
-
-#[test]
-fn changed_enum_payload_view_cannot_attach_to_the_registered_declaration() {
-    let mut module =
-        ModuleBuilder::new("application::events", &DeclarationCatalog::default()).unwrap();
-    event(&mut module);
-    let module = Arc::new(module.finish().unwrap().to_declaration());
-    let providers = vec![module];
-    let mut views = providers
-        .iter()
-        .map(|module| declaration_source(module, &providers).unwrap())
-        .collect::<Vec<_>>();
-    let view = views.last_mut().unwrap();
-    assert!(view.text.contains("Data(T, i32)"));
-    view.text = view.text.replace("Data(T, i32)", "Data(T, i64)");
-    let mut database = AnalysisDatabase::default();
-    database.set_native_sources(providers, views).unwrap();
-    let sources = SourceDatabase::default();
-    let error = database
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("differs from authoritative registration"),
-        "{error}"
     );
 }
 

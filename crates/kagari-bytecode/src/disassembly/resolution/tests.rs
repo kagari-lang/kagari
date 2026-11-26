@@ -296,6 +296,7 @@ fn indexes_preserve_owner_native_signature_canonical_table_and_local_layout_sele
     wrong_signature.signature.result = Ty::Builtin(BuiltinType::Bool);
     owner.native_imports.extend([wrong_signature, import]);
     owner.native_declarations.push(NativeDeclaration {
+        path_operation: None,
         declaration: entry,
         concrete_result: None,
         callable_requirements: vec![],

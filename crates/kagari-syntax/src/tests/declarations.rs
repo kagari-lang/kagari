@@ -170,10 +170,15 @@ fn native_declarations_mix_with_complete_script_definitions() {
         panic!("expected nested module")
     };
     let nested = nested.body().unwrap();
-    assert!(matches!(
-        nested.items().next().unwrap(),
-        ItemView::NativeTypeDef(_)
-    ));
+    let types = nested.items().filter_map(|item| match item {
+        ItemView::NativeTypeDef(ty) => Some((ty.name_text().unwrap(), ty.is_host())),
+        _ => None,
+    });
+    assert!(types.eq([
+        ("Handle".into(), true),
+        ("host".into(), false),
+        ("Player".into(), true)
+    ]));
 }
 
 #[test]
@@ -203,6 +208,14 @@ fn native_syntax_preserves_body_and_alias_requirements_and_recovery() {
         (
             "type Missing; fn healthy() {}",
             DiagnosticKind::ExpectedAssignmentOperator,
+        ),
+        (
+            "native host fn wrong(); fn healthy() {}",
+            DiagnosticKind::ExpectedTopLevelItem,
+        ),
+        (
+            "native other type Wrong; fn healthy() {}",
+            DiagnosticKind::ExpectedTopLevelItem,
         ),
         (
             "native fn body() {} fn healthy() {}",

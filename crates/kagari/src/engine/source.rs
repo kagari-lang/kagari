@@ -28,6 +28,7 @@ use kagari_hir::{
         error::AnalysisError, signatures::SignatureSnapshot,
     },
     compile_input::program::{AdmissionError, CheckedCompilation},
+    imports::environment::ImportEnvironment,
     program::CheckedProgram,
     typeck::const_budget::ConstLimits,
 };
@@ -41,7 +42,7 @@ use kagari_source::{
 use kagari_syntax::parser::ParseLimits;
 use std::sync::Arc;
 
-fn analysis_error(error: AnalysisError) -> EmbeddingError {
+pub(super) fn analysis_error(error: AnalysisError) -> EmbeddingError {
     match error {
         AnalysisError::Cancelled => EmbeddingError::Cancelled,
         AnalysisError::InvalidSourceRange(file) => EmbeddingError::Source {
@@ -139,6 +140,7 @@ pub struct ArtifactOptions {
     /// Explicitly export the exact authored source package. Independent of debug/MIR options.
     /// Returns `EmbeddingError::SourcePackage` when the checked closure includes
     /// source-less structured declarations rather than complete supplied documents.
+    /// Publishing generated documents to a declaration cache does not change this.
     pub retain_source: bool,
     pub build: ArtifactBuildOptions,
     pub lowering: MirLoweringOptions,
@@ -173,7 +175,7 @@ impl KagariEngine {
     /// Identifies captured package inputs in this engine's compilation environment.
     ///
     /// Includes exact source selections/bytes/aliases, complete installed native and
-    /// offline Host declarations, parser/constant/diagnostic limits and the compiler
+    /// offline Host declarations, importer-specific installation pins, query limits and the compiler
     /// contract identifier. It excludes runtime state/callback captures and physical
     /// tooling origins. This does not check source or validate an executable product.
     /// Lowering options and emitted artifact bytes must also participate in product
@@ -188,7 +190,8 @@ impl KagariEngine {
             .borrow()
             .environment_fingerprint(cancel)
             .map_err(analysis_error)?;
-        let mut hash = Hasher::new_derive_key("kagari package compiler input v1");
+        let mut hash = Hasher::new_derive_key("kagari package compiler input v3");
+        hash.update(self.pins.fingerprint());
         for field in [
             inputs.fingerprint(),
             environment.as_str(),
@@ -198,6 +201,13 @@ impl KagariEngine {
             hash.update(field.as_bytes());
         }
         Ok(hash.finalize().to_hex().to_string())
+    }
+
+    /// Replace explicit per-importer selections for this session's compiler and
+    /// tooling exports. An entry replaces all defaults for that importer. Previously
+    /// captured results and independent sessions retain their original selections.
+    pub fn set_import_environment(&self, imports: ImportEnvironment) {
+        self.analysis.borrow_mut().set_import_environment(imports);
     }
 
     pub fn set_const_limits(&self, limits: ConstLimits) {
@@ -226,7 +236,12 @@ impl KagariEngine {
         cancel: &CancellationToken,
     ) -> CompileResult<SourceAnalysis> {
         let root = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
-        SourceAnalysis::new(self.analyze(self.source_snapshot(), cancel)?, root, None)
+        SourceAnalysis::capture(
+            self.analyze(self.source_snapshot(), cancel)?,
+            root,
+            None,
+            self.pins.clone(),
+        )
     }
 
     /// Checks one captured package and its complete declared dependency closure.
@@ -275,10 +290,11 @@ impl KagariEngine {
                 message: format!("captured package root is absent: {root}"),
             })?
             .id();
-        SourceAnalysis::new(
+        SourceAnalysis::capture(
             self.analyze(source, cancel)?,
             file,
             Some(PackageBuildInput::capture(self, inputs, cancel)?),
+            self.pins.clone(),
         )
     }
 
@@ -373,13 +389,16 @@ impl KagariEngine {
         file: FileId,
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
-        SourceAnalysis::new(self.analyze(source, cancel)?, file, None)?.check(cancel)
+        SourceAnalysis::capture(self.analyze(source, cancel)?, file, None, self.pins.clone())?
+            .check(cancel)
     }
 
     /// Lower captured checked source directly into reusable executable input.
     ///
-    /// The result owns its identities and debug facts independently of this engine.
-    /// Runtime installation still checks host bindings and reload compatibility.
+    /// Checks the emitted source-trait references against the installation captured
+    /// with `checked`, even if called on a different engine. The result retains
+    /// those expectations for updates. Runtime loading independently validates
+    /// the executable against the destination installation.
     pub fn prepare(
         &self,
         checked: &CheckedModule,
@@ -418,6 +437,9 @@ impl KagariEngine {
     }
 
     /// Explicitly export checked source as an editable portable artifact.
+    ///
+    /// As with [`Self::prepare`], an importer must carry its captured installation's
+    /// exact source-trait ABI even when the program calls none of its methods.
     pub fn emit_artifact(
         &self,
         checked: &CheckedModule,

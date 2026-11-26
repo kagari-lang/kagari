@@ -48,14 +48,15 @@ fn shifts_reject_negative_and_width_counts() {
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
     let standard = standard_library().declarations();
     let mut builder = ModuleBuilder::new("demo", standard.catalog()).unwrap();
+    let memory_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let memory = builder
         .define_function(
             FunctionDecl::new("memory")
                 .returns(Type::array(Type::i32()).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                }),
+                .host_policy(memory_policy.clone()),
         )
         .unwrap();
     let memory_slot = Arc::new(Mutex::new(None::<RootedValue>));
@@ -63,7 +64,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     builder
         .bind(
             memory,
-            host::callback(move |cx, _| {
+            host::callback(memory_policy, move |cx, _| {
                 let root = captured_memory
                     .lock()
                     .unwrap()

@@ -8,7 +8,9 @@ use crate::{
     error::RuntimeErrorKind,
     host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeKind},
+    module::VerifiedProgram,
     native::{
+        binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
         declarations::{FunctionDecl, MethodDecl},
         host,
@@ -18,6 +20,7 @@ use crate::{
         carriers::RootedValue, host_values::HostRootObject, kind::ObjectKind, view::ValueView,
     },
 };
+use kagari_bytecode::{program::verify_program, verifier::BytecodeVerificationError};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_types::{
     declaration::{
@@ -79,35 +82,39 @@ fn root(runtime: &mut Runtime) -> RootedValue {
 fn callback_context_releases_borrows_after_result_type_failure() {
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
     let player = player(&mut module, HostReflectionPolicy::Hidden, false);
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let function = module
         .define_function(
             FunctionDecl::new("heal")
                 .returns(player.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(function_policy.clone()),
         )
         .unwrap();
     module
         .bind(
             function,
-            host::callback(|context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                let ty = context
-                    .runtime()
-                    .types()
-                    .get_by_name("game::Player")
-                    .unwrap()
-                    .id;
-                context
-                    .borrows()
-                    .borrow_unique(HostObjectId(1), ty)
-                    .unwrap();
-                Ok(ValueView::unit())
-            }),
+            host::callback(
+                function_policy,
+                |context: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    let ty = context
+                        .runtime()
+                        .types()
+                        .get_by_name("game::Player")
+                        .unwrap()
+                        .id;
+                    context
+                        .borrows()
+                        .borrow_unique(HostObjectId(1), ty)
+                        .unwrap();
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -156,6 +163,7 @@ fn registers_host_function_metadata_and_invokes_handler() {
         .bind(
             function,
             host::callback(
+                policy.clone(),
                 |_: &mut HostCallContext<'_>, args: &[ValueView<'_>]| match args {
                     [root, hp] if root.kind() == Some(ObjectKind::HostRoot) => hp
                         .as_i32()
@@ -196,23 +204,125 @@ fn registers_host_function_metadata_and_invokes_handler() {
 }
 
 #[test]
+fn host_bounce_requires_a_policy_on_both_the_binding_and_the_executable() {
+    let policy = |style| HostCallPolicy {
+        passing: vec![style],
+        effects: Default::default(),
+    };
+    let author = |passing| {
+        let mut builder = ModuleBuilder::new("game", &Default::default()).unwrap();
+        let player = player(&mut builder, HostReflectionPolicy::Hidden, false)
+            .apply([])
+            .unwrap();
+        let mut declaration = FunctionDecl::new("bounce")
+            .parameter("p", player.clone())
+            .returns(player);
+        if let Some(style) = passing {
+            declaration = declaration.host_policy(policy(style));
+        }
+        let function = builder.define_function(declaration).unwrap();
+        (builder, function)
+    };
+    let raw = || {
+        NativeBinding::new([Codec::Value], Codec::Value, |_| {
+            panic!("raw entry must not run")
+        })
+    };
+    let (mut incomplete, function) = author(None);
+    let error = incomplete.bind(function, raw()).unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::MetadataConflict);
+    assert!(
+        error
+            .to_string()
+            .contains("requires a Host policy on the binding")
+    );
+
+    let (mut builder, function) = author(Some(HostPassingStyle::Owned));
+    let binding = |style| {
+        host::callback(policy(style), |_, _| {
+            panic!("admission must not invoke Rust")
+        })
+    };
+    let error = builder
+        .bind(function.clone(), binding(HostPassingStyle::SharedBorrow))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::MetadataConflict);
+    assert!(
+        error
+            .to_string()
+            .contains("binding differs from declared native access policy")
+    );
+    builder
+        .bind(function, binding(HostPassingStyle::Owned))
+        .unwrap();
+    let provider = builder.finish().unwrap();
+    let mut runtime = Runtime::default();
+    provider.install(&mut runtime).unwrap();
+
+    // Build all executable records from the same independent requirement, so an
+    // internal disagreement between public ABI and template can't mask a missing policy.
+    let executable = |passing: Option<HostPassingStyle>| {
+        let (definitions, mut required) = provider.to_declaration().into_parts();
+        required.functions[0].host_policy = passing.map(policy);
+        free_function_program(
+            &DefinitionMetadata::checked(definitions, required, &Default::default()).unwrap(),
+        )
+    };
+    let missing = executable(None);
+    assert_eq!(
+        verify_program(
+            missing.records(),
+            missing.definitions(),
+            &Default::default()
+        ),
+        Err(BytecodeVerificationError::InvalidPublicAbi)
+    );
+    let required = VerifiedProgram::new(
+        executable(Some(HostPassingStyle::SharedBorrow)),
+        &DefinitionContext::new().unwrap(),
+    )
+    .unwrap();
+    let error = runtime
+        .load_verified_program("mismatch", required)
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
+    assert!(
+        error
+            .to_string()
+            .contains("differs from its installed contract"),
+        "{error}"
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+    load_bytecode(
+        &mut runtime,
+        "matching",
+        executable(Some(HostPassingStyle::Owned)),
+    )
+    .unwrap();
+}
+
+#[test]
 fn installed_host_functions_are_available() {
     let calls = Arc::new(Mutex::new(0usize));
     let calls_for_host = calls.clone();
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let function = module
-        .define_function(FunctionDecl::new("tick").host_policy(HostCallPolicy {
-            passing: vec![],
-            effects: Default::default(),
-        }))
+        .define_function(FunctionDecl::new("tick").host_policy(function_policy.clone()))
         .unwrap();
     module
         .bind(
             function,
-            host::callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                *calls_for_host.lock().unwrap() += 1;
-                Ok(ValueView::unit())
-            }),
+            host::callback(
+                function_policy,
+                move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    *calls_for_host.lock().unwrap() += 1;
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -235,16 +345,18 @@ fn installed_host_functions_are_available() {
 #[test]
 fn rejects_duplicate_host_function_symbols() {
     let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
-    let declaration = FunctionDecl::new("tick").host_policy(HostCallPolicy {
+    let declaration_policy = HostCallPolicy {
         passing: vec![],
         effects: Default::default(),
-    });
+    };
+    let declaration = FunctionDecl::new("tick").host_policy(declaration_policy.clone());
     let function = module.define_function(declaration.clone()).unwrap();
     assert!(module.define_function(declaration).is_err());
     module
         .bind(
             function,
             host::callback(
+                declaration_policy,
                 |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::unit()),
             ),
         )
@@ -280,23 +392,27 @@ fn registers_host_type_metadata_with_stable_runtime_type_identity() {
     module
         .implement(player.clone(), |group| {
             group.inherent_impl(|methods| {
+                let heal_policy = HostCallPolicy {
+                    passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
+                    effects: Default::default(),
+                };
                 let heal = methods.define_method(
                     MethodDecl::instance("heal")
                         .parameter("hp", Type::i32())
                         .returns(Type::i32())
-                        .host_policy(HostCallPolicy {
-                            passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
-                            effects: Default::default(),
-                        }),
+                        .host_policy(heal_policy.clone()),
                 )?;
                 methods.bind(
                     heal,
-                    host::callback(|_: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
-                        args[1]
-                            .as_i32()
-                            .map(ValueView::from)
-                            .ok_or_else(|| HostError::new("expected i32"))
-                    }),
+                    host::callback(
+                        heal_policy,
+                        |_: &mut HostCallContext<'_>, args: &[ValueView<'_>]| {
+                            args[1]
+                                .as_i32()
+                                .map(ValueView::from)
+                                .ok_or_else(|| HostError::new("expected i32"))
+                        },
+                    ),
                 )
             })
         })

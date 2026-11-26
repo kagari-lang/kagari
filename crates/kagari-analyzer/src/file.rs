@@ -470,14 +470,8 @@ pub(crate) fn type_reference_target_at(
         .min_by_key(|(_, span)| span.end - span.start)?;
     let resolved = table.type_ref(type_id)?;
 
-    let name_span = if matches!(resolved.target, Some(ResolvedTypeTarget::AssociatedType(_)))
-        || matches!(resolved.ty, TypeId::Host(_))
-    {
-        sites.type_terminal_span(type_id)
-    } else {
-        sites.type_name_span(type_id)
-    };
-    let target = name_span
+    let target = sites
+        .type_name_span(type_id)
         .filter(|span| span.start <= offset && offset < span.end)
         .and_then(|_| resolved.target.clone());
     Some(target)

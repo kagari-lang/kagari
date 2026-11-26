@@ -119,7 +119,7 @@ impl TaskPayload {
         value: ScopedValue<'gc>,
     ) -> Result<(), GcError> {
         cx.read(owner, |owner| owner.check_pending(id))?;
-        if !ValueProperties::of(cx, value)?.storable {
+        if !ValueProperties::of(cx, value)?.retainable {
             return Err(GcError::Representation);
         }
         // SAFETY: one admitted fixed coordinate; publish before the terminal

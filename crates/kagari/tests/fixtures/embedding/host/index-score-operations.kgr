@@ -1,0 +1,7 @@
+use game as api;
+
+fn main() -> i32 {
+    val player = api::make();
+    player.add_score(api::index(), api::rhs());
+    player.read_score(1)
+}

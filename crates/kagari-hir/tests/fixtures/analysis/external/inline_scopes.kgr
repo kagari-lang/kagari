@@ -1,0 +1,9 @@
+pub mod inherited {
+    pub use selected::Token;
+}
+
+pub mod switched {
+    pub mod nested {
+        pub use selected::Token;
+    }
+}

@@ -95,11 +95,10 @@ fn single_source_analysis_uses_installed_declarations_without_replacing_source_i
         .unwrap();
     assert_eq!(option.declaration.name, "Option");
     let canonical = binding::option_declaration();
-    let authored = &packaged_modules()
+    let authored = packaged_modules()
         .iter()
-        .find(|input| input.source.module_identity() == &canonical.module)
-        .unwrap()
-        .source;
+        .find(|input| input.module_identity() == &canonical.module)
+        .unwrap();
     let start = authored.text().find("enum Option<T>").unwrap() + "enum ".len();
     let site = authored
         .span(Span::new(start, start + "Option".len()))

@@ -235,7 +235,7 @@ fn verify_graph_inner(
             .map(|index| &program.modules[*index])
             .collect::<Vec<_>>();
         let closure = &visible_modules;
-        let owners = resources.receiver_owners(&indices);
+
         if !external_bindings_match(
             &module.external_types,
             |id| {
@@ -280,20 +280,11 @@ fn verify_graph_inner(
             let trait_id = definitions
                 .resolve(instance.declaration)
                 .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
-            let implementation = definitions
-                .resolve(table.declaration)
-                .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
+
             if let Some(kind) = Protocol::from_definition(&instance.declaration, definitions)
                 && table.bridge != Some(InterfaceBridge::Intrinsic)
-                && (!kind.host_implementable() && matches!(table.for_type, Ty::Host(_))
-                    || trait_id.module() != implementation.module()
-                        && owners.owner(&table.for_type, definitions).as_ref()
-                            != Some(implementation.module())
-                        && kind != Protocol::From
-                        && !matches!(
-                            table.for_type,
-                            Ty::NativeObject(_) | Ty::Struct(_) | Ty::Enum(_) | Ty::Host(_)
-                        ))
+                && !kind.host_implementable()
+                && matches!(table.for_type, Ty::Host(_))
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }

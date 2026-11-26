@@ -9,9 +9,7 @@ pub(crate) fn seed() -> DeclarationCatalog {
     DeclarationCatalog::default()
         .with_verified_modules(
             core_library::verified().unwrap(),
-            packaged_modules()
-                .iter()
-                .map(|item| item.source.module_identity()),
+            packaged_modules().iter().map(|item| item.module_identity()),
         )
         .unwrap()
 }

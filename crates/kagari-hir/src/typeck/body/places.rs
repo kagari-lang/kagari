@@ -30,10 +30,6 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        if let Some(ty) = self.infer_host_path_write(place_id, env) {
-            self.type_table.insert_place(place_id, ty.clone());
-            return Some(ty);
-        }
         let ty = match &self.lowered.module.place(place_id).kind {
             PlaceKind::Expr(expr) => {
                 self.infer_expr_type(*expr, env);
@@ -187,7 +183,7 @@ impl<'a> BodyChecker<'a> {
         place_id: PlaceId,
         env: &mut BodyTypeEnv,
     ) -> Option<TypeId> {
-        // Host-target probing and assignment diagnostics may revisit a place.
+        // Assignment diagnostics may revisit a place.
         // Its checked facts already include any index diagnostics and targets.
         if let Some(ty) = self.type_table.place_type(place_id) {
             return Some(ty);
@@ -383,24 +379,36 @@ impl<'a> BodyChecker<'a> {
         receiver: &TypeId,
         field_name: &str,
     ) -> Option<FieldSignature> {
-        let (id, generic_params, fields) = match receiver {
+        let (arguments, generic_params, fields) = match receiver {
             TypeId::Struct(id) => {
                 let owner = self.aggregates.structure(&id.declaration)?;
-                (id, &owner.generic_params, &owner.fields)
+                (
+                    id.arguments.as_slice(),
+                    &owner.generic_params,
+                    &owner.fields,
+                )
             }
             TypeId::NativeObject(id) => {
                 let owner = self.aggregates.native_type(&id.declaration)?;
-                (id, &owner.generic_params, &owner.fields)
+                (
+                    id.arguments.as_slice(),
+                    &owner.generic_params,
+                    &owner.fields,
+                )
+            }
+            TypeId::Host(id) => {
+                let owner = self.aggregates.native_type(id)?;
+                (&[][..], &owner.generic_params, &owner.fields)
             }
             _ => return None,
         };
-        if generic_params.len() != id.arguments.len() {
+        if generic_params.len() != arguments.len() {
             return None;
         }
         let substitution = generic_params
             .iter()
             .cloned()
-            .zip(id.arguments.iter().cloned())
+            .zip(arguments.iter().cloned())
             .collect();
         let mut field = fields
             .iter()

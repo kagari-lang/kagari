@@ -5,7 +5,11 @@ pub native type Counter<T>: Resource where T: Read {
     pub var count: i32,
 }
 
-pub native type Handle;
+pub native host type Handle;
+
+pub native host type Player {
+    pub var host: Handle,
+}
 
 pub native fn borrow<T: Read<Item = i32>>(value: Ref<T>) -> RefMut<T>;
 

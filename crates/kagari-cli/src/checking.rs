@@ -3,10 +3,10 @@
 use crate::{
     CliError,
     args::ProjectArgs,
+    cli_engine,
     project::locate,
     read_source,
     report::{MessageFormat, Report},
-    source_engine,
     tool_config::ToolConfig,
 };
 use kagari::{
@@ -44,7 +44,7 @@ fn source_report(path: &Path, policy: Option<&Policy>) -> Report {
     let mut report = Report::new(if policy.is_some() { "lint" } else { "check" });
     let result = (|| {
         let source = read_source(path)?;
-        let engine = source_engine("target/kagari-declarations")?;
+        let engine = cli_engine()?;
         let cancel = CancellationToken::default();
         analyze(
             &mut report,
@@ -196,7 +196,7 @@ fn project_into(
             )
             .map_err(|error| CliError::message(1, error.to_string()))?;
     }
-    let engine = source_engine(workspace.join("target/kagari/declarations"))?;
+    let engine = cli_engine()?;
     for (member, capture) in &project.roots {
         if let Some(inputs) = &capture.program {
             if analyze(

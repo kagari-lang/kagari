@@ -1,14 +1,13 @@
 //! A qualified forwarding call must keep its trait and enclosing binders on both input routes.
 use crate::{
-    analysis::{AnalysisDatabase, external::ExternalModule},
-    native::render::declaration_source,
+    analysis::{AnalysisDatabase, error::AnalysisError},
     typeck::table::CallTarget,
     types::{GenericParameterType, TypeId},
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_source::{source::SourceFile, source_database::SourceDatabase};
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -156,7 +155,13 @@ fn registration() -> DefinitionMetadata<ModuleDecl> {
 #[test]
 fn qualified_script_callee_matches_rendered_offline_semantics() {
     let registration = Arc::new(registration());
-    let rendered = declaration_source(&registration, &[]).unwrap();
+    let mut direct = AnalysisDatabase::new("/project").unwrap();
+    direct.set_native_modules(vec![registration.clone()]);
+    let cancel = Default::default();
+    let published = direct.declarations(Default::default(), &cancel).unwrap();
+    let rendered = published
+        .render_native_document(&registration, &cancel)
+        .unwrap();
     assert!(
         rendered
             .text
@@ -164,17 +169,19 @@ fn qualified_script_callee_matches_rendered_offline_semantics() {
         "{}",
         rendered.text
     );
-    let mut direct = AnalysisDatabase::new("/project").unwrap();
-    direct.set_native_modules(vec![registration.clone()]);
     let mut offline = AnalysisDatabase::new("/project").unwrap();
-    offline.set_external_modules(vec![ExternalModule::new(Arc::new(SourceFile::new(
-        "forwarding.kgr",
-        rendered.text,
-    )))]);
-    for db in [&mut direct, &mut offline] {
-        let snapshot = db
-            .snapshot(SourceDatabase::default().snapshot(), &Default::default())
-            .unwrap();
+    let mut documents = SourceDatabase::default();
+    documents
+        .bind_module(&rendered.uri, registration.records().identity.clone())
+        .unwrap();
+    documents
+        .set(&rendered.uri, rendered.text, SourceLayer::Base)
+        .unwrap();
+    offline.set_import_environment(published.import_environment().clone());
+    for snapshot in [
+        direct.snapshot(Default::default(), &cancel).unwrap(),
+        offline.snapshot(documents.snapshot(), &cancel).unwrap(),
+    ] {
         let file = snapshot
             .files()
             .find(|f| f.source().module_identity() == &registration.records().identity)
@@ -235,6 +242,20 @@ fn qualified_script_callee_matches_rendered_offline_semantics() {
         assert_eq!(signature.params, [s, m]);
         assert_eq!(signature.return_type, d);
     }
+}
+
+#[test]
+fn script_registration_without_its_body_cannot_be_lowered() {
+    let (definitions, mut module) = registration().into_parts();
+    module.script_bodies.clear();
+    let cancel = Default::default();
+    let mut db = AnalysisDatabase::default();
+    db.set_native_modules(vec![Arc::new(
+        DefinitionMetadata::checked(definitions, module, &cancel).unwrap(),
+    )]);
+    assert!(
+        matches!(db.declarations(Default::default(), &cancel), Err(AnalysisError::NativeApi(error)) if error.0 == "Script registration requires a complete body")
+    );
 }
 
 #[test]

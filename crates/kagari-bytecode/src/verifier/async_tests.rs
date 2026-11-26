@@ -1,9 +1,11 @@
 use crate::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction as I, CallTarget, JumpTarget, Slot},
+    instruction::{
+        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, JumpTarget, PathId, Slot,
+    },
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, LocalLiveRange,
-        RootSlotLayout,
+        PathRecord, RootSlotLayout,
     },
     program::{
         BytecodeProgram, ModuleRef,
@@ -11,7 +13,7 @@ use crate::{
         verified::VerifiedBytecodeProgram,
         verify_program,
     },
-    verifier::BytecodeVerificationError,
+    verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
@@ -26,6 +28,7 @@ use kagari_types::{
         host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
         module::ModuleDecl,
         native::NativeStorageLayout,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
     },
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
@@ -165,6 +168,32 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
     module
         .types
         .extend([ValueType::Bool, ValueType::HostHandle]);
+    let path = HostPathDeclaration {
+        root: host,
+        segments: vec![HostPathSegmentDeclaration::Virtual(
+            HostVirtualSegmentDeclaration {
+                name: "related".into(),
+                result: Ty::Host(host),
+                access: PathAccess::ReadOnly,
+            },
+        )],
+        access: PathAccess::ReadOnly,
+        schema_epoch: 1,
+    };
+    let definitions = context.snapshot();
+    module.paths.push(PathRecord {
+        id: PathId::new(0),
+        contract_fingerprint: path
+            .contract(&module.external_types, &definitions)
+            .unwrap()
+            .fingerprint(&definitions)
+            .unwrap(),
+        root_ty: ValueType::HostHandle,
+        result_ty: ValueType::HostHandle,
+        read_only: true,
+        debug_name: "related".into(),
+    });
+    module.path_declarations.push(path);
     let function = &mut module.functions[0];
     let array = function.metadata.semantic.result.clone().unwrap();
     function.parameter_count = 4;
@@ -210,6 +239,7 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
         .slots
         .insert(2, Ty::Builtin(BuiltinType::Bool));
     function.metadata.semantic.slots.insert(3, array);
+    function.metadata.semantic.slots.insert(4, Ty::Host(host));
     function.metadata.roots = RootSlotLayout::from_types(&function.metadata.slots);
     let await_instruction = function.instructions[1].clone();
     function.instructions = vec![
@@ -226,9 +256,11 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
             then_target: JumpTarget::new(3),
             else_target: JumpTarget::new(8),
         },
-        I::Move {
+        I::MakePathView {
             dst: Slot::new(4),
-            src: Slot::new(9),
+            root_or_view: Slot::new(9),
+            path: PathId::new(0),
+            dynamic_args: vec![],
         },
         I::Move {
             dst: Slot::new(0),
@@ -279,7 +311,7 @@ fn async_flow_validation_contract() {
     assert_eq!(points[0][0].instruction(), 5);
     assert!(!live.contains(&4), "dead host temporary must be discarded");
     assert!(!live.contains(&9), "dead host parameter must be discarded");
-    for mutation in 0..5 {
+    for mutation in 0..6 {
         let mut invalid = valid.clone();
         let function = &mut invalid.modules[0].functions[0];
         let reason = match mutation {
@@ -311,6 +343,11 @@ fn async_flow_validation_contract() {
                 "host capability live across await"
             }
             4 => {
+                // The parameter is debug-visible after its home was overwritten by a view.
+                let I::MakePathView { dst, .. } = &mut function.instructions[3] else {
+                    unreachable!()
+                };
+                *dst = Slot::new(9);
                 function
                     .metadata
                     .debug
@@ -327,6 +364,18 @@ fn async_flow_validation_contract() {
                     });
                 "host capability live across await"
             }
+            5 => {
+                function.instructions[3] = I::Move {
+                    dst: Slot::new(4),
+                    src: Slot::new(9),
+                };
+                function.metadata.semantic.slots.remove(&4);
+                function.instructions[6] = I::Move {
+                    dst: Slot::new(5),
+                    src: Slot::new(4),
+                };
+                "host capability live across await"
+            }
             _ => unreachable!(),
         };
         assert_eq!(
@@ -340,9 +389,6 @@ fn async_flow_validation_contract() {
     }
     let mut backedge = valid;
     let function = &mut backedge.modules[0].functions[0];
-    function.instructions[3] = I::Jump {
-        target: JumpTarget::new(4),
-    };
     function.instructions[7] = I::Jump {
         target: JumpTarget::new(1),
     };
@@ -353,7 +399,173 @@ fn async_flow_validation_contract() {
         &Default::default(),
     )
     .unwrap();
-    verify_program(&backedge, &context.snapshot(), &Default::default()).unwrap();
+    let verified = VerifiedBytecodeProgram::new(backedge, &context, &Default::default()).unwrap();
+    let live = &verified.suspensions(ModuleRef::new(0)).unwrap()[0][0];
+    assert!(
+        live.live_slots().any(|slot| slot == 9),
+        "backedge needs the original host parameter"
+    );
+    assert!(
+        !live.live_slots().any(|slot| slot == 4),
+        "dead path view is not parked"
+    );
+}
+
+#[test]
+fn source_free_retention_checks_only_the_projected_tuple_member() {
+    let context = DefinitionContext::new().unwrap();
+    let mut program = loop_program(&context);
+    let module = &mut program.modules[0];
+    module
+        .constants
+        .extend([ConstantOperand::I32(0), ConstantOperand::I32(1)]);
+    module.types.push(ValueType::I32);
+    let f = &mut module.functions[0];
+    let slot = Slot::new;
+    let tuple = Ty::Tuple(vec![f.metadata.semantic.params[&3].clone(); 2]);
+    for i in [3, 10] {
+        f.metadata.semantic.slots.insert(i, tuple.clone());
+    }
+    f.metadata.slots.extend([ValueType::I32; 2]);
+    f.slot_count += 2;
+    f.metadata.roots = RootSlotLayout::from_types(&f.metadata.slots);
+    let load_index = |n| I::LoadConst {
+        dst: slot(11),
+        constant: ConstantId::new(n),
+    };
+    f.instructions = vec![
+        f.instructions[3].clone(), // Produce a real path, typed identically to its root.
+        I::Branch {
+            cond: slot(8),
+            then_target: JumpTarget::new(2),
+            else_target: JumpTarget::new(5),
+        },
+        I::MakeTuple {
+            dst: slot(3),
+            elements: vec![slot(4), slot(9)],
+        },
+        load_index(1),
+        I::Jump {
+            target: JumpTarget::new(7),
+        },
+        I::MakeTuple {
+            dst: slot(3),
+            elements: vec![slot(9), slot(9)],
+        },
+        load_index(1),
+        I::Move {
+            dst: slot(10),
+            src: slot(3),
+        },
+        I::Move {
+            dst: slot(12),
+            src: slot(11),
+        },
+        I::ReadAggregateIndex {
+            dst: slot(4),
+            base: slot(10),
+            index: slot(12),
+        },
+        I::Await {
+            dst: slot(1),
+            value: slot(6),
+            future: f.metadata.semantic.params[&0].clone(),
+        },
+        I::Move {
+            dst: slot(5),
+            src: slot(4),
+        },
+        I::Return(Some(slot(1))),
+    ];
+    f.metadata.origins = (0..f.instructions.len())
+        .map(|instruction| crate::module::InstructionOrigin {
+            instruction,
+            span: Default::default(),
+            line: None,
+            column: None,
+        })
+        .collect();
+    let valid = crate::program::updates::fixtures::certify(program, &context);
+    let verified =
+        VerifiedBytecodeProgram::new(valid.clone(), &context, &Default::default()).unwrap();
+    let point = &verified.suspensions(ModuleRef::new(0)).unwrap()[0][0];
+    assert_eq!(point.live_slots().collect::<Vec<_>>(), [4, 6]);
+    let mut invalid = valid.clone();
+    // The index now differs across predecessors. On the view-producing edge it
+    // selects the view; the other edge must not erase that possibility.
+    invalid.modules[0].functions[0].instructions[3] = load_index(0);
+    assert_eq!(
+        verify_program(&invalid, &context.snapshot(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidOperation {
+            function: FunctionRef::new(0),
+            reason: "host capability live across await"
+        })
+    );
+
+    // Exercise the same joined projection at publication rather than parking.
+    let mut module = valid.modules.into_iter().next().unwrap();
+    let f = &mut module.functions[0];
+    f.instructions[10] = I::MakeFuture {
+        dst: slot(0),
+        function: FunctionRef::new(0),
+        arguments: [6, 7, 8, 4].map(slot).to_vec(),
+        future: f.metadata.semantic.params[&0].clone(),
+    };
+    f.instructions[12] = I::Return(Some(slot(7)));
+    verify_module(&module, &context.snapshot(), &Default::default()).unwrap();
+    module.functions[0].instructions[3] = load_index(0);
+    assert_eq!(
+        verify_module(&module, &context.snapshot(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidOperation {
+            function: FunctionRef::new(0),
+            reason: "cannot capture a host path view"
+        })
+    );
+}
+
+#[test]
+fn ordinary_closure_rejects_a_view_on_one_incoming_edge() {
+    let context = DefinitionContext::new().unwrap();
+    let mut program = loop_program(&context);
+    let module = &mut program.modules[0];
+    let function = &mut module.functions[0];
+    function.metadata.effects.may_suspend = false;
+    module.function_table[0].effects = function.metadata.effects;
+    let copy_handle = I::Move {
+        dst: Slot::new(4),
+        src: Slot::new(9),
+    };
+    function.instructions[0] = copy_handle.clone();
+    let I::Branch { else_target, .. } = &mut function.instructions[2] else {
+        unreachable!()
+    };
+    *else_target = JumpTarget::new(5);
+    let view = std::mem::replace(&mut function.instructions[3], copy_handle);
+    function.instructions[5] = I::MakeClosure {
+        dst: Slot::new(10),
+        function: FunctionRef::new(0),
+        captures: [6, 7, 8, 4].map(Slot::new).to_vec(),
+    };
+    function.metadata.semantic.slots.insert(
+        10,
+        Ty::Function {
+            params: vec![],
+            result: Box::new(function.metadata.semantic.result.clone().unwrap()),
+        },
+    );
+    function.instructions[6] = I::Move {
+        dst: Slot::new(1),
+        src: Slot::new(7),
+    };
+    verify_module(module, &context.snapshot(), &Default::default()).unwrap();
+    module.functions[0].instructions[3] = view;
+    assert_eq!(
+        verify_module(module, &context.snapshot(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidOperation {
+            function: FunctionRef::new(0),
+            reason: "cannot capture a host path view"
+        })
+    );
 }
 
 #[test]
@@ -435,7 +647,7 @@ fn async_artifact_validation_contract() {
 #[test]
 fn async_factory_artifact_contract() {
     let context = DefinitionContext::new().unwrap();
-    let mut valid = program(&context);
+    let mut valid = loop_program(&context);
     let module = &mut valid.modules[0];
     let mut factory = module.functions[0].clone();
     let future = factory.metadata.semantic.params[&0].clone();
@@ -476,12 +688,20 @@ fn async_factory_artifact_contract() {
     factory.metadata.effects.may_suspend = false;
     factory.metadata.semantic.result = Some(future.clone());
     factory.metadata.semantic.slots.insert(1, future.clone());
-    factory.instructions[1] = I::MakeFuture {
-        dst: Slot::new(1),
-        function: FunctionRef::new(0),
-        arguments: vec![Slot::new(0)],
-        future,
-    };
+    factory.instructions = vec![
+        I::Move {
+            dst: Slot::new(0),
+            src: Slot::new(6),
+        },
+        I::MakeFuture {
+            dst: Slot::new(1),
+            function: FunctionRef::new(0),
+            arguments: [0, 7, 8, 9].map(Slot::new).to_vec(),
+            future,
+        },
+        I::Return(Some(Slot::new(1))),
+    ];
+    factory.metadata.origins.truncate(3);
     module.function_table.push(FunctionRecord {
         id: factory.id,
         identity: factory.identity.clone(),
@@ -533,6 +753,26 @@ fn async_factory_artifact_contract() {
         .unwrap()
         .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
+    let mut view_capture = valid.clone();
+    let factory = &mut view_capture.modules[0].functions[1];
+    factory.instructions[0] = I::MakePathView {
+        dst: Slot::new(4),
+        root_or_view: Slot::new(9),
+        path: PathId::new(0),
+        dynamic_args: vec![],
+    };
+    let I::MakeFuture { arguments, .. } = &mut factory.instructions[1] else {
+        unreachable!()
+    };
+    arguments[0] = Slot::new(6);
+    arguments[3] = Slot::new(4);
+    assert_eq!(
+        verify_program(&view_capture, &context.snapshot(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidOperation {
+            function: FunctionRef::new(1),
+            reason: "cannot capture a host path view"
+        })
+    );
     for mutation in 0..6 {
         let mut invalid = valid.clone();
         let factory = &mut invalid.modules[0].functions[1];

@@ -96,6 +96,9 @@ pub enum DiagnosticKind {
     InvalidHostPath {
         reason: String,
     },
+    GenericHostType {
+        name: String,
+    },
     InvalidReference {
         reason: &'static str,
     },
@@ -116,12 +119,7 @@ pub enum DiagnosticKind {
     InvalidCallTarget {
         type_name: String,
     },
-    InvalidClosureCapture {
-        type_name: String,
-    },
-    InvalidAsyncCapture {
-        type_name: String,
-    },
+
     AwaitOutsideAsync,
     InvalidAwaitOperand {
         type_name: String,
@@ -397,14 +395,14 @@ impl DiagnosticKind {
             Self::UnsupportedSyntax { .. } => "KG_SYNTAX_UNSUPPORTED",
             Self::InvalidGlobTarget { .. } => "KG_RESOLVE_INVALID_GLOB_TARGET",
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
+            Self::GenericHostType { .. } => "KG_TYPE_GENERIC_HOST_TYPE",
             Self::InvalidReference { .. } => "KG_TYPE_INVALID_REFERENCE",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidNumericCast { .. } => "KG_TYPE_INVALID_NUMERIC_CAST",
             Self::InvalidNativeSignature { .. } => "KG_NATIVE_SIGNATURE_INVALID",
             Self::InvalidCallTarget { .. } => "KG_TYPE_INVALID_CALL_TARGET",
-            Self::InvalidClosureCapture { .. } => "KG_TYPE_INVALID_CLOSURE_CAPTURE",
-            Self::InvalidAsyncCapture { .. } => "KG_TYPE_INVALID_ASYNC_CAPTURE",
+
             Self::AwaitOutsideAsync => "KG_AWAIT_OUTSIDE_ASYNC",
             Self::InvalidAwaitOperand { .. } => "KG_TYPE_INVALID_AWAIT_OPERAND",
             Self::InvalidValueTarget { .. } => "KG_TYPE_INVALID_VALUE_TARGET",
@@ -554,6 +552,9 @@ impl Display for DiagnosticKind {
                 write!(f, "wildcard import target `{path}` is not a module")
             }
             Self::InvalidHostPath { reason } => write!(f, "invalid host field path: {reason}"),
+            Self::GenericHostType { name } => {
+                write!(f, "Host type `{name}` cannot declare generic parameters")
+            }
             Self::InvalidReference { reason } => write!(f, "invalid scoped reference: {reason}"),
             Self::DuplicateImport { name } => {
                 write!(f, "import `{name}` conflicts with another declaration")
@@ -569,14 +570,7 @@ impl Display for DiagnosticKind {
             Self::InvalidCallTarget { type_name } => {
                 write!(f, "value of type `{type_name}` cannot be called")
             }
-            Self::InvalidClosureCapture { type_name } => write!(
-                f,
-                "cannot capture host value of type `{type_name}` in a closure or async block"
-            ),
-            Self::InvalidAsyncCapture { type_name } => write!(
-                f,
-                "async parameter of type `{type_name}` cannot be retained in a cold Future"
-            ),
+
             Self::AwaitOutsideAsync => write!(
                 f,
                 "`.await` requires an async function, async closure or async block"

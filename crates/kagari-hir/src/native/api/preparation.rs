@@ -1,215 +1,113 @@
-//! Owned registration/syntax inputs, independent of any lowered graph.
-use super::{attach, validate_view};
-use crate::{
-    lower::LoweredModule,
-    native::{
-        paths::LibraryPaths,
-        render::{DeclarationSource, render_with_paths},
-    },
+//! Validated structured inputs; lowering-local IDs are allocated fresh per request.
+use super::attach;
+use crate::{lower::LoweredModule, native::paths::LibraryPaths};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, metadata::DefinitionMetadata},
 };
-use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_syntax::parser::{Parse, ParseLimits, ParseOptions, parse};
 use kagari_types::declaration::{
     module::{DeclarationError, ModuleDecl},
     ownership::ReceiverOwners,
 };
-use std::sync::Arc;
+use std::{fmt::Write, sync::Arc};
 
-#[cfg(test)]
-use crate::analysis::core_source::packaged_modules;
-
-type AttachedRegistration = (Option<Parse>, Arc<LoweredModule>);
-
-/// Validated owned inputs. No lowering-local IDs or graph-bearing facts belong here.
 #[derive(Debug, Clone)]
-pub(crate) struct PreparedRegistration {
-    pub(super) metadata: Arc<DefinitionMetadata<ModuleDecl>>,
-    pub(super) providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
-    pub(super) paths: Arc<LibraryPaths>,
-    pub(super) source: Arc<SourceFile>,
-    parsed: Option<Parse>,
+struct PreparedRegistration {
+    metadata: Arc<DefinitionMetadata<ModuleDecl>>,
+    key: Arc<SourceFile>,
 }
 
-impl PreparedRegistration {
-    #[cfg(test)]
-    pub(crate) fn new(
-        metadata: Arc<DefinitionMetadata<ModuleDecl>>,
-        providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
-        supplied: Option<&DeclarationSource>,
-        source_root: &str,
-        limits: ParseLimits,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DeclarationError> {
-        let paths = Arc::new(LibraryPaths::new(&providers, packaged_modules()));
-        Self::prepare(
-            metadata,
-            providers,
-            paths,
-            supplied,
-            source_root,
-            limits,
-            cancel,
-        )
-    }
+#[derive(Debug, Clone)]
+pub(crate) struct NativeFiles {
+    prepared: Vec<PreparedRegistration>,
+    paths: Arc<LibraryPaths>,
+}
 
-    /// Providers must already share the analysis scope produced by Native adoption.
-    /// Supplied navigation text is checked against registration, never used as authority.
-    fn prepare(
-        metadata: Arc<DefinitionMetadata<ModuleDecl>>,
-        providers: Arc<[Arc<DefinitionMetadata<ModuleDecl>>]>,
+impl NativeFiles {
+    /// Providers have already been adopted into the analysis definition table.
+    pub(crate) fn new(
+        modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
         paths: Arc<LibraryPaths>,
-        supplied: Option<&DeclarationSource>,
         source_root: &str,
-        limits: ParseLimits,
         cancel: &CancellationToken,
     ) -> Result<Self, DeclarationError> {
         check_cancel(cancel)?;
-        let definition = metadata.records();
-        let definitions = metadata.definitions();
         let owners = ReceiverOwners::from_types(
-            providers
+            modules
                 .iter()
                 .map(|module| module.records())
                 .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
         )?;
-        definition.validate(&|receiver| owners.owner(receiver, definitions), definitions)?;
-        // A source-less registration needs a logical module/file key for the existing
-        // analysis graph, not declaration text. Its nodes carry Structured origins.
-        let uri = supplied
-            .map(|source| source.uri.clone())
-            .unwrap_or_else(|| {
-                format!(
-                    "kagari-registration://{}/{}",
-                    definition.identity.package.0,
-                    definition.identity.path.join("/")
-                )
-            });
         let mut sources = SourceDatabase::new(source_root).map_err(DeclarationError)?;
-        sources
-            .bind_module(&uri, definition.identity.clone())
-            .map_err(DeclarationError)?;
-        let id = sources
-            .set(
-                &uri,
-                supplied
-                    .map(|source| source.text.clone())
-                    .unwrap_or_default(),
-                SourceLayer::Base,
-            )
-            .map_err(DeclarationError)?;
-        let source = sources
-            .snapshot()
-            .file(id)
-            .expect("native declaration source")
-            .clone();
-        let parsed = if supplied.is_some() {
-            let parsed = parse(&source, ParseOptions { limits }, cancel)
-                .map_err(|_| DeclarationError("native declaration analysis cancelled".into()))?;
-            if !parsed.diagnostics().is_empty() {
-                return Err(DeclarationError(format!(
-                    "invalid native declaration syntax: {:?}",
-                    parsed.diagnostics().first()
-                )));
-            }
-            let expected = render_with_paths(&metadata, &paths)?;
-            validate_view(&expected, &parsed, definition, cancel)?;
-            Some(parsed)
+        let mut prepared = Vec::with_capacity(modules.len());
+        for metadata in modules {
+            check_cancel(cancel)?;
+            let definition = metadata.records();
+            let definitions = metadata.definitions();
+            definition.validate(&|receiver| owners.owner(receiver, definitions), definitions)?;
+            // An empty file supplies a graph key, not a source surface or parser input.
+            let uri = registration_key(&definition.identity);
+            sources
+                .bind_module(&uri, definition.identity.clone())
+                .map_err(DeclarationError)?;
+            let id = sources
+                .set(&uri, String::new(), SourceLayer::Base)
+                .map_err(DeclarationError)?;
+            let key = sources
+                .snapshot()
+                .file(id)
+                .expect("registered file key")
+                .clone();
+            prepared.push(PreparedRegistration { metadata, key });
+        }
+        check_cancel(cancel)?;
+        Ok(Self { prepared, paths })
+    }
+
+    pub(crate) fn attach(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<Arc<LoweredModule>>, DeclarationError> {
+        let mut modules = Vec::with_capacity(self.prepared.len());
+        for input in &self.prepared {
+            check_cancel(cancel)?;
+            modules.push(Arc::new(attach(
+                &input.metadata,
+                &self.paths,
+                input.key.clone(),
+                cancel,
+            )?));
+        }
+        check_cancel(cancel)?;
+        Ok(modules)
+    }
+
+    pub(crate) fn registrations(&self) -> impl Iterator<Item = &DefinitionMetadata<ModuleDecl>> {
+        self.prepared.iter().map(|p| p.metadata.as_ref())
+    }
+
+    pub(crate) fn matches_paths(&self, paths: &LibraryPaths) -> bool {
+        self.paths.as_ref() == paths
+    }
+}
+
+// Package IDs are opaque; only the validated module path may introduce separators.
+fn registration_key(owner: &ModuleIdentity) -> String {
+    let mut key = String::from("kagari-registration://");
+    for byte in owner.package.0.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            key.push(char::from(byte));
         } else {
-            None
-        };
-        check_cancel(cancel)?;
-        Ok(Self {
-            metadata,
-            providers,
-            paths,
-            source,
-            parsed,
-        })
-    }
-
-    pub(crate) fn parsed(&self) -> Option<&Parse> {
-        self.parsed.as_ref()
-    }
-
-    /// Real supplied source only; `source` otherwise exists solely as a graph key.
-    pub(crate) fn source_surface(&self) -> Option<&Arc<SourceFile>> {
-        self.parsed.as_ref().map(|_| &self.source)
-    }
-
-    /// Constructs fresh HIR directly, or lowers a supplied complete tool source.
-    /// No lowering-local maps are reused across graph lifetimes.
-    pub(crate) fn attach(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<Arc<LoweredModule>, DeclarationError> {
-        check_cancel(cancel)?;
-        let lowered = attach(self, cancel)?;
-        check_cancel(cancel)?;
-        Ok(Arc::new(lowered))
-    }
-}
-
-/// Validated adopted registrations and optional authored parses, without prior HIR.
-#[derive(Debug, Clone)]
-pub(crate) struct NativeFiles {
-    prepared: Vec<PreparedRegistration>,
-}
-
-impl NativeFiles {
-    pub(crate) fn new(
-        modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-        paths: Arc<LibraryPaths>,
-        sources: Option<&[DeclarationSource]>,
-        source_root: &str,
-        limits: ParseLimits,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DeclarationError> {
-        if sources.is_some_and(|sources| sources.len() != modules.len()) {
-            return Err(DeclarationError(
-                "native supplied source inventory differs from registration".into(),
-            ));
+            write!(key, "%{byte:02X}").expect("writing to a String cannot fail");
         }
-        let providers: Arc<[_]> = modules.into();
-        let prepared = providers
-            .iter()
-            .enumerate()
-            .map(|(index, module)| {
-                PreparedRegistration::prepare(
-                    module.clone(),
-                    providers.clone(),
-                    paths.clone(),
-                    sources.map(|sources| &sources[index]),
-                    source_root,
-                    limits,
-                    cancel,
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        check_cancel(cancel)?;
-        Ok(Self { prepared })
     }
-
-    /// Attaches fresh lowerings to the current request from validated inputs.
-    pub(crate) fn attach(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<AttachedRegistration>, DeclarationError> {
-        let mut attached = Vec::with_capacity(self.prepared.len());
-        for prepared in &self.prepared {
-            attached.push((prepared.parsed.clone(), prepared.attach(cancel)?));
-        }
-        check_cancel(cancel)?;
-        Ok(attached)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.prepared.len()
-    }
+    key.push('/');
+    key.push_str(&owner.path.join("/"));
+    key
 }
 
 fn check_cancel(cancel: &CancellationToken) -> Result<(), DeclarationError> {

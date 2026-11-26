@@ -28,10 +28,6 @@ pub struct OwnedMethod<S, A>(PhantomData<(S, A)>);
 #[doc(hidden)]
 pub struct Explicit;
 
-/// Authoring marker returned by native::host::callback for external-ID services.
-#[doc(hidden)]
-pub struct Host;
-
 /// Inference marker for an existing cold producer with owned arguments/results.
 #[doc(hidden)]
 pub struct Async<A>(PhantomData<A>);

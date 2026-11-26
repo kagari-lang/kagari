@@ -6,13 +6,13 @@
 //! syntax transformations. No import lookup or type inference happens here.
 
 use crate::{hir::item::Module, lower::context::Lowerer};
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_common::cancellation::CancellationToken;
 use kagari_source::source::{SourceExtent, SourceFile};
 use kagari_syntax::{
     ast::module::ModuleSyntax,
     parser::{Parse, ParseOptions, parse},
 };
-use kagari_types::declaration::TraitDef;
+
 use std::sync::Arc;
 
 mod attribute;
@@ -43,8 +43,6 @@ pub struct LoweredModule {
     /// Owned declaration collections and node storage.
     pub module: Module,
     pub(crate) input_kind: ModuleInputKind,
-    /// Foreign trait ABIs required by this importer, in the adopted analysis scope.
-    pub(crate) trait_references: Vec<(DefinitionId, TraitDef)>,
 }
 
 /// Determines whether the retained source is authored or a structured registration key.
@@ -134,7 +132,6 @@ impl LoweredModule {
             source,
             module,
             input_kind,
-            trait_references: Vec::new(),
         }
     }
 }

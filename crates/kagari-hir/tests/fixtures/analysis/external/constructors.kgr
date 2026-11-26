@@ -2,11 +2,13 @@ pub use alloc::string::String;
 
 pub use core::ops::Range;
 
-pub native type Target;
+pub struct Target {}
 
 impl Target {
     pub native fn shared(self) -> i32;
+
     pub native fn mutable(self) -> i32;
+
     pub native fn plain(self) -> i32;
 }
 

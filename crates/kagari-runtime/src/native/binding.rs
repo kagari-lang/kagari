@@ -13,6 +13,7 @@ use crate::{
         context::{LinkedCallable, LinkedOperation, NativeCall},
         conversion::context::ConversionContext,
         declarations::SelectedCall,
+        host::path::LinkedPathOperation,
         primitive::NativePrimitive,
         result::LinkedResultAdapter,
         types::{Type, same_definition},
@@ -23,9 +24,13 @@ use kagari_common::identity::{
     scoped::DefinitionReferences,
     table::{DefinitionId, DefinitionTable},
 };
+use kagari_contract::callable::receiver::accepts_owned;
 use kagari_types::{
     callable::Signature,
-    declaration::{FnDecl, host::HostCallPolicy},
+    declaration::{
+        FnDecl,
+        host::{HostCallPolicy, requires_host_policy},
+    },
     reference::ReferenceAccess,
     ty::Ty,
 };
@@ -121,6 +126,7 @@ pub struct NativeBinding {
 pub(crate) enum BindingEntry {
     Callback(Arc<ErasedNativeEntry>),
     Primitive(NativePrimitive),
+    PathOperation,
 }
 
 impl fmt::Debug for NativeBinding {
@@ -170,8 +176,17 @@ impl NativeBinding {
     }
 
     pub(crate) fn check_policies(&self, declaration: &FnDecl) -> NativeResult<()> {
+        if self.host_policy.is_none() && requires_host_policy(declaration) {
+            return Err(RuntimeError::metadata_conflict(
+                "external handle signature requires a Host policy on the binding",
+            ));
+        }
         if self.receiver_access != declaration.method_policy.receiver_access
             || self.host_policy != declaration.host_policy
+            || self
+                .host_policy
+                .as_ref()
+                .is_some_and(|policy| policy.passing.len() != declaration.params.len())
         {
             return Err(RuntimeError::metadata_conflict(
                 "binding differs from declared native access policy",
@@ -191,6 +206,16 @@ impl NativeBinding {
                 &Default::default(),
             )
             .map_err(|cause| RuntimeError::metadata_conflict(cause.to_string()))?;
+        if let Some(access) = self.receiver_access
+            && !signature
+                .params
+                .first()
+                .is_some_and(|receiver| accepts_owned(Some(access), receiver))
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "receiver loan requires native storage",
+            ));
+        }
         if self.arguments.len() != signature.params.len()
             || self
                 .arguments
@@ -218,6 +243,7 @@ impl NativeBinding {
 pub struct LinkedNativeFunction {
     pub(crate) declaration: DefinitionId,
     pub(crate) binding: NativeBinding,
+    pub(crate) path_operation: Option<LinkedPathOperation>,
     pub(crate) signature: Signature,
     pub(crate) prepared_signature: OnceLock<ScopedSignature>,
     pub(crate) selected: Box<[LinkedOperation]>,
@@ -323,6 +349,7 @@ impl LinkedNativeFunction {
         Ok(Self {
             declaration: self.declaration,
             binding: self.binding.clone(),
+            path_operation: self.path_operation.clone(),
             signature,
             prepared_signature: OnceLock::from(scoped),
             result_adapter: self

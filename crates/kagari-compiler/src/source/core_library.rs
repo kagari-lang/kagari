@@ -19,7 +19,7 @@ fn compile() -> Result<VerifiedBytecodeProgram, String> {
     let modules = packaged_modules();
     // A checked package's module closure includes its package siblings. Use an actual
     // packaged module as the root, not an artificial entry function or a Native facade.
-    let root = modules.first().ok_or("empty packaged core")?.source.id();
+    let root = modules.first().ok_or("empty packaged core")?.id();
     let cancel = Default::default();
     let mut db = AnalysisDatabase::new("/")?;
 

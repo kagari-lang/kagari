@@ -1,8 +1,8 @@
-use crate::source::elaborate::model::IndexRead;
+use crate::source::elaborate::model::{HostFields, IndexRead};
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
-use kagari_hir::{hir::ids::ExprId, typeck::table::ResolvedHostPath, types::TypeId};
+use kagari_hir::{hir::ids::ExprId, types::TypeId};
 use kagari_mir::instruction::{Instruction, MirValue, PathRef, StructFieldInit};
 use smallvec::SmallVec;
 use std::ops::ControlFlow;
@@ -167,27 +167,23 @@ impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_host_path_read(
         &mut self,
         expr_id: ExprId,
-        checked: ResolvedHostPath,
+        checked: HostFields<ExprId>,
     ) -> Result<MirValue, MirLoweringError> {
         let root_or_view = self.lower_expr(checked.root)?;
         if self.current_block_terminated() {
             return Ok(root_or_view);
         }
-        let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
-            ControlFlow::Break(value) => return Ok(value),
-            ControlFlow::Continue(values) => values,
-        };
+
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
-        let fingerprint = checked
-            .contract
-            .fingerprint(&self.planner.definitions())
-            .map_err(|_| MirLoweringError::MissingBinding("checked host path contract"))?;
+        let (declaration, fingerprint) =
+            self.planner
+                .bind_host_fields(checked.owner, &checked.fields, false)?;
         self.emit(Instruction::ReadPath {
             dst,
             root_or_view,
-            dynamic_args,
+            dynamic_args: Default::default(),
             path: PathRef {
-                declaration: Some(checked.declaration),
+                declaration: Some(declaration),
                 contract_fingerprint: fingerprint,
                 root_ty: root_or_view.ty,
                 result_ty: dst.ty,

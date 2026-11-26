@@ -41,22 +41,24 @@ use support::update_publication::publish_without_execution;
 #[test]
 fn installed_function_needs_no_execution_permissions() {
     let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let function = builder
         .define_function(
             FunctionDecl::new("answer")
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                }),
+                .host_policy(function_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             function,
-            host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                Ok(ValueView::from(42i32))
-            }),
+            host::callback(
+                function_policy,
+                |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| Ok(ValueView::from(42i32)),
+            ),
         )
         .unwrap();
     let module = builder.finish().unwrap();
@@ -79,23 +81,27 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
     let cancel = CancellationToken::default();
     let callback_cancel = cancel.clone();
     let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let function = builder
         .define_function(
             FunctionDecl::new("cancel")
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                }),
+                .host_policy(function_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             function,
-            host::callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                callback_cancel.cancel();
-                Ok(ValueView::from(42i32))
-            }),
+            host::callback(
+                function_policy,
+                move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                    callback_cancel.cancel();
+                    Ok(ValueView::from(42i32))
+                },
+            ),
         )
         .unwrap();
     let module = builder.finish().unwrap();
@@ -230,6 +236,7 @@ fn native_declarations_require_exact_installation_without_calls() {
         )
         .unwrap();
     let contract = NativeDeclaration {
+        path_operation: None,
         concrete_result: None,
         declaration: id,
         function,

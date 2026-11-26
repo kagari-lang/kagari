@@ -72,23 +72,24 @@ fn player_module() -> NativeModule {
         )
         .unwrap();
     let player = player.finish().unwrap();
+    let entry_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let entry = module
         .define_function(
             FunctionDecl::new("player")
                 .returns(player.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(entry_policy.clone()),
         )
         .unwrap();
     module
         .bind(
             entry,
-            callback(|cx: &mut HostCallContext<'_>, _| {
+            callback(entry_policy, |cx: &mut HostCallContext<'_>, _| {
                 let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
                 let value = cx.runtime_mut().host_root_value(root).unwrap();
                 Ok(cx.import(&value).unwrap())

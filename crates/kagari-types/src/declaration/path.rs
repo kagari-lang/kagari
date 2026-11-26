@@ -19,12 +19,26 @@ use kagari_common::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The checked path capability used by an ordinary, monomorphic Native callable.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NativePathOperation {
+    pub path: HostPathDeclaration,
+    pub kind: NativePathOperationKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum NativePathOperationKind {
+    Read,
+    Set,
+    Add,
+}
+
 /// An explicit manual path over shared external schemas, without Rust addresses.
 ///
 /// For `player.stats.hp`, `root` names Player and `segments` contains the Stats
 /// and hp field IDs. `schema_epoch` pins the application's object schema;
-/// `access` cannot exceed any traversed declaration. Dynamic indexes refer to
-/// once-evaluated caller arguments by their declared slots.
+/// a write may traverse a readable object-valued `val` field without replacing it.
+/// Dynamic indexes refer to once-evaluated caller arguments by their declared slots.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct HostPathDeclaration {
     pub root: DefinitionId,
@@ -100,6 +114,8 @@ impl HostVirtualSegmentDeclaration {
 pub enum HostPathInput {
     Field {
         owner: Ty,
+        /// Declaration mutability, already encoded in the member fingerprint.
+        mutable: bool,
     },
     Index {
         slot: u64,
@@ -117,6 +133,19 @@ pub struct HostPathSegmentContract {
     pub result: Ty,
     pub access: PathAccess,
     pub member_fingerprint: u64,
+}
+
+impl HostPathSegmentContract {
+    fn allows_access(&self, requested: PathAccess, is_leaf: bool) -> bool {
+        if matches!(self.input, HostPathInput::Field { mutable: false, .. }) {
+            return self.access == PathAccess::ReadOnly
+                && (requested == PathAccess::ReadOnly
+                    || (requested == PathAccess::ReadWrite
+                        && !is_leaf
+                        && matches!(self.result, Ty::Host(_))));
+        }
+        allows(self.access, requested)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,12 +185,12 @@ impl HostPathContract {
         encoded.access(self.access);
 
         encoded.number(self.segments.len() as u64);
-        for segment in &self.segments {
-            if !allows(segment.access, self.access) {
+        for (position, segment) in self.segments.iter().enumerate() {
+            if !segment.allows_access(self.access, position + 1 == self.segments.len()) {
                 return Err(DefinitionMappingError::InvalidContract);
             }
             match &segment.input {
-                HostPathInput::Field { owner } => {
+                HostPathInput::Field { owner, .. } => {
                     encoded.bytes(&[0]);
                     encoded.number(fingerprint::value(owner, definitions, &Default::default())?);
                 }
@@ -247,7 +276,7 @@ fn resolve(
     let mut current = Ty::Host(declaration.root);
     let mut segments = Vec::with_capacity(declaration.segments.len());
     let mut parameters = BTreeMap::new();
-    for step in &declaration.segments {
+    for (position, step) in declaration.segments.iter().enumerate() {
         let segment = match step {
             HostPathSegmentDeclaration::Field(id) => {
                 let Ty::Host(owner) = current else {
@@ -268,15 +297,13 @@ fn resolve(
                 let policy = field
                     .host_policy
                     .ok_or(DefinitionMappingError::InvalidContract)?;
-                if field.visibility != Visibility::Public
-                    || !policy.readable
-                    || !allows(policy.path_access, declaration.access)
-                {
+                if field.visibility != Visibility::Public || !policy.readable {
                     return Err(DefinitionMappingError::InvalidContract);
                 }
                 HostPathSegmentContract {
                     input: HostPathInput::Field {
                         owner: current.clone(),
+                        mutable: field.mutable,
                     },
                     result: field.ty.clone(),
                     access: policy.path_access,
@@ -297,7 +324,6 @@ fn resolve(
                     .insert(index.slot, index.index.clone())
                     .is_some_and(|previous| previous != index.index)
                     || current != index.collection
-                    || !allows(index.access, declaration.access)
                 {
                     return Err(DefinitionMappingError::InvalidContract);
                 }
@@ -314,9 +340,6 @@ fn resolve(
             }
             HostPathSegmentDeclaration::Virtual(step) => {
                 step.validate(definitions)?;
-                if !allows(step.access, declaration.access) {
-                    return Err(DefinitionMappingError::InvalidContract);
-                }
                 HostPathSegmentContract {
                     input: HostPathInput::Virtual {
                         name: step.name.clone(),
@@ -327,6 +350,12 @@ fn resolve(
                 }
             }
         };
+        if !segment.allows_access(
+            declaration.access,
+            position + 1 == declaration.segments.len(),
+        ) {
+            return Err(DefinitionMappingError::InvalidContract);
+        }
         value_valid(&segment.result, definitions)?;
         external_targets(&segment.result, &owners, definitions)?;
         current = segment.result.clone();
@@ -350,7 +379,10 @@ fn resolve(
 }
 
 fn value_valid(ty: &Ty, definitions: &DefinitionTable) -> Result<(), DefinitionMappingError> {
-    if !verify::concrete_type_valid(ty, &Default::default(), definitions) || !ty.is_concrete() {
+    if !ty.within_wire_limits()
+        || !verify::concrete_type_valid(ty, &Default::default(), definitions)
+        || !ty.is_concrete()
+    {
         return Err(DefinitionMappingError::InvalidContract);
     }
     Ok(())
@@ -451,3 +483,4 @@ fn read_only_collection(ty: &Ty) -> bool {
 }
 
 mod mapping;
+mod operation;

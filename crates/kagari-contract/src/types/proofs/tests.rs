@@ -350,7 +350,7 @@ fn linked_proofs_normalize_conditional_reverse_outputs_after_substitution() {
     let admitted = |table: &InterfaceTable| {
         ProofCatalog::new(vec![table.into()], [], [], [], &context.snapshot(), &cancel)
             .unwrap()
-            .overrides_valid(&Default::default(), &cancel)
+            .overrides_valid(&cancel)
             .unwrap()
     };
     assert!(admitted(&blanket));
@@ -543,11 +543,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
             &cancel,
         )
         .unwrap();
-        assert!(
-            !catalog
-                .overrides_valid(&Default::default(), &cancel)
-                .unwrap()
-        );
+        assert!(!catalog.overrides_valid(&cancel).unwrap());
     }
     let catalog = ProofCatalog::new(
         vec![(&partial).into()],
@@ -558,11 +554,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         &cancel,
     )
     .unwrap();
-    assert!(
-        catalog
-            .overrides_valid(&Default::default(), &cancel)
-            .unwrap()
-    );
+    assert!(catalog.overrides_valid(&cancel).unwrap());
     assert!(
         !catalog
             .holds(
@@ -582,11 +574,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         &cancel,
     )
     .unwrap();
-    assert!(
-        !catalog
-            .overrides_valid(&Default::default(), &cancel)
-            .unwrap()
-    );
+    assert!(!catalog.overrides_valid(&cancel).unwrap());
     let catalog = ProofCatalog::new(
         vec![(&partial).into(), (&eq).into(), (&hash).into()],
         [],
@@ -596,11 +584,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
         &cancel,
     )
     .unwrap();
-    assert!(
-        catalog
-            .overrides_valid(&Default::default(), &cancel)
-            .unwrap()
-    );
+    assert!(catalog.overrides_valid(&cancel).unwrap());
     let mut foreign = partial.clone();
     foreign.declaration = context
         .intern_child(
@@ -622,7 +606,7 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
             &cancel
         )
         .unwrap()
-        .overrides_valid(&Default::default(), &cancel)
+        .overrides_valid(&cancel)
         .unwrap()
     );
     assert!(

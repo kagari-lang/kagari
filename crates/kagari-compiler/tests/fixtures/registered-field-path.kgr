@@ -1,0 +1,20 @@
+use example::roots::Player;
+
+fn index() -> u64 {
+    0
+}
+
+fn delta(players: [Player], replacement: Player) -> i32 {
+    players[0] = replacement;
+    1
+}
+
+pub fn relay(players: [Player], replacement: Player, stop: bool) -> i32 {
+    players[index()].baseline.hp += {
+        if stop {
+            return 0;
+        }
+        delta(players, replacement)
+    };
+    players[index()].baseline.hp
+}

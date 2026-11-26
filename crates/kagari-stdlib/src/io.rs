@@ -48,24 +48,25 @@ pub fn module(
             "Write text followed by a newline to the installed output sink.",
         ),
     ] {
+        let function_policy = HostCallPolicy {
+            passing: vec![HostPassingStyle::SharedBorrow],
+            effects: HostFunctionEffects {
+                may_trap: true,
+                may_call_host_services: true,
+                may_mutate_host_state: true,
+                ..Default::default()
+            },
+        };
         let function = module.define_function(
             FunctionDecl::new(name)
                 .parameter("message", Type::scalar(BuiltinType::String))
                 .documentation(documentation)
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        may_call_host_services: true,
-                        may_mutate_host_state: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(function_policy.clone()),
         )?;
         let write = write.clone();
         module.bind(
             function,
-            host::callback(move |context, arguments| {
+            host::callback(function_policy, move |context, arguments| {
                 let [message] = arguments else {
                     return Err(HostError::new("std::io output expects one String"));
                 };

@@ -138,6 +138,10 @@ The following keywords are reserved:
 - `where`
 - `while`
 
+`host` is an ordinary identifier. Only between `native` and `type` is it a
+[declaration modifier](#native-declarations): `native type host;` names a type
+`host`, whereas `native host type Player;` declares a Host type named `Player`.
+
 ### Literals
 
 The grammar uses the following literal token classes:
@@ -347,6 +351,7 @@ item_decl       ::= use_decl
                   | struct_item
                   | enum_item
                   | type_alias_item
+                  | native_type_item
                   | trait_item
                   | impl_block ;
 
@@ -526,7 +531,14 @@ and [enforced alias bounds and interface values](traits.md#type-alias-bounds-and
 
 ### Native Declarations
 
-The ordinary parser recognizes explicit Native declarations in every input:
+```ebnf
+native_type_item ::= visibility? "native" "host"? "type" IDENT generic_param_clause?
+                     (":" type_bound_list)? where_clause? (";" | "{" field_list? "}") ;
+```
+
+Both forms can be fieldless or declare fields. An ordinary native type can have
+type parameters; a Host type cannot. `native host type Player<T>;` is rejected
+at its declaration even when unused.
 
 ```text
 pub native type Counter {
@@ -534,7 +546,13 @@ pub native type Counter {
     pub var count: i32,
 }
 
-pub native type Handle;
+pub native host type Player {
+    pub val score: i32,
+}
+
+fn score(host: Player) -> i32 {
+    host.score
+}
 
 impl Counter {
     pub native fn new() -> Counter;
@@ -546,12 +564,18 @@ Native functions and methods end in a semicolon, not a Script body. An ordinary
 trait method without a body remains Required; an ordinary function or default
 with a body remains Script. Native type fields reuse ordinary field syntax,
 including visibility, `val`/`var`, attributes and generic type references.
-Structured, external and ordinary project inputs use the same static checks;
-`native` declares an external implementation without requiring it to be bound during
-analysis or compilation. Execution still requires supported executable operations
-and matching implementations at linking. Syntax alone installs no Rust callback or
-storage/field adapter. The AST stores Native types as `NativeTypeDef`, not an opaque
-alias or an associated type.
+`Player` denotes a handle to externally owned state, not a script struct:
+`host.score` reads a declared field, but `Player { score: 0 }` cannot create
+a handle. Structured registrations and ordinary source use the same type checks.
+A checked declaration alone installs no callback, storage or field adapter;
+[executable admission](standard-declarations.md#source-visible-declarations-and-executable-evidence)
+requires the Host schema from registration.
+
+In a trait, `fn f(self);` is required, `fn f(self) { ... }` supplies a Script
+default, and `native fn f(self);` declares a Native default. An impl may
+inherit either default or provide a signature-compatible member. There is no
+`final` modifier. Host argument passing and storage access are binding contracts,
+not syntax on `native type` or its uses. See [default methods](traits.md#default-methods).
 
 ### Modules and Imports
 
@@ -591,7 +615,7 @@ Notes:
   space; ambiguous explicit imports remain errors. Named imports bind both available
   categories. Path prefixes select Type; terminals use their syntactic category.
   See [modules](modules.md) for the category table and conflict rules.
-  Declaration parsing and static sidecars do not grant code engine binding authority;
+  Neither an import scope nor a parsed `native` declaration installs a binding;
   see [standard declarations](standard-declarations.md).
 - An inline body creates a child module under the declaring module identity.
   Its public declarations can be reached through qualified paths; child source
@@ -635,15 +659,17 @@ trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" t
 
 supertrait_clause ::= ":" type_bound_list ;
 
-trait_member    ::= attribute* method_sig (";" | block) | associated_type_decl ;
-associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
+trait_member    ::= attribute* (trait_method | associated_type_decl | associated_const_decl) ;
+trait_method    ::= "native" method_sig ";" | method_sig (";" | block) ;
+associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
+associated_const_decl ::= "const" IDENT ":" type ("=" expr)? ";" ;
 
 method_sig      ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Notes:
 
-- trait members are methods and ordinary associated types
+- trait members are methods, associated types and scalar associated constants
 - attributes on trait members are the intended hook for future reflection or security-related metadata
 
 ### Binding and Field Writeability
@@ -864,12 +890,13 @@ impl_block      ::= inherent_impl
 inherent_impl   ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
 trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
-trait_impl_item ::= attribute* method_decl | associated_type_def ;
-associated_type_def ::= "type" IDENT "=" type ";" ;
+trait_impl_item ::= attribute* (method_decl | associated_type_def | associated_const_def) ;
+associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause? ";" ;
+associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
 
 impl_item       ::= attribute* method_decl ;
 
-method_decl     ::= visibility? ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl     ::= visibility? ("native" method_sig ";" | method_sig block) ;
 
 method_param_list
                 ::= receiver_param ("," param_list)? (",")?

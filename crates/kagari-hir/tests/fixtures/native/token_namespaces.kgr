@@ -1,0 +1,7 @@
+pub use self::Kind::Token;
+
+pub struct Token {}
+
+pub enum Kind {
+    Token
+}

@@ -1,5 +1,6 @@
 //! Admission of fixed environments and body inputs from a checked dependency closure.
 
+use self::registration::ExecutionRegistration;
 use crate::{
     CheckedAnalysis,
     collections::HashMap,
@@ -13,14 +14,16 @@ use crate::{
         item::{Item, function::FunctionImplementation as HirImplementation},
         origin::NodeOrigin,
     },
-    lower::LoweredModule,
+    lower::{LoweredModule, ModuleInputKind},
     program::{CheckedProgram, exports::ProgramExports},
+    resolver::resolved::ResolvedName,
     semantic::signatures::FunctionImplementation,
     update_source::{self, SourceBudget, SourceEvidence},
 };
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
+        DefinitionPath,
         map::DefinitionContext,
         mapping::DefinitionMappingError,
         table::{DefinitionId, module::ModuleHandle},
@@ -28,7 +31,15 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::declaration::TraitDef;
+use kagari_types::{
+    declaration::{
+        TypeDeclaration,
+        path::{HostPathDeclaration, NativePathOperation},
+    },
+    reference::ReferenceAccess,
+};
+
+mod registration;
 
 /// Failure to admit a checked source closure for elaboration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,6 +48,8 @@ pub enum AdmissionError {
     Cancelled,
     /// The checked envelope lacks a required module/signature invariant.
     InvalidModule(&'static str),
+    /// A source-declared Host type has no independent executable schema.
+    MissingHostSchema(DefinitionPath),
     /// Static provenance exceeded its shared budget or contained an invalid scoped fact.
     Provenance(DefinitionMappingError),
     /// A source body lacks matching ownership or positive completion evidence.
@@ -49,6 +62,7 @@ pub enum AdmissionError {
 /// An absent body is never interpreted as native by lookup. Ordinary Script defaults
 /// retain checked bodies; Native declarations retain only their static contracts.
 pub struct CheckedModule<'a> {
+    registration: ExecutionRegistration,
     handle: ModuleHandle,
     lowered: &'a LoweredModule,
     implementations: HashMap<ImplId, ImplementationInput<'a>>,
@@ -58,14 +72,51 @@ pub struct CheckedModule<'a> {
 }
 
 impl<'a> CheckedModule<'a> {
+    /// Host schemas owned by this module's retained registration, in checked definition scope.
+    /// Other owners' schemas must be obtained from their defining modules.
+    pub fn registered_host_schemas(&self) -> &[TypeDeclaration] {
+        &self.registration.host_schemas
+    }
+
+    /// Executable paths of the retained registration, never source member selections.
+    pub fn registered_host_paths(&self) -> &[HostPathDeclaration] {
+        &self.registration.host_paths
+    }
+
+    /// Executable registration requirement, independent of source method selection.
+    pub fn registered_receiver_loan(&self, declaration: DefinitionId) -> Option<ReferenceAccess> {
+        self.registration.receiver_loans.get(&declaration).copied()
+    }
+
+    /// Exact path backing a registered Native entry; not a source-level field or method policy.
+    pub fn registered_path_operation(
+        &self,
+        declaration: DefinitionId,
+    ) -> Option<&NativePathOperation> {
+        self.registration.path_operations.get(&declaration)
+    }
+
     fn admit(
         module: &'a CheckedAnalysis,
+        program: &CheckedProgram,
         cancel: &CancellationToken,
         budget: &mut SourceBudget<'_>,
     ) -> Result<Self, AdmissionError> {
         for declaration in &module.lowered.module.native_types {
             cancel.check().map_err(|_| AdmissionError::Cancelled)?;
-            if !declaration.fields.is_empty() && declaration.host.is_none() {
+            if declaration.is_host && module.lowered.input_kind == ModuleInputKind::Source {
+                let id = module
+                    .declarations
+                    .definition(ResolvedName::NativeType(declaration.id))
+                    .ok_or(AdmissionError::InvalidModule("missing Host type identity"))?;
+                let path = module
+                    .definitions()
+                    .resolve(*id)
+                    .map_err(|_| AdmissionError::InvalidModule("invalid Host type identity"))?
+                    .to_path();
+                return Err(AdmissionError::MissingHostSchema(path));
+            }
+            if !declaration.fields.is_empty() && !declaration.is_host {
                 return Err(AdmissionError::InvalidModule(
                     "Native interface fields have no executable adapters",
                 ));
@@ -77,7 +128,16 @@ impl<'a> CheckedModule<'a> {
             .ok_or(AdmissionError::InvalidModule(
                 "module identity missing from checked scope",
             ))?;
+        let provider = program.registrations.get(&handle);
+        if provider.is_some() != (module.lowered.input_kind == ModuleInputKind::Structured) {
+            return Err(AdmissionError::InvalidModule("registration owner mismatch"));
+        }
         let mut result = Self {
+            registration: ExecutionRegistration::project(
+                provider.map(AsRef::as_ref),
+                module.definitions(),
+                cancel,
+            )?,
             handle,
             lowered: &module.lowered,
             implementations: HashMap::default(),
@@ -285,12 +345,6 @@ impl<'a> CheckedModule<'a> {
         DeclarationHeaders::new(&self.lowered.module)
     }
 
-    /// Returns this importer's registered expectations, not the defining modules' current ABIs.
-    /// Identities belong to the checked environment; these entries do not declare traits.
-    pub fn trait_references(&self) -> &'a [(DefinitionId, TraitDef)] {
-        &self.lowered.trait_references
-    }
-
     /// Borrows authored ownership and checked static initializer evidence.
     ///
     /// HIR projects these facts once under the complete compilation's shared
@@ -448,7 +502,7 @@ impl<'a> CheckedCompilation<'a> {
         let mut root = None;
         let mut budget = SourceBudget::new(cancel);
         for module in program.modules() {
-            let admitted = CheckedModule::admit(module, cancel, &mut budget)?;
+            let admitted = CheckedModule::admit(module, program, cancel, &mut budget)?;
             if module.lowered.source.id() == program.root().lowered.source.id() {
                 root = Some(admitted.handle);
             }

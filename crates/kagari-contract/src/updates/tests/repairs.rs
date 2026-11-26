@@ -298,6 +298,7 @@ fn checked_shared_native_registration_and_unknown_callbacks_are_supported() {
         callables: vec![],
     };
     let declaration = NativeDeclaration {
+        path_operation: None,
         concrete_result: None,
         declaration: identity.declaration,
         function: FnDecl {

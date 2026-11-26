@@ -34,7 +34,6 @@ mod asynchronous;
 mod calls;
 mod closures;
 mod constructors;
-mod host_access;
 mod methods;
 mod patterns;
 mod places;
@@ -48,20 +47,6 @@ mod numeric;
 mod operators;
 mod solving;
 mod standard;
-
-#[derive(Clone)]
-enum HostPathNode<Id> {
-    Member { node: Id, name: String },
-    Index { node: Id, argument: ExprId },
-}
-
-impl<Id: Copy> HostPathNode<Id> {
-    fn id(&self) -> Id {
-        match self {
-            Self::Member { node, .. } | Self::Index { node, .. } => *node,
-        }
-    }
-}
 
 #[derive(Clone)]
 enum LoopResult {
@@ -310,11 +295,6 @@ impl<'a> BodyChecker<'a> {
             return ty;
         }
 
-        if let Some(ty) = self.infer_host_path_read(expr_id, env) {
-            env.exprs.insert(expr_id, ty.clone());
-            self.type_table.insert_expr(expr_id, ty.clone());
-            return ty;
-        }
         if let Some(ty) = self.infer_local_function_value(expr_id, env, expected) {
             return ty;
         }

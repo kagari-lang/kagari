@@ -57,17 +57,20 @@ MIR options. Export derives metadata from the exact seal, while editable/importe
 artifacts remain untrusted and independently validated. Caller cancellation is
 carried by lowering options through source checking and preparation admission.
 
-Default Native registration input is structured, without a declaration parse or authored source
-surface. `Compilation` retains immutable compilation inputs independently of an optional complete
-source package. Ordinary compilation and artifact export work without that package;
+SDK compilation always consumes Native registrations structurally, even when the host
+opts into file publication with `builder.declaration_cache(path)`. `Compilation` retains
+immutable compilation inputs independently of an optional complete source package.
+Ordinary compilation and artifact export work without that package;
 `ArtifactOptions::retain_source = true` instead requires a complete compiler-captured manifest and
 returns `EmbeddingError::SourcePackage { error: SourcePackageError::MissingManifest }` when absent.
-A navigation document cannot retroactively authorize a complete implementation-source package.
-Explicit materialized registration views retain the existing checked parsed-source route.
+Publishing navigation documents does not supply the missing manifest. Whole-file updates
+can still use the retained compilation inputs. For the explicit tooling request, see
+[engine source presentation](standard-declarations.md#engine-source-presentation).
 
 [Declaration inputs](standard-declarations.md#declaration-analysis-inputs) use common
-binding-free HIR facts and static checks, whether structured, parsed external or
-ordinary source. Native means externally implemented, not installed. A checked
+binding-free HIR facts and static checks, whether lowered directly from registration or parsed from source.
+The editor supplies generated `.kgr` in the source snapshot with its import scopes,
+not as an attachment to a registration. Native means externally implemented, not installed. A checked
 complete program can enter compilation without Rust entries; supported-operation
 checks still apply, and loading/linking independently rejects missing demanded
 implementations, duplicate/conflicting bindings and contract mismatches. Runtime's
@@ -75,7 +78,9 @@ real `NativeBinding` values remain local installation data, never HIR authority.
 
 [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs) retains explicit
 [import scopes](../../crates/kagari-hir/src/imports/environment.rs) alongside declaration
-inputs for independent replay. `AnalysisDatabase::set_import_environment` replaces
+inputs for independent replay. It retains core documents and scoped registrations;
+project and generated documents belong to the separate `SourceSnapshot`.
+`AnalysisDatabase::set_import_environment` replaces
 package alias, dependency and prelude selections for subsequent requests and resets
 the provider/settings fingerprint. An old snapshot keeps its original selections.
 Static metadata and these scopes do not bypass visibility, bounds, coherence or
@@ -85,8 +90,9 @@ origins and instruction-checked body records establish internal materialization
 provenance, not semantic authentication. [Runtime Script authentication](../../crates/kagari-runtime/src/native/registry/scripts.rs)
 compares actual bytecode call/value traces against the independently installed canonical
 ScriptExpr and function contract, applying binders and normalizing associated outputs
-through the checked impl. Final Script library methods fail closed when that canonical
-expression is absent; portable metadata, signatures or digests cannot replace it. See
+through the checked impl. A signature-compatible explicit override is legal; a
+body claiming to inherit an installed Script default must match that canonical
+expression. Portable metadata, signatures or digests cannot replace it. See
 [checked contracts](standard-declarations.md#checked-executable-contracts).
 
 Source options propagate cancellation through checking, lowering and bytecode
@@ -107,8 +113,8 @@ Compiler/SDK production targets do not depend on analyzer; lint owns its own pri
 A new analysis request computes the stages it needs from its supplied source
 snapshot and current analysis settings, even when the source is unchanged. It
 does not consult earlier source parses, lowerings or checked facts. Native
-registration preparation can retain validated inputs and an explicitly supplied
-presentation parse, but not prior HIR. Reading a retained analysis through
+registration preparation can retain validated metadata, but no presentation parse
+or prior HIR. A generated document is parsed as part of the editor’s request. Reading a retained analysis through
 `.queries()` is not a new analysis request. See the
 [HIR query contract](../architecture/hir.md#query-work-reuse-and-publication).
 
@@ -154,10 +160,11 @@ collects local bindings, checks bodies or evaluates constants. These queries are
 body-independent tools; their results cannot be passed to code generation.
 `SignatureQueries::definition_at(byte_offset)` follows declaration sites and
 checked signature type names, including imported source and shared external types.
-External type references select only the terminal name, including through aliases;
-qualifiers and separators have no type target. The declaration's scoped identity
-resolves its schema through `Declarations::external_type`. It does not
-offer body-reference navigation before that body has been analyzed.
+In `game::api::Player`, only the `Player` token selects the type declaration;
+`game`, `api` and `::` do not select `Player`. This follows the path syntax for
+both ordinary native objects and external Host types, including through aliases.
+A definition query returns the declaration, not a Host schema or Rust adapter.
+Signature queries do not offer body-reference navigation before body analysis.
 Full `analyze` and compilation enforce the same language semantics.
 
 `analyze_source(source, cancel)` and `analyze_package(inputs, cancel)` retain a
@@ -236,8 +243,8 @@ to enclosing generic parameters while a template is being analyzed.
 IR generation consumes this semantic fact. A user
 binding with a helper's spelling is resolved as that binding; it does not acquire
 the helper's behavior. An unresolved or invalid call
-still prevents code generation. Trait-call analysis does not yet imply executable
-interface dispatch, which requires the planned linked implementation tables.
+still prevents code generation. A checked method identity is not an executable dispatch slot; linking must
+verify the applied implementation table and its targets.
 
 `TypeTable::field_type`, `expr_field`, `place_field` and `struct_init` provide the
 checked field facts. A HIR field slot is qualified by its `FieldOwner` (Script struct or Native
@@ -263,10 +270,10 @@ trait-owned type identity, distinct from an ordinary parameter named Self.
 Impl ABI types and interface validation
 consume type-reference facts instead of reinterpreting HIR type syntax.
 
-LoweredModule owns its source origin. Lowering accepts SourceFile; the origin-free
-AST lowering and standalone type-check entry were removed. Analysis collects
-declarations before checking types. Executable type layouts and linked ABI
-identities remain separate unfinished R07/R08 work.
+A `LoweredModule` retains either the authored source or a structured registration’s
+logical file key. Only the former supplies syntax and physical ranges. Analysis
+collects declarations before checking types; executable layouts and binding
+contracts are separate from these navigation facts.
 
 Script generic functions are templates, including public source-package functions. Calls infer their parameters structurally
 from argument types and check declared bounds. Missing arguments produce
@@ -299,14 +306,14 @@ Cold declarations can be read, encoded, adopted and compared without creating a
 runtime or executing a callback. Source-free loading verifies the required native
 contracts and installed schemas before script execution. See
 [the shared registration contract](host-interop.md#type-registration) and the
-[private source-trait example](../../crates/kagari/examples/host_interfaces.rs).
+[public source-trait binding example](../../crates/kagari/examples/host_interfaces.rs).
 
 `FileQueries::field_at(offset)` returns the checked field identity for source and
 shared external fields in reads and assignment paths. Only the field name selects
 that identity; the receiver and `.` return `None`, including for a rejected write
 path. Resolve the identity through the snapshot's retained definition table and
-the owning schema. An external field need not have a source declaration location.
-This query reads checked offline facts and does not invoke a callback.
+the owning field declaration. A structured field need not have a source location.
+This query does not select a storage path or invoke a callback.
 
 `FileQueries::definition_at(offset)` applies the same name-only rule to checked
 source field reads, writes and method calls. A receiver position resolves its own
@@ -331,8 +338,8 @@ known label remains navigable when another initializer field or value is
 invalid. Unknown labels have no declaration target, and code generation still
 rejects the invalid initializer.
 
-Type references retain their full span for `type_at`, while declaration and
-offline host-type queries select only the terminal CST name. For `lib::Box<T>`,
+Type references retain their full span for `type_at`, while declaration
+queries select only the terminal CST name. For `lib::Box<T>`,
 `Box` has the checked type target; `lib`, `::`, `<` and `>` do not inherit it.
 Nested type arguments keep their own targets. This also applies to trait bounds,
 where targets and explicit constructor type arguments.
@@ -405,7 +412,8 @@ Analysis-scoped binding handles still carry their own body/analysis identity. HI
 local IDs explicitly name the body that owns each node. `BodyOwner` is defined in
 `kagari_hir::hir::ids` and is shared by lowering and semantic binding owners.
 
-`FieldId` and `VariantId` contain their lowering arena, owning struct/enum and
+`FieldId` and `VariantId` contain their lowering arena, owning declaration
+(Script struct or Native type for fields; enum for variants), and
 declaration-order slot, exposed through `arena()`, `owner()` and `slot()`. They
 cannot be constructed from public integers. Member lookup rejects foreign IDs;
 checked field types use the request's current arena. A variant's nominal

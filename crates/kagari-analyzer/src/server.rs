@@ -1,5 +1,6 @@
 //! Synchronous transport orchestration; protocol and document policy live in the session.
 use crate::session::{Action, Session};
+use kagari_analyzer::workspace::EditorWorkspace;
 use kagari_source::source_database::SourceDatabase;
 use lsp_server::Connection;
 use std::{
@@ -14,7 +15,7 @@ pub(crate) fn run_stdio() -> io::Result<ExitCode> {
         .to_str()
         .ok_or_else(|| Error::other("working directory is not UTF-8"))?;
     let source = SourceDatabase::new(root).map_err(Error::other)?;
-    let mut session = Session::new(source);
+    let mut session = Session::new(EditorWorkspace::new(source).map_err(Error::other)?);
     let (connection, threads) = Connection::stdio();
     let status = drive(&connection, &mut session)?;
     drop(connection);

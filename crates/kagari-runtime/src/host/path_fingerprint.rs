@@ -3,8 +3,8 @@ use kagari_contract::representation::semantic_representation;
 
 use crate::{
     error::RuntimeError,
-    host::{HostPathDescriptorRegistration, HostPathSegment, HostRegistry},
-    metadata::{AbiFingerprint, TypeRegistry},
+    host::{HostPathAdapter, HostPathDescriptorId, HostPathSegment, HostRegistry},
+    metadata::{TypeId, TypeRegistry},
     module::{LinkedHostBindings, admission::DefinitionAdmission},
 };
 use kagari_abi::representation::ValueType;
@@ -16,13 +16,34 @@ use kagari_types::{
 };
 use std::collections::HashMap;
 
-impl HostRegistry {
-    pub(crate) fn link_module(
+/// Exact, runtime-local bindings of this importer's verified portable requirements.
+/// Used only while linking; invocations retain the selected descriptor, not the map.
+#[derive(Default)]
+pub(crate) struct AdmittedPaths<'a> {
+    entries: HashMap<&'a HostPathDeclaration, (HostPathDescriptorId, &'a HostPathAdapter)>,
+}
+
+impl AdmittedPaths<'_> {
+    pub(crate) fn for_operation(
         &self,
-        module: &BytecodeModule,
+        path: &HostPathDeclaration,
+    ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let (id, adapter) = self.entries.get(path).ok_or_else(|| {
+            RuntimeError::typed_path_validation("native operation lacks its required path binding")
+        })?;
+        adapter.check_access(path.access)?;
+        Ok(*id)
+    }
+}
+
+impl HostRegistry {
+    pub(crate) fn link_module<'a>(
+        &'a self,
+        module: &'a BytecodeModule,
         types: &TypeRegistry,
         admission: &DefinitionAdmission,
-    ) -> Result<LinkedHostBindings, RuntimeError> {
+    ) -> Result<(LinkedHostBindings, AdmittedPaths<'a>), RuntimeError> {
+        let mut admitted = AdmittedPaths::default();
         let definitions = admission.source();
         for (required, contract) in module
             .path_contracts(definitions)
@@ -31,21 +52,21 @@ impl HostRegistry {
             let fingerprint = contract
                 .fingerprint(definitions)
                 .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
-            let required = admission.runtime(required, &Default::default())?;
-            if self
+            let adopted = admission.runtime(required, &Default::default())?;
+            let mut candidates = self
                 .path_descriptors()
-                .filter(|path| {
-                    path.abi_fingerprint.0 == fingerprint
-                        && path.declaration == required
-                        && self.path_adapters.contains_key(&path.id)
-                })
-                .count()
-                != 1
-            {
-                return Err(RuntimeError::typed_path_validation(
+                .filter(|path| path.abi_fingerprint.0 == fingerprint && path.declaration == adopted)
+                .filter_map(|path| Some((path.id, self.path_adapters.get(&path.id)?)));
+            let mismatch = || {
+                RuntimeError::typed_path_validation(
                     "required path has missing or ambiguous installed bindings",
-                ));
+                )
+            };
+            let binding = candidates.next().ok_or_else(mismatch)?;
+            if candidates.next().is_some() {
+                return Err(mismatch());
             }
+            admitted.entries.insert(required, binding);
         }
         let mut host_types = HashMap::new();
         for required in &module.external_types {
@@ -135,11 +156,14 @@ impl HostRegistry {
                 }
             }
         }
-        Ok(LinkedHostBindings {
-            types: host_types,
-            paths,
-            native: vec![],
-        })
+        Ok((
+            LinkedHostBindings {
+                types: host_types,
+                paths,
+                native: vec![],
+            },
+            admitted,
+        ))
     }
 
     pub(super) fn path_contract(
@@ -152,26 +176,14 @@ impl HostRegistry {
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
     }
 
-    pub(super) fn path_fingerprint(
+    pub(super) fn checked_descriptor_contract(
         &self,
-        registration: &HostPathDescriptorRegistration,
+        declaration: &HostPathDeclaration,
+        result_type: TypeId,
         segments: &[HostPathSegment],
         types: &TypeRegistry,
-    ) -> Result<AbiFingerprint, RuntimeError> {
-        let root = self
-            .type_declarations
-            .iter()
-            .find_map(|(declaration, id)| (*id == registration.root_type).then_some(*declaration))
-            .ok_or_else(|| RuntimeError::typed_path_validation("missing path root contract"))?;
-        let contract = self.path_contract(
-            &HostPathDeclaration {
-                root,
-                segments: registration.segments.clone(),
-                access: registration.access,
-                schema_epoch: registration.schema_epoch.0,
-            },
-            types,
-        )?;
+    ) -> Result<HostPathContract, RuntimeError> {
+        let contract = self.path_contract(declaration, types)?;
         let portable_type = |id| {
             self.type_declarations
                 .iter()
@@ -181,7 +193,7 @@ impl HostRegistry {
                     RuntimeError::typed_path_validation("path type has no portable contract")
                 })
         };
-        if portable_type(registration.result_type)? != contract.result
+        if portable_type(result_type)? != contract.result
             || segments.len() != contract.segments.len()
         {
             return Err(RuntimeError::typed_path_validation(
@@ -189,25 +201,35 @@ impl HostRegistry {
             ));
         }
         for (physical, declared) in segments.iter().zip(&contract.segments) {
-            let input = match physical {
-                HostPathSegment::Field { owner_type, .. } => HostPathInput::Field {
-                    owner: portable_type(*owner_type)?,
-                },
-                HostPathSegment::Index {
-                    slot,
-                    collection_type,
-                    index_type,
-                    ..
-                } => HostPathInput::Index {
-                    slot: slot.index() as u64,
-                    collection: portable_type(*collection_type)?,
-                    index: portable_type(*index_type)?,
-                },
-                HostPathSegment::Virtual { name, .. } => {
-                    HostPathInput::Virtual { name: name.clone() }
+            let input_matches = match (physical, &declared.input) {
+                (HostPathSegment::Field { owner_type, .. }, HostPathInput::Field { owner, .. }) => {
+                    portable_type(*owner_type)? == *owner
                 }
+                (
+                    HostPathSegment::Index {
+                        slot,
+                        collection_type,
+                        index_type,
+                        ..
+                    },
+                    HostPathInput::Index {
+                        slot: declared_slot,
+                        collection,
+                        index,
+                    },
+                ) => {
+                    slot.index() as u64 == *declared_slot
+                        && portable_type(*collection_type)? == *collection
+                        && portable_type(*index_type)? == *index
+                }
+                (
+                    HostPathSegment::Virtual { name, .. },
+                    HostPathInput::Virtual { name: declared },
+                ) => name == declared,
+                _ => false,
             };
-            if input != declared.input
+            if !input_matches
+                || physical.abi_fingerprint().0 != declared.member_fingerprint
                 || portable_type(physical.result_type())? != declared.result
                 || physical.access() != declared.access
             {
@@ -216,9 +238,6 @@ impl HostRegistry {
                 ));
             }
         }
-        contract
-            .fingerprint(&self.definitions())
-            .map(AbiFingerprint)
-            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
+        Ok(contract)
     }
 }

@@ -7,7 +7,7 @@ use crate::{
         ExecutableModule, ModuleEpochRetention, managed::source::RevisionSource,
         retention::ProgramLease,
     },
-    native::binding::NativeResult,
+    native::{binding::NativeResult, storage::NativeStorage},
 };
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::marker::PhantomData;
@@ -44,7 +44,7 @@ impl<T: Send + 'static> RustType<T> {
     ) -> NativeResult<Self> {
         runtime.resources().ensure_execution_allowed()?;
         runtime.validate_executable_module(owner)?;
-        check_mapping::<T>(runtime, owner, &argument)?;
+        mapped_storage::<T>(runtime, owner, &argument)?;
         let program = runtime
             .retain_program(owner, ModuleEpochRetention::RuntimeValue, origin)
             .ok_or_else(invalid)?;
@@ -57,31 +57,25 @@ impl<T: Send + 'static> RustType<T> {
     }
 }
 
-pub(crate) fn check_mapping<T: Send + 'static>(
-    runtime: &Runtime,
+pub(crate) fn mapped_storage<'a, T: Send + 'static>(
+    runtime: &'a Runtime,
     owner: &ExecutableModule,
     expected: &TypeArgument,
-) -> NativeResult<()> {
+) -> NativeResult<&'a NativeStorage> {
     runtime.resources().ensure_execution_allowed()?;
     runtime.validate_executable_module(owner)?;
     expected.validate(runtime)?;
-    match expected.ty() {
-        Ty::NativeObject(nominal) => {
-            if runtime
-                .native_entries
-                .storage
-                .get_id(nominal.declaration)
-                .is_none_or(|storage| {
-                    storage.layout() != NativeStorageLayout::Opaque
-                        || !storage.accepts_payload::<T>()
-                })
-            {
-                return Err(invalid());
-            }
-        }
-        _ => return Err(invalid()),
-    }
-    Ok(())
+    let Ty::NativeObject(nominal) = expected.ty() else {
+        return Err(invalid());
+    };
+    runtime
+        .native_entries
+        .storage
+        .get_id(nominal.declaration)
+        .filter(|storage| {
+            storage.layout() == NativeStorageLayout::Opaque && storage.accepts_payload::<T>()
+        })
+        .ok_or_else(invalid)
 }
 
 fn invalid() -> RuntimeError {

@@ -20,7 +20,9 @@ pub fn identity<T>(value: T) -> T {
 
 pub trait Read {
     type Item;
+
     fn read(self) -> Self::Item;
+
     fn answer(self) -> i32 {
         42
     }
@@ -28,17 +30,23 @@ pub trait Read {
 
 impl<T> Counter<T> where T: Read {
     pub native fn new(value: T) -> Counter<T>;
+
     pub native fn inspect(self, first: List<T>, second: Counter<T>) -> T;
 }
 
 impl<T> Read for Counter<T> where T: Read {
     type Item = T;
+
     native fn read(self) -> T;
 }
 
 pub native fn collect<T: Read<Item = i32>>(value: Counter<T>) -> List<T>;
 
 mod nested {
-    native type Handle;
+    native host type Handle;
+    native type host;
+    pub native host type Player {
+        pub val host: host,
+    }
     type Count = i32;
 }

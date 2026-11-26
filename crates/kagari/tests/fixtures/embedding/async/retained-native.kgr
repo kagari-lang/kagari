@@ -1,0 +1,11 @@
+use sample::{make, read};
+
+use test::async_sdk::request;
+
+pub fn cold(seed: i32) -> Future<i32> {
+    val token = make(seed);
+    async {
+        val response = request(13).await;
+        read(token) + response
+    }
+}

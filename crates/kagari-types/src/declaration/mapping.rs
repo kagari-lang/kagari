@@ -379,6 +379,11 @@ impl RemapDefinitions for NativeDeclaration {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(NativeDeclaration {
+            path_operation: self
+                .path_operation
+                .as_ref()
+                .map(|op| op.remap_definitions(mapper))
+                .transpose()?,
             concrete_result: self
                 .concrete_result
                 .as_ref()
@@ -400,6 +405,9 @@ impl DefinitionReferences for NativeDeclaration {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        if let Some(op) = &self.path_operation {
+            op.visit_definition_ids(visit, cancel)?;
+        }
         if let Some(value0) = self.concrete_result.as_ref() {
             (value0).visit_definition_ids(visit, cancel)?;
         }

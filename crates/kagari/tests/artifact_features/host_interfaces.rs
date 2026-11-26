@@ -30,7 +30,9 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     host::{HostError, HostObjectId},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, conversion::context::ConversionContext, host, types::Type},
+    native::{
+        conversion::context::ConversionContext, declarations::FunctionDecl, host, types::Type,
+    },
     value::{carriers::RootedValue, view::ValueView},
 };
 use kagari_source::source_database::SourceLayer;
@@ -402,15 +404,14 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
 #[test]
 fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
     let source = "pub trait Describe<T> { fn number(self) -> i32; } pub trait Reader { type Item: Describe<Self>; } use demo::Counter; fn accept(value: Counter) {} fn main() -> i32 { 42 }";
-    let contract = common::source_contract(source.split(" use demo").next().unwrap(), None);
-    let source_identity = contract.records().program.modules
-        [contract.records().program.root.index()]
-    .identity
-    .clone();
-    let catalog = standard_library().declarations().catalog();
-    let mut module = ModuleBuilder::new("demo", catalog).unwrap();
-    let reader = common::reference_trait(&mut module, &contract, "Reader");
-    let describe = common::reference_trait(&mut module, &contract, "Describe");
+    let (mut module, source_identity) =
+        common::pinned_builder(source.split(" use demo").next().unwrap(), None);
+    let reader = module
+        .reference_trait(&common::trait_path(&source_identity, "Reader"))
+        .unwrap();
+    let describe = module
+        .reference_trait(&common::trait_path(&source_identity, "Describe"))
+        .unwrap();
     let mut counter = module.define_type("Counter").unwrap();
     counter
         .external(HostTypePolicy {
@@ -431,17 +432,20 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
     let other = other.finish().unwrap();
     module
         .implement(other.clone(), |group| {
+            let receiver = group.receiver();
             group.trait_impl(describe.apply([counter.apply([])?])?, |methods| {
-                methods.host_policy(
-                    "number",
-                    HostCallPolicy {
-                        passing: vec![HostPassingStyle::SharedBorrow],
-                        effects: Default::default(),
-                    },
-                )?;
-                methods.bind(
-                    "number",
-                    host::callback(|_, _| panic!("cold bound checking called Rust")),
+                let method_policy = HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: Default::default(),
+                };
+                methods.define_method(
+                    FunctionDecl::new("number")
+                        .parameter("self", receiver)
+                        .returns(Type::i32())
+                        .host_policy(method_policy.clone()),
+                    host::callback(method_policy, |_, _| {
+                        panic!("cold bound checking called Rust")
+                    }),
                 )
             })
         })

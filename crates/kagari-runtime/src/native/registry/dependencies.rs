@@ -7,6 +7,7 @@ use crate::{
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity,
+    map::DefinitionMap,
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::types::{
@@ -26,7 +27,7 @@ use kagari_types::{
     range::RangeKind,
     ty::Ty,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 /// Only follow the requesting module's verified edges. A layout in that module,
 /// or a declaration in another branch of the program, is not an imported owner.
@@ -207,6 +208,7 @@ fn validate_constructor(
 /// contracts. This never authorizes a native function or storage provider.
 pub(super) fn validate_installed_traits(
     installed: &DeclarationCatalog,
+    pins: &DefinitionMap<TraitDef>,
     module: &BytecodeModule,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
@@ -257,7 +259,7 @@ pub(super) fn validate_installed_traits(
             )));
         }
         let valid = if let Some(id) = id
-            && let Some(expected) = installed.traits.get_id(id)
+            && let Some(expected) = installed.traits.get_id(id).or_else(|| pins.get_id(id))
         {
             let actual = admission.runtime(contract, &Default::default())?;
             matching::trait_contract(id, expected, &actual, &definitions)
@@ -282,6 +284,12 @@ pub(super) fn validate_installed_traits(
     }
     for contract in &module.trait_contracts {
         let id = admission.runtime_id(contract.declaration)?;
+        if pins.get_id(id).is_some() {
+            return Err(RuntimeError::module_validation(format!(
+                "pinned source trait must be public: {}",
+                contract.abi.name
+            )));
+        }
         let valid = if let Some(expected) = installed.traits.get_id(id) {
             matching::trait_contract(
                 id,
@@ -317,14 +325,16 @@ pub(super) fn validate_installed_traits(
 /// Linked verification already matched every unique carried reference to its reachable
 /// owner. The compiler may add private interface requirements beyond this installed subset.
 pub(super) fn validate_expected_traits(
-    expected: &BTreeMap<DefinitionId, TraitDef>,
+    expected: &BTreeSet<DefinitionId>,
+    pins: &DefinitionMap<TraitDef>,
     module: &BytecodeModule,
     admission: &DefinitionAdmission,
 ) -> Result<(), RuntimeError> {
     let mut matched = 0;
     for reference in &module.trait_references {
-        if let Some(required) = expected.get(&admission.runtime_id(reference.declaration)?)
-            && &admission.runtime(&reference.abi, &Default::default())? == required
+        let id = admission.runtime_id(reference.declaration)?;
+        if expected.contains(&id)
+            && pins.get_id(id) == Some(&admission.runtime(&reference.abi, &Default::default())?)
         {
             matched += 1;
         }
@@ -604,11 +614,11 @@ mod tests {
         let identity = Protocol::Ord.module();
         let cmp = sources
             .iter()
-            .find(|m| m.source.module_identity() == &identity)
+            .find(|m| m.module_identity() == &identity)
             .unwrap();
         let mut db = AnalysisDatabase::default();
         let snapshot = db.snapshot(Default::default(), &cancel).unwrap();
-        let checked = snapshot.check_program(cmp.source.id(), &cancel).unwrap();
+        let checked = snapshot.check_program(cmp.id(), &cancel).unwrap();
         let input = CheckedCompilation::from_program(&checked, &cancel).unwrap();
         let items = module_contract(input.module(input.root()).unwrap(), &cancel)
             .unwrap()

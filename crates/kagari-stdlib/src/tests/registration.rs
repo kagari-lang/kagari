@@ -85,7 +85,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
                 receiver => panic!("unexpected standard Default target {receiver:?}"),
             };
             let expected_owner = match name.as_str() {
-                "String" => namespaces::module("std", "string"),
+                "String" => namespaces::module("alloc", "string_defaults"),
                 "Char" => namespaces::module("core", "char"),
                 _ => namespaces::module("core", "num"),
             };
@@ -170,7 +170,7 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = test_library::standard().declarations().to_vec();
     let second = test_library::standard().declarations().to_vec();
-    assert_eq!(first.len(), 22); // Authored owners are not native providers.
+    assert_eq!(first.len(), 23); // Authored owners are not native providers.
     for retired in [
         namespaces::module("core", "host"),
         namespaces::module("std", "host"),
@@ -247,7 +247,9 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
         assert!(module.records().concrete_results.is_empty());
         let owner = &module.records().identity;
         assert_ne!(owner.path, ["__foundation"]);
-        if owner.package.0 == "std" {
+        if owner.package.0 == "std"
+            || (module.records().types.is_empty() && module.records().traits.is_empty())
+        {
             continue;
         }
         let facade = first

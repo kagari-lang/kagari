@@ -3,13 +3,16 @@ use crate::{
     Runtime,
     error::RuntimeError,
     host::{
-        DynamicPathArgument, DynamicPathArguments, HostCallContext, HostPathAdapter,
-        HostPathContext, HostPathDescriptorId, HostPathMutationRecord, HostPathOperation,
-        apply_path_modify, path_scope_error,
+        DynamicPathArgument, DynamicPathArguments, HostBorrowKind, HostCallContext,
+        HostPathAdapter, HostPathContext, HostPathDescriptorId, HostPathMutationRecord,
+        HostPathOperation, path_scope_error,
     },
-    value::{carriers::RootedValue, view::ValueView},
+    numeric,
+    value::{carriers::RootedValue, scalar, view::ValueView},
 };
 use kagari_bytecode::instruction::BinaryOp;
+use kagari_contract::numeric::NumericOperation;
+use kagari_types::{integer::IntegerOp, scalar::BuiltinType};
 
 impl Runtime {
     pub fn read_host_path(
@@ -148,8 +151,7 @@ impl<'call> HostCallContext<'call> {
             arguments,
             HostPathOperation::Read,
         )?;
-        self.borrows()
-            .borrow_shared(context.root.object_id(), context.root.type_id())?;
+        self.borrow_root(context.root, HostBorrowKind::Shared)?;
         let adapter = self.runtime().host.path_adapter(context.descriptor.id)?;
         validate_path_operation(&adapter, self, &context, HostPathOperation::Read, None)?;
         let read = adapter
@@ -176,8 +178,7 @@ impl<'call> HostCallContext<'call> {
             HostPathOperation::Set,
         )?;
         self.require_storable(value)?;
-        self.borrows()
-            .borrow_unique(context.root.object_id(), context.root.type_id())?;
+        self.borrow_root(context.root, HostBorrowKind::Unique)?;
         let adapter = self.runtime().host.path_adapter(context.descriptor.id)?;
         validate_path_operation(
             &adapter,
@@ -225,8 +226,7 @@ impl<'call> HostCallContext<'call> {
             HostPathOperation::Modify(operation),
         )?;
         self.require_storable(value)?;
-        self.borrows()
-            .borrow_unique(context.root.object_id(), context.root.type_id())?;
+        self.borrow_root(context.root, HostBorrowKind::Unique)?;
         let adapter = self.runtime().host.path_adapter(context.descriptor.id)?;
         validate_path_operation(
             &adapter,
@@ -242,7 +242,12 @@ impl<'call> HostCallContext<'call> {
         let old_value = read(self, &context)
             .map_err(|error| invalid(format!("host path modify read failed: {error}")))?;
         let old_value = self.protect(&old_value)?;
-        let new_value = apply_path_modify(operation, old_value, *value)?;
+        let new_value = apply_path_modify(
+            context.descriptor.numeric_leaf,
+            operation,
+            old_value,
+            *value,
+        )?;
         commit_path_write(
             &adapter,
             self,
@@ -259,6 +264,45 @@ impl<'call> HostCallContext<'call> {
         )?;
         Ok(new_value)
     }
+}
+
+fn apply_path_modify<'call>(
+    leaf: Option<BuiltinType>,
+    op: BinaryOp,
+    old: ValueView<'call>,
+    rhs: ValueView<'call>,
+) -> Result<ValueView<'call>, RuntimeError> {
+    let leaf = leaf.ok_or_else(|| invalid("path arithmetic requires a numeric leaf"))?;
+    if !old
+        .scalar_payload()
+        .is_some_and(|value| scalar::matches_builtin_payload(leaf, value))
+    {
+        return Err(invalid(
+            "host path modify read differs from declared leaf type",
+        ));
+    }
+    let operation = match op {
+        BinaryOp::Numeric(operation) => operation,
+        _ if leaf.integer_layout().is_some() => NumericOperation {
+            op: match op {
+                BinaryOp::Add => IntegerOp::CheckedAdd,
+                BinaryOp::Sub => IntegerOp::CheckedSub,
+                BinaryOp::Mul => IntegerOp::CheckedMul,
+                BinaryOp::Div => IntegerOp::CheckedDiv,
+                BinaryOp::Rem => IntegerOp::CheckedRem,
+                _ => return numeric::binary(op, old, rhs),
+            },
+            input: leaf,
+            rhs: Some(leaf),
+        },
+        _ => return numeric::binary(op, old, rhs),
+    };
+    if operation.input != leaf {
+        return Err(invalid(
+            "path arithmetic input differs from declared leaf type",
+        ));
+    }
+    numeric::fixed_integer(operation, old, Some(rhs))
 }
 
 fn validate_path_operation<'call>(

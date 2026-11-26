@@ -65,19 +65,20 @@ fn main() {
     let library = StandardLibrary::new(builder.declarations()).unwrap();
     builder.install_all(library.modules().unwrap()).unwrap();
     let mut module = ModuleBuilder::new("example::reentry", builder.declarations()).unwrap();
+    let notify_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            may_call_host_services: true,
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let notify = module
         .define_function(
             FunctionDecl::new("notify")
                 .parameter("message", Type::scalar(BuiltinType::String))
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        may_call_host_services: true,
-                        may_trap: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(notify_policy.clone()),
         )
         .unwrap();
     let retained = Arc::new(Mutex::new(None));
@@ -85,7 +86,7 @@ fn main() {
     module
         .bind(
             notify,
-            host::callback(move |call, _| {
+            host::callback(notify_policy, move |call, _| {
                 let root = call.runtime().execution_root().unwrap();
                 let scratch = call
                     .convert_value(&root, |cx| {

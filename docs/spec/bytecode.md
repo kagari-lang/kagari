@@ -1205,10 +1205,11 @@ even when numeric module keys or slots coincide. Ordinary call routes select cur
 implementations; created computations and admitted frames/queues retain exact bodies.
 See [activation](module-activation.md) for publication and reclamation boundaries.
 
-Source nominal host types use `ValueType::HostHandle`, separate from `HeapObject`.
-Opaque host call operands/results must match that representation; general equality
-is invalid for it. Host identity remains in `Ty::Host` and the required host
-declaration table, never in a display-string fallback. Signature-only references
+An external `native host type` uses `ValueType::HostHandle`, distinct from the
+`HeapObject` representation of a runtime-owned opaque native object. Host handle
+operands and results must match that representation; neither general equality
+nor heap-object identity comparison is valid for it. `Ty::Host` and the required
+Host declaration table retain nominal identity; display strings are not evidence. Signature-only references
 and member reference closure participate in mandatory linking. This representation
 does not enable storing host handles in default script-owned heap payloads.
 Path table roots and `MakePathView` destinations also require `HostHandle`; path

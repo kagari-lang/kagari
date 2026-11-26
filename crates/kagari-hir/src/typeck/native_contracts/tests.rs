@@ -1,36 +1,23 @@
 use crate::{
-    analysis::{
-        AnalysisDatabase,
-        external::{ExternalFunction, ExternalModule},
-    },
-    hir::item::function::NativeContract,
+    analysis::{AnalysisDatabase, FileAnalysis},
+    hir::item::function::{FunctionImplementation, NativeContract},
+    resolver::resolved::ResolvedName,
 };
-use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
-    metadata::DefinitionMetadata, table::DefinitionId,
-};
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, table::DefinitionId};
 use kagari_source::{
-    diagnostic::{DiagnosticKind, Severity},
+    diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-
 use kagari_types::{
-    callable::{CallableImplementation, MethodPolicy},
-    declaration::{
-        FnDecl, Param,
-        host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
-        module::ModuleDecl,
-        requirement::NativeCallableRequirement,
-    },
+    declaration::requirement::NativeCallableRequirement,
     scalar::BuiltinType,
-    ty::{GenericParam, NominalTy, Ty},
+    ty::{NominalTy, Ty},
 };
 use std::sync::Arc;
 
 struct Fixture {
-    context: DefinitionContext,
-    external: ExternalModule,
-    sources: SourceDatabase,
+    file: Arc<FileAnalysis>,
+    root: DefinitionId,
     box_id: DefinitionId,
     native: DefinitionId,
     read: DefinitionId,
@@ -44,29 +31,48 @@ impl Fixture {
             package: PackageId("contracts".into()),
             path: vec![],
         };
-        let context = DefinitionContext::new().unwrap();
-        let root = context.intern_root(&identity).unwrap();
-        let intern = |kind, name| context.intern_child(root, kind, name, 0).unwrap();
-        let box_id = intern(DefinitionKind::Struct, "Box");
-        let native = intern(DefinitionKind::AssociatedType, "Native");
-        let read = intern(DefinitionKind::Trait, "Read");
-        let good = intern(DefinitionKind::Struct, "Good");
-        let member = context
-            .intern_child(read, DefinitionKind::Method, "read", 0)
+        let mut sources = SourceDatabase::default();
+        sources
+            .bind_module("contracts.kgr", identity.clone())
             .unwrap();
-        let mut exports = SourceDatabase::new("/exports").unwrap();
-        exports.bind_module("contracts.kgr", identity).unwrap();
-        let source = exports
+        // Retain a real definition ID with no declaration in the checked revision.
+        sources
             .set(
                 "contracts.kgr",
-                include_str!("../../../tests/fixtures/typeck/native_contracts.kgr").into(),
+                "pub struct Absent {}".into(),
                 SourceLayer::Base,
             )
             .unwrap();
+        let mut db = AnalysisDatabase::default();
+        let cancel = Default::default();
+        db.declarations(sources.snapshot(), &cancel).unwrap();
+        let source = sources
+            .set(
+                "contracts.kgr",
+                include_str!("../../../tests/fixtures/typeck/native_contracts.kgr").into(),
+                SourceLayer::Overlay,
+            )
+            .unwrap();
+        let snapshot = db.snapshot(sources.snapshot(), &cancel).unwrap();
+        let file = snapshot.file(source).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        let definitions = file.definitions();
+        let root = definitions.lookup_root(&identity).unwrap();
+        let lookup = |kind, name| definitions.lookup_child(root, kind, name, 0).unwrap();
+        let box_id = lookup(DefinitionKind::Struct, "Box");
+        let native = lookup(DefinitionKind::AssociatedType, "Native");
+        let read = lookup(DefinitionKind::Trait, "Read");
+        let good = lookup(DefinitionKind::Struct, "Good");
+        let member = definitions
+            .lookup_child(read, DefinitionKind::Method, "read", 0)
+            .unwrap();
         Self {
-            context,
-            external: ExternalModule::new(exports.snapshot().file(source).unwrap().clone()),
-            sources: SourceDatabase::new("/project").unwrap(),
+            file: file.clone(),
+            root,
             box_id,
             native,
             read,
@@ -76,15 +82,14 @@ impl Fixture {
     }
 
     fn id(&self, kind: DefinitionKind, name: &str) -> DefinitionId {
-        let root = self
-            .context
-            .intern_root(self.external.source.module_identity())
-            .unwrap();
-        self.context.intern_child(root, kind, name, 0).unwrap()
+        self.member(self.root, kind, name)
     }
 
     fn member(&self, owner: DefinitionId, kind: DefinitionKind, name: &str) -> DefinitionId {
-        self.context.intern_child(owner, kind, name, 0).unwrap()
+        self.file
+            .definitions()
+            .lookup_child(owner, kind, name, 0)
+            .unwrap()
     }
 
     fn nominal(&self, declaration: DefinitionId, arguments: Vec<Ty>) -> NominalTy {
@@ -105,7 +110,6 @@ impl Fixture {
     fn contract(&self, receiver: Ty) -> NativeContract {
         NativeContract {
             host_policy: None,
-            receiver_access: None,
             callable_requirements: vec![NativeCallableRequirement {
                 receiver,
                 interface: self.nominal(self.read, vec![]),
@@ -121,35 +125,38 @@ impl Fixture {
     }
 
     fn diagnostics_for(&self, function: &str, contract: NativeContract) -> Vec<DiagnosticKind> {
-        self.diagnostics_at(ExternalFunction::Function(function.into()), contract)
+        self.diagnostics_at(self.id(DefinitionKind::Function, function), contract)
     }
 
     fn diagnostics_at(
         &self,
-        target: ExternalFunction,
+        target: DefinitionId,
         contract: NativeContract,
     ) -> Vec<DiagnosticKind> {
-        let mut external = self.external.clone();
-        external.contracts.insert(
-            target,
-            Arc::new(
-                DefinitionMetadata::checked(self.context.snapshot(), contract, &Default::default())
-                    .unwrap(),
-            ),
-        );
-        let mut db = AnalysisDatabase::new("/project").unwrap();
-        db.set_external_modules(vec![external]);
-        let snapshot = db
-            .snapshot(self.sources.snapshot(), &Default::default())
+        // Exercise the HIR proof checker independently of registration admission,
+        // which rejects some malformed records before they could reach this layer.
+        let facts = self.file.result().facts();
+        let mut lowered = facts.lowered.as_ref().clone();
+        let function = lowered
+            .module
+            .functions
+            .iter_mut()
+            .find(|f| facts.declarations.definition(ResolvedName::Function(f.id)) == Some(&target))
             .unwrap();
-        let file = snapshot.file(self.external.source.id()).unwrap();
-
-        file.result()
-            .diagnostics()
-            .iter()
-            .filter(|d| d.severity == Severity::Error)
-            .map(|d| d.kind.clone())
-            .collect()
+        let FunctionImplementation::Native(slot) = &mut function.implementation else {
+            panic!("expected a Native callable")
+        };
+        *slot = contract;
+        let mut diagnostics = Default::default();
+        super::validate(
+            &lowered,
+            &facts.declarations,
+            self.file.signatures().facts(),
+            &facts.aggregates,
+            &mut diagnostics,
+            &Default::default(),
+        );
+        diagnostics.into_iter().map(|d| d.kind).collect()
     }
 }
 
@@ -199,71 +206,6 @@ fn nominal_contracts_require_exact_arity_category_and_recursive_applications() {
                 .any(|kind| matches!(kind, DiagnosticKind::InvalidNativeSignature { .. })),
             "{name}: {diagnostics:?}"
         );
-    }
-}
-
-#[test]
-fn host_policies_preserve_unused_and_inherited_signature_binders() {
-    let fixture = Fixture::new();
-    let policy = HostCallPolicy {
-        passing: vec![HostPassingStyle::Owned],
-        effects: HostFunctionEffects::default(),
-    };
-    for (target, name, generic) in [
-        (ExternalFunction::Function("plain".into()), "plain", false),
-        (ExternalFunction::Function("scalar".into()), "scalar", true),
-        (
-            ExternalFunction::ImplMethod {
-                owner: 3,
-                name: "scalar".into(),
-            },
-            "scalar",
-            true,
-        ),
-    ] {
-        let declaration = fixture.id(DefinitionKind::Function, name);
-        let mut structured = ModuleDecl::new(fixture.external.source.module_identity().clone());
-        structured.functions.push(FnDecl {
-            host_policy: Some(policy.clone()),
-            method_policy: MethodPolicy::default(),
-            name: name.into(),
-            implementation: CallableImplementation::Native(declaration),
-            generic_params: if generic {
-                vec![GenericParam {
-                    owner: declaration,
-                    position: 0,
-                }]
-            } else {
-                vec![]
-            },
-            bounds: vec![],
-            params: vec![Param {
-                name: "value".into(),
-                ty: Ty::Builtin(BuiltinType::I32),
-                mutable: false,
-            }],
-            return_type: Ty::Builtin(BuiltinType::I32),
-        });
-        let definitions = structured.collect_definitions(&fixture.context).unwrap();
-        assert_eq!(
-            structured.validate(&|_| None, &definitions).is_ok(),
-            !generic
-        );
-        let diagnostics = fixture.diagnostics_at(
-            target,
-            NativeContract {
-                host_policy: Some(policy.clone()),
-                ..Default::default()
-            },
-        );
-        if generic {
-            assert!(
-                matches!(diagnostics.as_slice(), [DiagnosticKind::InvalidNativeSignature { function, binding }] if function == "scalar" && binding == "invalid Host passing or effect policy"),
-                "{diagnostics:?}"
-            );
-        } else {
-            assert!(diagnostics.is_empty(), "{diagnostics:?}");
-        }
     }
 }
 
@@ -503,7 +445,6 @@ fn native_trait_contracts_use_the_owning_self_bound() {
     let owner = fixture.id(DefinitionKind::Trait, "NativeRead");
     let contract = NativeContract {
         host_policy: None,
-        receiver_access: None,
         callable_requirements: vec![NativeCallableRequirement {
             receiver: Ty::SelfType(owner),
             interface: fixture.nominal(owner, vec![Ty::Parameter { owner, position: 0 }]),
@@ -512,18 +453,15 @@ fn native_trait_contracts_use_the_owning_self_bound() {
         }],
         concrete_result: None,
     };
-    let target = ExternalFunction::TraitMethod {
-        owner: "NativeRead".into(),
-        name: "defaulted".into(),
-    };
-    let diagnostics = fixture.diagnostics_at(target.clone(), contract.clone());
+    let target = fixture.member(owner, DefinitionKind::Method, "defaulted");
+    let diagnostics = fixture.diagnostics_at(target, contract.clone());
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 
     let other = fixture.id(DefinitionKind::Trait, "Other");
     let mut unrelated = contract;
     unrelated.callable_requirements[0].interface = fixture.nominal(other, vec![]);
     unrelated.callable_requirements[0].member = fixture.member(other, DefinitionKind::Method, "op");
-    let diagnostics = fixture.diagnostics_at(target.clone(), unrelated.clone());
+    let diagnostics = fixture.diagnostics_at(target, unrelated.clone());
     assert!(
         matches!(diagnostics.as_slice(), [DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. }] if trait_name == "Other"),
         "{diagnostics:?}"
@@ -531,15 +469,11 @@ fn native_trait_contracts_use_the_owning_self_bound() {
 
     let result = NativeContract {
         host_policy: None,
-        receiver_access: None,
         callable_requirements: vec![],
         concrete_result: Some(Ty::SelfType(owner)),
     };
     let diagnostics = fixture.diagnostics_at(
-        ExternalFunction::TraitMethod {
-            owner: "NativeRead".into(),
-            name: "produce".into(),
-        },
+        fixture.member(owner, DefinitionKind::Method, "produce"),
         result,
     );
     assert!(
@@ -560,21 +494,14 @@ fn native_trait_contracts_use_the_owning_self_bound() {
     let derived = fixture.id(DefinitionKind::Trait, "DerivedRead");
     unrelated.callable_requirements[0].receiver = Ty::SelfType(derived);
     let diagnostics = fixture.diagnostics_at(
-        ExternalFunction::TraitMethod {
-            owner: "DerivedRead".into(),
-            name: "defaulted".into(),
-        },
+        fixture.member(derived, DefinitionKind::Method, "defaulted"),
         unrelated,
     );
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let diagnostics = fixture.diagnostics_at(
-        ExternalFunction::TraitMethod {
-            owner: "DerivedRead".into(),
-            name: "produce".into(),
-        },
+        fixture.member(derived, DefinitionKind::Method, "produce"),
         NativeContract {
             host_policy: None,
-            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(Ty::SelfType(derived)),
         },
@@ -589,7 +516,6 @@ fn concrete_results_use_the_same_recursive_nominal_validation() {
         "produce",
         NativeContract {
             host_policy: None,
-            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(fixture.receiver()),
         },
@@ -600,7 +526,6 @@ fn concrete_results_use_the_same_recursive_nominal_validation() {
         "produce",
         NativeContract {
             host_policy: None,
-            receiver_access: None,
             callable_requirements: vec![],
             concrete_result: Some(malformed),
         },

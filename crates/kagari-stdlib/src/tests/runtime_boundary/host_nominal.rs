@@ -274,7 +274,13 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     module
         .bind(
             take,
-            callback(|_, _| panic!("linking cannot invoke callbacks")),
+            callback(
+                HostCallPolicy {
+                    passing: vec![HostPassingStyle::Owned],
+                    effects: Default::default(),
+                },
+                |_, _| panic!("linking cannot invoke callbacks"),
+            ),
         )
         .unwrap();
     let module = module.finish().unwrap();
@@ -344,23 +350,30 @@ fn roots_match_nominal_declarations_and_callback_results_keep_complete_types() {
     module
         .bind(
             take,
-            callback(move |_, _| {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(ValueView::unit())
-            }),
+            callback(
+                HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: Default::default(),
+                },
+                move |_, _| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .unwrap();
+    let result_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let result = module
         .define_function(
             FunctionDecl::new("wrong")
                 .returns(Type::tuple([a]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(result_policy.clone()),
         )
         .unwrap();
     let captured = wrong.clone();
@@ -368,7 +381,7 @@ fn roots_match_nominal_declarations_and_callback_results_keep_complete_types() {
     module
         .bind(
             result,
-            callback(move |cx, _| {
+            callback(result_policy, move |cx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 cx.import(captured.lock().unwrap().as_ref().unwrap())
                     .map_err(|error| HostError::new(error.to_string()))
@@ -446,27 +459,35 @@ fn identical_root_numbers_in_another_runtime_do_not_grant_access() {
     module
         .bind(
             take,
-            callback(move |_, _| {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(ValueView::unit())
-            }),
-        )
-        .unwrap();
-    let result =
-        module
-            .define_function(FunctionDecl::new("foreign").returns(player).host_policy(
+            callback(
                 HostCallPolicy {
-                    passing: vec![],
+                    passing: vec![HostPassingStyle::Owned],
                     effects: Default::default(),
                 },
-            ))
-            .unwrap();
+                move |_, _| {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(ValueView::unit())
+                },
+            ),
+        )
+        .unwrap();
+    let result_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
+    let result = module
+        .define_function(
+            FunctionDecl::new("foreign")
+                .returns(player)
+                .host_policy(result_policy.clone()),
+        )
+        .unwrap();
     let captured = foreign_value.clone();
     let observed = calls.clone();
     module
         .bind(
             result,
-            callback(move |cx, _| {
+            callback(result_policy, move |cx, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 cx.import(captured.lock().unwrap().as_ref().unwrap())
                     .map_err(|error| HostError::new(error.to_string()))

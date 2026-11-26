@@ -2,10 +2,9 @@
 
 use crate::identity_mapping::map_hash_entries;
 use crate::typeck::table::{
-    CallTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
-    ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
-    ResolvedIteration, ResolvedStructInit, ResolvedTypeRef, ResolvedTypeTarget,
-    TraitImplementation, TypeTable,
+    CallTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
+    ResolvedInterfaceCoercion, ResolvedInterfaceImplementation, ResolvedIteration,
+    ResolvedStructInit, ResolvedTypeRef, ResolvedTypeTarget, TraitImplementation, TypeTable,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -389,18 +388,6 @@ impl RemapDefinitions for TypeTable {
                     Ok((mapper.reference(key)?, (value).remap_definitions(mapper)?))
                 }),
             )?,
-            host_place_paths: map_hash_entries(
-                self.host_place_paths.len(),
-                self.host_place_paths
-                    .iter()
-                    .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
-            )?,
-            host_paths: map_hash_entries(
-                self.host_paths.len(),
-                self.host_paths
-                    .iter()
-                    .map(|(key, value)| Ok((*(key), (value).remap_definitions(mapper)?))),
-            )?,
             implementations: map_hash_entries(
                 self.implementations.len(),
                 self.implementations.iter().map(|(key, value)| {
@@ -581,12 +568,6 @@ impl DefinitionReferences for TypeTable {
             visit(key0)?;
             (value0).visit_definition_ids(visit, cancel)?;
         }
-        for value0 in self.host_place_paths.values() {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
-        for value0 in self.host_paths.values() {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
         for (key0, value0) in &self.implementations {
             (key0).0.visit_definition_ids(visit, cancel)?;
             (key0).1.visit_definition_ids(visit, cancel)?;
@@ -759,62 +740,6 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
             }
             Self::Intrinsic => {}
         }
-        Ok(())
-    }
-}
-
-impl RemapDefinitions for ResolvedHostPath {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(ResolvedHostPath {
-            root: self.root,
-            dynamic_arguments: self.dynamic_arguments.clone(),
-            declaration: self.declaration.remap_definitions(mapper)?,
-            contract: self.contract.remap_definitions(mapper)?,
-        })
-    }
-}
-
-impl DefinitionReferences for ResolvedHostPath {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        self.declaration.visit_definition_ids(visit, cancel)?;
-        self.contract.visit_definition_ids(visit, cancel)?;
-        Ok(())
-    }
-}
-
-impl RemapDefinitions for ResolvedHostPlacePath {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(ResolvedHostPlacePath {
-            root: self.root,
-            dynamic_arguments: self.dynamic_arguments.clone(),
-            declaration: self.declaration.remap_definitions(mapper)?,
-            contract: self.contract.remap_definitions(mapper)?,
-        })
-    }
-}
-
-impl DefinitionReferences for ResolvedHostPlacePath {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        self.declaration.visit_definition_ids(visit, cancel)?;
-        self.contract.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

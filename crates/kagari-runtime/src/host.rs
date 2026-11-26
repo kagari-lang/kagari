@@ -12,7 +12,6 @@ use crate::{
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     module::ExecutableModule,
     native::conversion::{arguments::ArgumentValues, context::ConversionContext},
-    numeric,
     resource::ResourceState,
     value::{carriers::RootedValue, view::ValueView},
 };
@@ -22,9 +21,13 @@ use kagari_common::identity::{
     table::{DefinitionId, DefinitionTable},
 };
 
-use kagari_types::declaration::{
-    host::{HostTypePolicy, PathAccess},
-    path::{HostPathDeclaration, HostPathSegmentDeclaration},
+use kagari_types::{
+    declaration::{
+        host::{HostTypePolicy, PathAccess},
+        path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
+    },
+    scalar::BuiltinType,
+    ty::Ty,
 };
 use std::{
     cell::RefCell,
@@ -36,7 +39,7 @@ use std::{
     },
 };
 
-mod path_fingerprint;
+pub(crate) mod path_fingerprint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostObjectId(pub u64);
@@ -265,6 +268,8 @@ pub struct HostPathDescriptorRegistration {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostPathDescriptor {
+    /// Arithmetic uses the checked schema domain, not the wider value carrier.
+    numeric_leaf: Option<BuiltinType>,
     pub declaration: HostPathDeclaration,
     pub id: HostPathDescriptorId,
     pub root_type: TypeId,
@@ -281,7 +286,8 @@ impl HostPathDescriptor {
         id: HostPathDescriptorId,
         registration: HostPathDescriptorRegistration,
         segments: Vec<HostPathSegment>,
-        abi_fingerprint: AbiFingerprint,
+        contract: &HostPathContract,
+        definitions: &DefinitionTable,
         declaration: HostPathDeclaration,
     ) -> Result<Self, RuntimeError> {
         validate_path_access(registration.access, "path descriptor")?;
@@ -296,6 +302,8 @@ impl HostPathDescriptor {
                 "path descriptor result type does not match its final segment",
             ));
         }
+        // Contract resolution matched every physical segment to its access-checked
+        // declaration. Check continuity here in the runtime's physical type slots.
         let mut current_type = registration.root_type;
         for segment in &segments {
             let input_type = match segment {
@@ -310,15 +318,17 @@ impl HostPathDescriptor {
                     "path segment input type does not match the preceding result",
                 ));
             }
-            validate_path_access(segment.access(), "path segment")?;
-            if !path_access_allows(segment.access(), registration.access) {
-                return Err(RuntimeError::typed_path_validation(
-                    "path descriptor access exceeds a segment access policy",
-                ));
-            }
             current_type = segment.result_type();
         }
+        let abi_fingerprint = contract
+            .fingerprint(definitions)
+            .map(AbiFingerprint)
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
         Ok(Self {
+            numeric_leaf: match contract.result {
+                Ty::Builtin(ty) if ty.number_type().is_some() => Some(ty),
+                _ => None,
+            },
             id,
             declaration,
             root_type: registration.root_type,
@@ -522,14 +532,6 @@ fn path_access_allows(available: PathAccess, required: PathAccess) -> bool {
     )
 }
 
-fn apply_path_modify<'call>(
-    op: BinaryOp,
-    old_value: ValueView<'call>,
-    rhs: ValueView<'call>,
-) -> Result<ValueView<'call>, RuntimeError> {
-    numeric::binary(op, old_value, rhs)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct HostFrameId(u64);
 
@@ -626,6 +628,7 @@ impl Default for HostBorrowOwner {
 #[derive(Debug, Default)]
 pub struct HostBorrowTable {
     owner: HostBorrowOwner,
+    registry: Option<HostRegistryId>,
     state: RefCell<HostBorrowState>,
 }
 
@@ -829,6 +832,22 @@ impl<'a> HostCallContext<'a> {
         self.scope.borrows()
     }
 
+    pub(crate) fn borrow_root(
+        &self,
+        root: HostRootHandle,
+        kind: HostBorrowKind,
+    ) -> Result<FrameHostBorrowToken, RuntimeError> {
+        if !self.runtime().host.matches_root(root) {
+            return Err(RuntimeError::host_call_failure(
+                "host root is not registered",
+            ));
+        }
+        let guard = self.borrows();
+        guard
+            .table
+            .borrow(&guard, root.object_id, kind, root.type_id)
+    }
+
     /// Protect a complete callback input pack in this invocation's suffix.
     pub fn retain_temporaries(
         &mut self,
@@ -909,7 +928,8 @@ pub struct HostRegistry {
     next_path_descriptor_id: usize,
     type_declarations: HashMap<DefinitionId, TypeId>,
     registered_types: HashMap<TypeId, RegisteredHostType>,
-    roots: HashMap<HostObjectId, HostRootHandle>,
+    // A retired entry stays vacant of a handle, but its ID remains reserved.
+    roots: HashMap<HostObjectId, Option<HostRootHandle>>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
     dirty_paths: Vec<HostPathMutationRecord<RootedValue>>,

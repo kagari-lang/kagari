@@ -9,7 +9,7 @@ use crate::{
             declarations::{TraitDefRecord, TypeDefRecord},
             leaf::NominalTyRecord,
             native::NativeCallableRequirementRecord,
-            path::PathDeclarationRecord,
+            path::{NativePathOperationRecord, PathDeclarationRecord},
             signature::{FnDeclRecord, GenericBoundRecord, GenericParamRecord},
         },
     },
@@ -39,10 +39,10 @@ struct ModuleInput<'a> {
     dependencies: &'a BTreeSet<ModuleIdentity>,
     types: Vec<TypeDefRecord>,
     paths: Vec<PathDeclarationRecord>,
+    path_operations: BTreeMap<PortableDefinitionRef, NativePathOperationRecord>,
     variant_exports: &'a BTreeSet<String>,
     exports: BTreeMap<(u8, &'a str), PortableDefinitionRef>,
     traits: Vec<TraitDefRecord>,
-    trait_references: BTreeMap<PortableDefinitionRef, TraitDefRecord>,
     implementations: Vec<ImplementationInput>,
     functions: Vec<FnDeclRecord>,
     script_bodies: BTreeMap<PortableDefinitionRef, ScriptExprRecord>,
@@ -112,10 +112,10 @@ impl<'a> ModuleInput<'a> {
             dependencies,
             types,
             paths,
+            path_operations,
             variant_exports,
             exports,
             traits,
-            trait_references,
             implementations,
             functions,
             script_bodies,
@@ -135,6 +135,15 @@ impl<'a> ModuleInput<'a> {
                 .iter()
                 .map(|value| TypeDefRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
+            path_operations: path_operations
+                .iter()
+                .map(|(id, op)| {
+                    Ok((
+                        encoding.reference(*id)?,
+                        NativePathOperationRecord::encode(op, encoding, cancel)?,
+                    ))
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
             paths: paths
                 .iter()
                 .map(|path| PathDeclarationRecord::encode(path, encoding, cancel))
@@ -155,15 +164,6 @@ impl<'a> ModuleInput<'a> {
                 .iter()
                 .map(|value| TraitDefRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
-            trait_references: trait_references
-                .iter()
-                .map(|(id, contract)| {
-                    Ok((
-                        encoding.reference(*id)?,
-                        TraitDefRecord::encode(contract, encoding, cancel)?,
-                    ))
-                })
-                .collect::<Result<_, DefinitionMappingError>>()?,
             implementations: implementations
                 .iter()
                 .map(|value| ImplementationInput::encode(value, encoding, cancel))

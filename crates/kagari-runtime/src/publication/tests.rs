@@ -451,23 +451,24 @@ fn publication_is_rejected_inside_observers_and_native_callbacks() {
     let target = load(&mut runtime, "target");
     let calls = Arc::new(AtomicUsize::new(0));
     let mut builder = ModuleBuilder::new("publication", &Default::default()).unwrap();
+    let function_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_call_host_services: true,
+            may_mutate_host_state: true,
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let function = builder
-        .define_function(FunctionDecl::new("callback").host_policy(HostCallPolicy {
-            passing: vec![],
-            effects: HostFunctionEffects {
-                may_call_host_services: true,
-                may_mutate_host_state: true,
-                may_trap: true,
-                ..Default::default()
-            },
-        }))
+        .define_function(FunctionDecl::new("callback").host_policy(function_policy.clone()))
         .unwrap();
     let callback_calls = calls.clone();
     let candidate = Mutex::new(Some(stage(&mut runtime, &target)));
     builder
         .bind(
             function,
-            callback(move |cx: &mut HostCallContext<'_>, _| {
+            callback(function_policy, move |cx: &mut HostCallContext<'_>, _| {
                 rejected(cx.runtime());
                 assert_eq!(
                     NativeModule::install_all(&[], cx.runtime_mut())

@@ -124,7 +124,7 @@ pub fn program_ok_with_io(text: &str) -> CheckedProgram {
     program_with_modules(text, modules)
 }
 
-fn program_with_modules(
+pub(crate) fn program_with_modules(
     text: &str,
     modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
 ) -> CheckedProgram {

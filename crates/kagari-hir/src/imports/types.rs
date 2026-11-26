@@ -4,7 +4,6 @@ use crate::{
     DeclaredAnalysis,
     collections::HashMap,
     declarations::{Declaration, DeclarationId},
-    hir::item::adt::HostContract,
     imports::{SourceDeclRef, SourceItem, SourceUnit},
     language::types::TypeConstructor,
     resolver::resolved::{DeclarationNames, ResolvedName},
@@ -26,7 +25,6 @@ use {
 pub struct ImportedType {
     /// Installed storage/type descriptor when this is a registered native-backed type.
     pub(crate) native_type: Option<TypeConstructor>,
-    pub host: Option<HostContract>,
     /// Associated family name to number of member-level generic parameters.
     pub associated_arities: BTreeMap<String, usize>,
     /// Canonical source declaration address.
@@ -175,7 +173,6 @@ impl<'a> TypeCatalog<'a> {
                     .expect("alias declaration");
                 ImportedType {
                     native_type: None,
-                    host: None,
                     associated_arities: Default::default(),
                     id: source,
                     declaration,
@@ -244,12 +241,6 @@ impl<'a> TypeCatalog<'a> {
             _ => return None,
         };
         Some(ImportedType {
-            host: match item {
-                SourceItem::NativeType(id) => {
-                    module.lowered.module.native_types[id.index()].host.clone()
-                }
-                _ => None,
-            },
             native_type,
             associated_arities: match item {
                 SourceItem::Trait(id) => module
@@ -383,11 +374,6 @@ impl ImportedTypes {
     /// The identity owns binders/navigation, not a runtime type.
     pub fn alias(&self, id: &DefinitionId) -> Option<&aliases::CanonicalAlias> {
         self.aliases.get(id)
-    }
-
-    /// Iterates canonical imported native representations, independent of aliases.
-    pub(crate) fn host_types(&self) -> impl Iterator<Item = &HostContract> {
-        self.resolutions.values().filter_map(|ty| ty.host.as_ref())
     }
 
     pub(crate) fn variant(&self, name: ResolvedName) -> Option<&Declaration> {

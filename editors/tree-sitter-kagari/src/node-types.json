@@ -8959,6 +8959,10 @@
     "named": false
   },
   {
+    "type": "host",
+    "named": false
+  },
+  {
     "type": "identifier",
     "named": true
   },

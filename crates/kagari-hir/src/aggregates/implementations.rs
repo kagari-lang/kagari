@@ -34,7 +34,7 @@ use kagari_types::{
     declaration::conversion::is_library_forwarding_trait,
     language::{Protocol, binding},
 };
-use std::{collections::BTreeMap, iter, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Cancellation or resource exhaustion during bounded trait implementation search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,16 +167,12 @@ pub struct ImplementationSignature {
 }
 
 impl AggregateCatalog {
-    /// Standard protocol implementations are type-owned, so dependencies and callers
-    /// cannot disagree because a downstream module adds a different override.
+    /// Additional protocol semantics, independent of the package orphan check.
     pub fn standard_override_error(
         &self,
         definitions: &DefinitionTable,
         implementation: &ImplementationSignature,
     ) -> Option<&'static str> {
-        let adapter = self
-            .trait_(&implementation.trait_type.declaration)
-            .and_then(|contract| contract.conversion_adapter.as_ref());
         let protocol =
             Protocol::from_definition(&implementation.trait_type.declaration, definitions);
         if is_library_forwarding_trait(definitions, implementation.trait_type.declaration) {
@@ -184,7 +180,7 @@ impl AggregateCatalog {
                 .then_some("only the canonical core::convert blanket implementation is allowed");
         }
         if matches!(implementation.for_type, TypeId::Generic(_))
-            && (protocol.is_some() || adapter.is_some())
+            && protocol.is_some_and(|kind| kind != Protocol::From)
         {
             return Some(
                 "a standard protocol implementation cannot have a bare receiver parameter",
@@ -210,26 +206,7 @@ impl AggregateCatalog {
         {
             return Some("identity From<T> for T is supplied by the language");
         }
-        if protocol == Some(Protocol::From) || adapter.is_some() {
-            if matches!(implementation.for_type, TypeId::Host(_))
-                || implementation
-                    .trait_type
-                    .arguments
-                    .iter()
-                    .any(|ty| matches!(ty, TypeId::Host(_)))
-            {
-                return Some("host conversion implementations are not supported");
-            }
-            let module = definitions
-                .resolve(implementation.id)
-                .expect("scoped implementation");
-            let owned = iter::once(&implementation.for_type)
-                .chain(&implementation.trait_type.arguments)
-                .any(|ty| self.receiver_owner(definitions, ty).as_ref() == Some(module.module()));
-            return (!owned).then_some(
-                "a conversion must belong to the defining module of its source or destination",
-            );
-        }
+
         let protocol = protocol?;
         if protocol.iteration() {
             let other = if protocol == Protocol::Iterator {
@@ -244,22 +221,11 @@ impl AggregateCatalog {
                 return Some("Iterator already supplies identity Iterable");
             }
         }
-        if protocol.host_implementable() {
+        if matches!(protocol, Protocol::Debug | Protocol::Display) {
             return matches!(implementation.for_type, TypeId::Builtin(_))
                 .then_some("formatting for primitive types is supplied by the language");
         }
-        let module = definitions
-            .resolve(implementation.id)
-            .expect("scoped implementation");
-        if self
-            .receiver_owner(definitions, &implementation.for_type)
-            .as_ref()
-            != Some(module.module())
-        {
-            return Some(
-                "standard protocol implementations must belong to the type's defining module",
-            );
-        }
+
         if !protocol.equality_protocol() {
             return None;
         }

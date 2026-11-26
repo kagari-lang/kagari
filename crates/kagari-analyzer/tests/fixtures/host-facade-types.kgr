@@ -1,0 +1,12 @@
+use pkg::facade::{Object as Item, api};
+
+use pkg::facade;
+
+fn pass(value: facade::Object) -> api::Item {
+    value
+}
+
+fn main(pending: core::future::Future<i32>) -> i32 {
+    val value: Item = left::make();
+    left::take(pass(value))
+}

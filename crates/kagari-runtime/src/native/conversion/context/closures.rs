@@ -16,7 +16,10 @@ use crate::{
         carriers::ScopedValue, cells::CellObject, closures::ClosureObject, kind::ObjectKind,
         view::ValueView,
     },
-    value_check::scoped::{self, CheckError},
+    value_check::{
+        data::{async_protected, check_captures},
+        scoped::{self, CheckError},
+    },
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_contract::{ids::FunctionRef, representation::semantic_representation};
@@ -103,6 +106,7 @@ impl<'call> ConversionContext<'call> {
             memory,
             modules,
             resources,
+            host_borrows,
             host,
             ..
         } = &mut *self.runtime;
@@ -174,6 +178,7 @@ impl<'call> ConversionContext<'call> {
                         }
                         values.push(value);
                     }
+                    check_captures(slots.scope(), &values, &[], resources, host_borrows)?;
                     resources.poll_closed()?;
                     let object = ClosureObject::alloc(
                         slots.scope(),
@@ -211,6 +216,7 @@ impl<'call> ConversionContext<'call> {
         self.poll()?;
         let execution = self.execution_id()?;
         let original = selected.value();
+        async_protected(self.runtime, slice::from_ref(&original))?;
         if selected.record().call_route().is_none() {
             return self.with_values(|slots| {
                 let value = original.get(slots)?;

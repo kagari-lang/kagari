@@ -1,6 +1,6 @@
 use crate::test_library;
 #[cfg(test)]
-use crate::tests::support::bytecode::load_bytecode;
+use crate::tests::support::{bytecode::load_bytecode, lower_for_installation};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
@@ -27,13 +27,13 @@ use kagari_runtime::{
 
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+
 use kagari_gc::{
     error::GcError,
     object::{GcObject, ObjectCharge},
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
-use kagari_hir::compile_input::program::CheckedCompilation;
+
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -91,9 +91,10 @@ fn compile_with_modules<'a>(
         .set("main.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
+    let modules: Vec<_> = modules.into_iter().collect();
     analysis.set_native_modules(
         modules
-            .into_iter()
+            .iter()
             .map(|module| Arc::new(module.to_declaration()))
             .collect(),
     );
@@ -101,14 +102,7 @@ fn compile_with_modules<'a>(
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap()
+    lower_for_installation(&checked, modules)
 }
 
 fn compile(text: &str, module: Option<&NativeModule>) -> (Runtime, InstalledProgram) {

@@ -1,12 +1,27 @@
 //! Immutable authored core resources shared by ordinary analysis and pre-install construction.
 
-use crate::analysis::external::ExternalModule;
-use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_core_source::MODULES;
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use std::sync::{Arc, LazyLock};
+use crate::analysis::{
+    AnalysisDatabase,
+    error::AnalysisError,
+    source_preparation::{self, PreparedSource, SourcePreparer},
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
+};
+use kagari_core_source::{MODULES, ModuleSource};
+use kagari_source::{
+    identity::FileId,
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
+};
+use kagari_types::declaration::module::DeclarationError;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, LazyLock},
+};
 
-fn identity(name: &str) -> ModuleIdentity {
+pub(super) fn identity(name: &str) -> ModuleIdentity {
     let resource = MODULES
         .iter()
         .find(|m| m.name == name)
@@ -17,20 +32,20 @@ fn identity(name: &str) -> ModuleIdentity {
     }
 }
 
-/// Returns shared, unparsed core sources with their public package aliases and no prelude.
+/// Returns the shared authored core documents. Import scopes supply aliases and edges.
 ///
 /// A fresh database already contains these modules. To prepare a seed, take a snapshot
 /// with no physical sources and call `check_program` with the desired core source ID.
-/// Passing them to `set_external_modules` would supply duplicate owners, not replace core.
-pub fn packaged_modules() -> &'static [ExternalModule] {
+/// Do not also include them in the physical request snapshot.
+pub fn packaged_modules() -> &'static [Arc<SourceFile>] {
     &INPUTS
 }
 
-pub(super) fn shared_modules() -> Arc<[ExternalModule]> {
+pub(super) fn shared_modules() -> Arc<[Arc<SourceFile>]> {
     Arc::clone(&INPUTS)
 }
 
-static INPUTS: LazyLock<Arc<[ExternalModule]>> = LazyLock::new(|| {
+static INPUTS: LazyLock<Arc<[Arc<SourceFile>]>> = LazyLock::new(|| {
     // All resource names are absolute virtual URIs; the DB never reads a path.
     let mut sources = SourceDatabase::new("/").expect("absolute root");
     MODULES
@@ -42,28 +57,67 @@ static INPUTS: LazyLock<Arc<[ExternalModule]>> = LazyLock::new(|| {
             let id = sources
                 .set(resource.uri, resource.text.into(), SourceLayer::Base)
                 .expect("valid packaged source URI");
-            let mut input = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
-            input.package_alias = Some(resource.package_alias.into());
-            // Only this packaged resource supplies the reporting variant. Ordinary
-            // source (including an enum named Result) keeps fresh, unmarked variants.
-            if resource.name == "result" {
-                input.enum_failures.insert(("Result".into(), "Err".into()));
-            }
-            input.dependencies = resource
-                .dependencies
-                .iter()
-                .map(|name| identity(name))
-                .collect();
-            input
+            sources.snapshot().file(id).unwrap().clone()
         })
         .collect()
 });
+
+/// Bundle selection uses the logical owner, not a filename or URI.
+pub(crate) fn resource(owner: &ModuleIdentity) -> Option<&'static ModuleSource> {
+    packaged_modules()
+        .iter()
+        .zip(MODULES)
+        .find_map(|(document, resource)| (document.module_identity() == owner).then_some(resource))
+}
+
+impl AnalysisDatabase {
+    pub(super) fn prepare_core(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<BTreeMap<FileId, PreparedSource>, AnalysisError> {
+        let mut files = BTreeMap::new();
+        let mut owners = BTreeSet::new();
+        for source in self.core.iter() {
+            let prepared = source_preparation::prepare(
+                SourcePreparer {
+                    inline_ids: &mut self.inline_ids,
+                    limits: Default::default(),
+                },
+                &SourceSnapshot::single_file(source.clone()),
+                cancel,
+            )?;
+            for (id, file) in prepared {
+                cancel.check()?;
+                if !owners.insert(file.lowered.source.module_identity().clone())
+                    || files.insert(id, file).is_some()
+                {
+                    return Err(
+                        DeclarationError("duplicate bundled core module or file".into()).into(),
+                    );
+                }
+            }
+        }
+        Ok(files)
+    }
+}
+
+#[cfg(test)]
+pub(super) fn change_core(source: &mut Arc<SourceFile>, change: impl FnOnce(&str) -> String) {
+    let mut files = SourceDatabase::new("/").unwrap();
+    files
+        .bind_module(source.name(), source.module_identity().clone())
+        .unwrap();
+    let id = files
+        .set(source.name(), change(source.text()), SourceLayer::Base)
+        .unwrap();
+    *source = files.snapshot().file(id).unwrap().clone();
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        analysis::{AnalysisDatabase, error::AnalysisError, external::foundation::change_export},
+        analysis::{AnalysisDatabase, error::AnalysisError},
         analyze_source,
         declarations::DeclarationId,
         imports::{ResolvedTarget, SourceItem},
@@ -199,7 +253,7 @@ mod tests {
         assert_eq!(target, future);
         let native = facts.aggregates.native_type(&target).unwrap();
         assert_eq!(native.generic_params.len(), 1);
-        assert!(native.host.is_none());
+        assert!(!native.is_host);
         let declaration = snapshot
             .declaration(&DeclarationId::Definition(target))
             .unwrap();
@@ -265,11 +319,10 @@ mod tests {
             .inputs()
             .core_modules()
             .iter()
-            .find(|m| m.source.module_identity() == &identity("cmp"))
+            .find(|m| m.module_identity() == &identity("cmp"))
             .unwrap();
-        let checked = core.check_program(cmp.source.id(), &cancel).unwrap();
+        let checked = core.check_program(cmp.id(), &cancel).unwrap();
         assert!(core.inputs().native_modules().is_empty());
-        assert!(core.inputs().external_modules().is_empty());
         assert_eq!(core.files().count(), MODULES.len());
 
         let point = Arc::new(SourceFile::new(
@@ -280,30 +333,20 @@ mod tests {
             .unwrap()
             .into_checked()
             .unwrap();
-        let extra = Arc::new(SourceFile::new(
-            "/vendor/extra.kgr",
-            "pub const N: i32 = 7;",
-        ));
-        db.set_external_modules(vec![ExternalModule::new(extra.clone())]);
-        let captured = db.inputs();
-        let fingerprint = db.environment_fingerprint(&cancel).unwrap();
-        db.set_external_modules(vec![]);
-        assert!(db.inputs().external_modules().is_empty());
-        let mut replay = captured.database().unwrap();
-        assert_eq!(
-            replay.environment_fingerprint(&cancel).unwrap(),
-            fingerprint
-        );
+        let mut replay = core.inputs().database().unwrap();
         let snapshot = replay
             .snapshot(SourceSnapshot::single_file(point.clone()), &cancel)
             .unwrap();
         snapshot.check_program(point.id(), &cancel).unwrap();
-        assert_eq!(snapshot.inputs().external_modules().len(), 1);
-        assert_eq!(
-            snapshot.inputs().external_modules()[0].source.id(),
-            extra.id()
-        );
-        assert_eq!(snapshot.inputs().library_modules().len(), MODULES.len() + 1);
+        assert!(Arc::ptr_eq(
+            cmp,
+            snapshot
+                .inputs()
+                .core_modules()
+                .iter()
+                .find(|doc| doc.id() == cmp.id())
+                .unwrap()
+        ));
         assert_eq!(snapshot.physical_sources().files().count(), 1);
         for name in [
             "cmp", "option", "convert", "default", "ops", "result", "future", "fmt", "hash",
@@ -326,7 +369,7 @@ mod tests {
             assert!(
                 packaged_modules()
                     .iter()
-                    .any(|m| m.source.id() == id && m.source.module_identity() == &owner)
+                    .any(|m| m.id() == id && m.module_identity() == &owner)
             );
         }
         let file = snapshot.file(point.id()).unwrap();
@@ -341,7 +384,7 @@ mod tests {
         let location = declaration.source_location().unwrap();
         let source = snapshot.source(location.file).unwrap();
         assert_eq!(source.name(), "kagari-core:///cmp.kgr");
-        assert_eq!(location.file, cmp.source.id());
+        assert_eq!(location.file, cmp.id());
         assert_eq!(
             &source.text()[location.range.start..location.range.end],
             "PartialEq"
@@ -389,10 +432,10 @@ mod tests {
 
         let mut iter = packaged_modules()
             .iter()
-            .find(|m| m.source.module_identity() == &identity("iter"))
+            .find(|m| m.module_identity() == &identity("iter"))
             .unwrap()
             .clone();
-        change_export(&mut iter, |text| {
+        change_core(&mut iter, |text| {
             text.replace("fn count(self)", "fn remaining(self)")
         });
         db.replace_core_fixture(iter);
@@ -428,16 +471,11 @@ mod tests {
         let mut db = AnalysisDatabase::default();
         let cmp = packaged_modules()
             .iter()
-            .find(|m| m.source.module_identity() == &identity("cmp"))
+            .find(|m| m.module_identity() == &identity("cmp"))
             .unwrap();
         let cancel = Default::default();
-        db.set_external_modules(vec![cmp.clone()]);
         assert!(
-            matches!(db.declarations(SourceSnapshot::default(), &cancel), Err(AnalysisError::NativeApi(e)) if e.0.contains("duplicate external declaration module or file"))
-        );
-        db.set_external_modules(vec![]);
-        assert!(
-            matches!(db.declarations(SourceSnapshot::single_file(cmp.source.clone()), &cancel), Err(AnalysisError::NativeApi(e)) if e.0.contains("source conflicts with library declaration input"))
+            matches!(db.declarations(SourceSnapshot::single_file(cmp.clone()), &cancel), Err(AnalysisError::NativeApi(e)) if e.0.contains("source conflicts with library declaration input"))
         );
         db.set_native_modules(vec![function_module(
             identity("cmp"),
@@ -446,7 +484,7 @@ mod tests {
             Ty::Builtin(BuiltinType::I32),
         )]);
         assert!(
-            matches!(db.declarations(SourceSnapshot::default(), &cancel), Err(AnalysisError::NativeApi(e)) if e.0.contains("external module conflicts with installed provider"))
+            matches!(db.declarations(SourceSnapshot::default(), &cancel), Err(AnalysisError::NativeApi(e)) if e.0.contains("bundled module conflicts with registered provider"))
         );
     }
 }

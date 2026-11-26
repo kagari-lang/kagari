@@ -7,8 +7,8 @@ fn foundation_algorithms_are_available_from_explicit_composition() {
     let engine =
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap())
             .unwrap();
-    let sources = engine.native_declaration_sources();
-    assert_eq!(sources.len(), standard_library().declarations().declarations().len());
+    let sources = engine.native_declaration_sources(Default::default(), &Default::default()).unwrap();
+    assert_eq!(sources.documents.len(), standard_library().declarations().declarations().len());
     let program = engine
         .compile_to_artifact(
             SourceFile::new(
@@ -44,7 +44,7 @@ fn explicit_library_composition_keeps_collection_algorithms() {
         KagariEngine::with_native_modules(Default::default(), standard_library().modules().unwrap())
             .unwrap();
     assert_eq!(
-        engine.native_declaration_sources().len(),
+        engine.native_declaration_sources(Default::default(), &Default::default()).unwrap().documents.len(),
         standard_library().declarations().declarations().len()
     );
     assert!(

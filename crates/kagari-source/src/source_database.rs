@@ -1,3 +1,8 @@
+mod generated;
+#[cfg(test)]
+mod generated_tests;
+
+use self::generated::GeneratedDocuments;
 use crate::{
     identity::{FileId, FileSpan, Revision},
     package::PackageEnvironment,
@@ -82,6 +87,7 @@ impl SourceSnapshot {
 pub struct SourceDatabase {
     root: String,
     documents: BTreeMap<String, Document>,
+    generated: GeneratedDocuments,
     snapshot: SourceSnapshot,
 }
 
@@ -108,6 +114,7 @@ impl SourceDatabase {
         Ok(Self {
             root,
             documents: BTreeMap::new(),
+            generated: GeneratedDocuments::default(),
             snapshot: SourceSnapshot::default(),
         })
     }
@@ -130,7 +137,7 @@ impl SourceDatabase {
     }
 
     pub fn load_file(&mut self, path: &str) -> Result<FileId, String> {
-        let name = self.source_name(path)?;
+        let name = self.writable_name(path)?;
         if source_uri_scheme(&name).is_some() {
             return Err("virtual sources must be supplied by the host".into());
         }
@@ -152,13 +159,7 @@ impl SourceDatabase {
         cancel: &CancellationToken,
     ) -> Result<SourceSnapshot, String> {
         cancel.check().map_err(|_| "source capture cancelled")?;
-        let revision = Revision(
-            self.snapshot
-                .revision
-                .0
-                .checked_add(1)
-                .expect("source revision exhausted"),
-        );
+        let revision = self.next_revision();
         let mut documents = BTreeMap::new();
         let mut files = BTreeMap::new();
         let mut identities = BTreeSet::new();
@@ -172,26 +173,10 @@ impl SourceDatabase {
             let id = self
                 .documents
                 .get(&key)
-                .map_or_else(FileId::fresh, |document| document.id);
-            let file = self
-                .snapshot
-                .files
-                .get(&id)
-                .filter(|file| {
-                    file.text() == source.text
-                        && file.module_identity() == &source.module
-                        && file.name() == source.display_name
-                })
-                .cloned()
-                .unwrap_or_else(|| {
-                    Arc::new(
-                        SourceFile::new(&source.display_name, &source.text).with_identity(
-                            id,
-                            revision,
-                            source.module.clone(),
-                        ),
-                    )
-                });
+                .map(|document| document.id)
+                .or_else(|| self.generated.keys.get(&key).copied())
+                .unwrap_or_else(FileId::fresh);
+            let file = self.captured_file(id, revision, &source);
             files.insert(id, file);
             documents.insert(
                 key,
@@ -214,6 +199,7 @@ impl SourceDatabase {
             });
         cancel.check().map_err(|_| "source capture cancelled")?;
         self.documents = documents;
+        self.generated = GeneratedDocuments::default();
         self.snapshot = SourceSnapshot {
             revision: if unchanged {
                 self.snapshot.revision
@@ -227,12 +213,9 @@ impl SourceDatabase {
     }
 
     pub fn set(&mut self, name: &str, text: String, layer: SourceLayer) -> Result<FileId, String> {
-        let name = self.source_name(name)?;
+        let name = self.writable_name(name)?;
         if !self.documents.contains_key(&name)
-            && self
-                .documents
-                .values()
-                .any(|document| document.module == ModuleIdentity::single_file(name.clone()))
+            && self.module_bound_elsewhere(&name, &ModuleIdentity::single_file(name.clone()))
         {
             return Err("source module identity is already bound to another source".into());
         }
@@ -256,7 +239,7 @@ impl SourceDatabase {
     }
 
     pub fn close_overlay(&mut self, name: &str) -> Result<(), String> {
-        let name = self.source_name(name)?;
+        let name = self.writable_name(name)?;
         if let Some(document) = self.documents.get_mut(&name) {
             document.overlay = None;
         }
@@ -266,13 +249,9 @@ impl SourceDatabase {
 
     /// Bind a logical package/module before analysis. An overlay shares this binding.
     pub fn bind_module(&mut self, name: &str, module: ModuleIdentity) -> Result<FileId, String> {
-        let name = self.source_name(name)?;
+        let name = self.writable_name(name)?;
         validate_module(&module)?;
-        if self
-            .documents
-            .iter()
-            .any(|(other, document)| other != &name && document.module == module)
-        {
+        if self.module_bound_elsewhere(&name, &module) {
             return Err(format!(
                 "module `{module}` is already bound to another source"
             ));
@@ -294,9 +273,65 @@ impl SourceDatabase {
     }
 
     pub fn file_id(&self, name: &str) -> Option<FileId> {
+        let name = self.source_name(name).ok()?;
         self.documents
-            .get(&self.source_name(name).ok()?)
+            .get(&name)
             .map(|doc| doc.id)
+            .or_else(|| self.generated.lookup(&name))
+    }
+
+    fn writable_name(&self, name: &str) -> Result<String, String> {
+        let name = self.source_name(name)?;
+        if self.generated.lookup(&name).is_some() {
+            return Err(format!("generated source `{name}` is read-only"));
+        }
+        Ok(name)
+    }
+
+    fn module_bound_elsewhere(&self, key: &str, module: &ModuleIdentity) -> bool {
+        self.documents
+            .iter()
+            .any(|(other, document)| other != key && &document.module == module)
+            || self
+                .generated
+                .keys
+                .values()
+                .any(|id| self.snapshot.files[id].module_identity() == module)
+    }
+
+    fn next_revision(&self) -> Revision {
+        Revision(
+            self.snapshot
+                .revision
+                .0
+                .checked_add(1)
+                .expect("source revision exhausted"),
+        )
+    }
+
+    fn captured_file(
+        &self,
+        id: FileId,
+        revision: Revision,
+        source: &CapturedSource,
+    ) -> Arc<SourceFile> {
+        self.snapshot
+            .file(id)
+            .filter(|file| {
+                file.text() == source.text
+                    && file.module_identity() == &source.module
+                    && file.name() == source.display_name
+            })
+            .cloned()
+            .unwrap_or_else(|| {
+                Arc::new(
+                    SourceFile::new(&source.display_name, &source.text).with_identity(
+                        id,
+                        revision,
+                        source.module.clone(),
+                    ),
+                )
+            })
     }
 
     fn refresh(&mut self, name: &str) {
@@ -313,12 +348,7 @@ impl SourceDatabase {
         {
             return;
         }
-        self.snapshot.revision.0 = self
-            .snapshot
-            .revision
-            .0
-            .checked_add(1)
-            .expect("source revision exhausted");
+        self.snapshot.revision = self.next_revision();
         let files = Arc::make_mut(&mut self.snapshot.files);
         if let Some(text) = text {
             files.insert(

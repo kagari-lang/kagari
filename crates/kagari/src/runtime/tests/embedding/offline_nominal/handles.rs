@@ -19,7 +19,6 @@ use kagari_runtime::{
     host::{HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
     native::{
-        adapter::NativeAdapter,
         declarations::{FunctionDecl, MethodDecl},
         host,
         types::Type,
@@ -28,12 +27,7 @@ use kagari_runtime::{
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{
-    callable::CallableImplementation,
-    declaration::{
-        FnDecl, Param,
-        host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
-    },
-    scalar::BuiltinType,
+    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     ty::Ty,
 };
 use std::sync::{
@@ -63,18 +57,9 @@ fn offline_host_type_navigation_is_available_from_signature_query() {
         let DeclarationId::Definition(id) = declaration.id else {
             panic!("common external declaration")
         };
-        let schema = signature.declarations().external_type(id).unwrap();
-        assert_eq!(schema.name, "Item");
-        assert_eq!(
-            signature
-                .declarations()
-                .definitions()
-                .resolve(id)
-                .unwrap()
-                .module()
-                .package,
-            PackageId("left".into())
-        );
+        let target = signature.declarations().definitions().resolve(id).unwrap();
+        assert_eq!(target.last().unwrap().name, "Item");
+        assert_eq!(target.module().package, PackageId("left".into()));
         assert!(signature.queries().definition_at(annotation - 1).is_none());
         if type_start != annotation {
             assert!(signature.queries().definition_at(type_start).is_none());
@@ -96,21 +81,24 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     let trace = Arc::new(Mutex::new(Vec::new()));
     let total = Arc::new(AtomicI32::new(40));
     schema.make(trace.clone(), "receiver");
+    let rhs_policy = HostCallPolicy {
+        passing: vec![],
+        effects: Default::default(),
+    };
     let rhs = schema
         .builder
-        .define_function(FunctionDecl::new("rhs").returns(Type::i32()).host_policy(
-            HostCallPolicy {
-                passing: vec![],
-                effects: Default::default(),
-            },
-        ))
+        .define_function(
+            FunctionDecl::new("rhs")
+                .returns(Type::i32())
+                .host_policy(rhs_policy.clone()),
+        )
         .unwrap();
     let calls = trace.clone();
     schema
         .builder
         .bind(
             rhs,
-            host::callback(move |_, _| {
+            host::callback(rhs_policy, move |_, _| {
                 calls.lock().unwrap().push("argument");
                 Ok(ValueView::from(2))
             }),
@@ -141,42 +129,19 @@ fn declared_methods_link_by_identity_and_evaluate_receiver_then_arguments_once()
     );
     let calls = trace.clone();
     let state = total.clone();
-    let item = schema.item.clone();
-    let catalog = schema.builder.declarations().clone();
+
     let method = schema
         .builder
         .implement(schema.item.clone(), |group| {
             group.inherent_impl(|methods| {
                 let method = methods.define_method(declaration)?;
-                let mut wrong_policy = method_policy;
+                let mut wrong_policy = method_policy.clone();
                 wrong_policy.passing[0] = HostPassingStyle::Owned;
-                let wrong = FnDecl {
-                    name: "add".into(),
-                    host_policy: Some(wrong_policy),
-                    method_policy: Default::default(),
-                    implementation: CallableImplementation::Native(method.id()),
-                    generic_params: vec![],
-                    bounds: vec![],
-                    params: vec![
-                        Param {
-                            name: "self".into(),
-                            ty: Ty::Host(item.id()),
-                            mutable: false,
-                        },
-                        Param {
-                            name: "amount".into(),
-                            ty: Ty::Builtin(BuiltinType::I32),
-                            mutable: false,
-                        },
-                    ],
-                    return_type: Ty::Builtin(BuiltinType::I32),
-                };
-                let wrong = host::callback(|_, _| panic!("invalid member binding"))
-                    .prepare(&wrong, &catalog)?;
+                let wrong = host::callback(wrong_policy, |_, _| panic!("invalid member binding"));
                 assert!(methods.bind(method.clone(), wrong).is_err());
                 methods.bind(
                     method.clone(),
-                    host::callback(move |context, args| {
+                    host::callback(method_policy, move |context, args| {
                         calls.lock().unwrap().push("method");
                         let root = context.runtime().execution_root().unwrap();
                         let nested = root
@@ -292,19 +257,20 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     let mut schema = NominalSchema::new();
     let trace = Arc::new(Mutex::new(Vec::new()));
     schema.make(trace.clone(), "make");
+    let take_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let take = schema
         .builder
         .define_function(
             FunctionDecl::new("take")
                 .parameter("value", schema.item.apply([]).unwrap())
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(take_policy.clone()),
         )
         .unwrap();
     let calls = trace.clone();
@@ -312,7 +278,7 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
         .builder
         .bind(
             take,
-            host::callback(move |context, args| {
+            host::callback(take_policy, move |context, args| {
                 calls.lock().unwrap().push("take");
                 assert_eq!(args[0].kind(), Some(ObjectKind::HostRoot));
                 context.runtime_mut().collect_garbage().unwrap();

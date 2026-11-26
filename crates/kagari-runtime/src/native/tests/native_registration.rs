@@ -15,6 +15,7 @@ use crate::{
     },
     value::view::ValueView,
 };
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
 
 fn count(_cx: &mut NativeCall<'_>) -> NativeResult<u64> {
@@ -107,7 +108,51 @@ fn scalar_conversion_rejects_opaque_storage_at_registration() {
 }
 
 #[test]
-fn missing_or_unknown_trait_member_is_rejected() {
+fn registration_and_raw_catalog_reject_foreign_impls() {
+    let mut api = ModuleBuilder::new("game::api", &DeclarationCatalog::default()).unwrap();
+    let mut convert = api.define_trait("Convert").unwrap();
+    convert.type_parameter("Input").unwrap();
+    let convert = convert.finish().unwrap();
+    let api = api.finish().unwrap();
+    let register = |module: &mut ModuleBuilder| {
+        module.implement(Type::i32(), |group| {
+            group.trait_impl(convert.apply([Type::bool()])?, |_| Ok(()))
+        })
+    };
+    let mut compat = ModuleBuilder::new("game::compat", &api.catalog()).unwrap();
+    register(&mut compat).unwrap();
+    let compat = compat.finish().unwrap();
+    let mut plugin = ModuleBuilder::new("plugin", &api.catalog()).unwrap();
+    assert!(
+        register(&mut plugin)
+            .unwrap_err()
+            .to_string()
+            .contains("must own the trait or an input type")
+    );
+
+    // A raw registration need not pass through the builder. Keep this header's
+    // scoped trait identity and substitute only the implementation module.
+    let context = DefinitionContext::new().unwrap();
+    let mut forged = compat
+        .to_declaration()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    forged.identity = plugin.finish().unwrap().declaration().identity.clone();
+    let definitions = forged.collect_definitions(&context).unwrap();
+    let forged = DefinitionMetadata::checked(definitions, forged, &Default::default()).unwrap();
+    let error =
+        DeclarationCatalog::from_declarations([&api.to_declaration(), &forged]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("must own the trait or an input type"),
+        "{error}"
+    );
+}
+
+#[test]
+fn implementation_must_supply_the_required_signature() {
     let mut module =
         ModuleBuilder::new("example::missing_trait", &DeclarationCatalog::default()).unwrap();
     let mut declaration = module.define_trait("Measure").unwrap();
@@ -121,6 +166,24 @@ fn missing_or_unknown_trait_member_is_rejected() {
         })
         .unwrap_err();
     assert!(error.to_string().contains("missing method"));
+    // The entry matches the authored i64 result. Only the separate trait check
+    // can reject it: manufacturing the impl declaration from Measure would hide it.
+    let error = module
+        .implement(Type::i32(), |group| {
+            let receiver = group.receiver();
+            group.trait_impl(measure.apply([])?, |methods| {
+                methods.define_method(
+                    FunctionDecl::new("measure")
+                        .parameter("self", receiver)
+                        .returns(Type::i64()),
+                    NativeBinding::new([Codec::Value], Codec::Value, |_| {
+                        Ok(ValueView::from(1_i64))
+                    }),
+                )
+            })
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("trait implementation differs"));
 }
 
 #[test]
@@ -141,8 +204,14 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
     let read = declaration.finish().unwrap();
     let mut declaration = module.define_trait("Write").unwrap();
     let item = declaration.type_parameter("Item").unwrap();
-    declaration
+    let member = declaration
         .define_method(MethodDecl::instance("write").parameter("value", item.ty()))
+        .unwrap();
+    declaration
+        .method(&member, |method| {
+            let key = method.type_parameter("Key")?.ty();
+            method.parameter("key", key)
+        })
         .unwrap();
     let write = declaration.finish().unwrap();
     module
@@ -157,11 +226,18 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
                     }),
                 )
             })?;
-            group.trait_impl(write.apply([item])?, |methods| {
-                methods.bind(
-                    "write",
+            let receiver = group.receiver();
+            group.trait_impl(write.apply([item.clone()])?, |methods| {
+                methods.define_method_with(
+                    FunctionDecl::new("write")
+                        .parameter("self", receiver)
+                        .parameter("value", item),
+                    |method| {
+                        let key = method.type_parameter("K")?.ty();
+                        method.parameter("key", key)
+                    },
                     NativeBinding::new(
-                        vec![buffer.codec(), Codec::Value],
+                        vec![buffer.codec(), Codec::Value, Codec::Value],
                         Codec::Exact(Type::unit()),
                         |_| Ok(ValueView::unit()),
                     ),
@@ -184,6 +260,18 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
     assert_eq!(
         second.methods[0].params[1].ty,
         second.generic_params[0].as_type()
+    );
+    let write_method = &second.methods[0];
+    let method_id = ModuleDecl::method_id(
+        second.generic_params[0].owner,
+        "write",
+        module.definitions(),
+    )
+    .unwrap();
+    assert_eq!(write_method.generic_params[1].owner, method_id);
+    assert_eq!(
+        write_method.params[2].ty,
+        write_method.generic_params[1].as_type()
     );
     module.install(&mut Runtime::default()).unwrap();
 }

@@ -17,7 +17,10 @@ use kagari_common::{
     },
 };
 use kagari_contract::types::{PublicItem, type_contract};
-use kagari_types::language::binding::{future_declaration, option_declaration, result_declaration};
+use kagari_types::{
+    declaration::verify::trait_reference_valid,
+    language::binding::{future_declaration, option_declaration, result_declaration},
+};
 use std::{
     collections::{BTreeSet, HashSet},
     sync::Arc,
@@ -153,6 +156,27 @@ impl DeclarationCatalog {
             }
         }
         Ok(())
+    }
+
+    /// Only independently projected public traits can become portable importer pins.
+    pub(crate) fn is_source_requirement(
+        &self,
+        id: DefinitionId,
+        importer: &ModuleIdentity,
+    ) -> bool {
+        let definitions = self.definitions();
+        self.traits.get_id(id).is_some_and(|contract| {
+            definitions
+                .resolve(id)
+                .is_ok_and(|view| self.authored.contains_key(view.module()))
+                && trait_reference_valid(
+                    contract,
+                    id,
+                    importer,
+                    &CancellationToken::default(),
+                    &definitions,
+                )
+        })
     }
 
     /// The verified product supplying this owner or requirement. This identifies the

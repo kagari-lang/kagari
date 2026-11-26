@@ -71,14 +71,25 @@ pub(super) fn collect(seed: &DeclarationCatalog) -> NativeResult<ModuleAssembly>
             return Err(conflict(format!("missing verified standard owner {owner}")));
         }
         canonical.push(owner.clone());
-        if facade.path == "string" {
-            // Selecting the standard prelude also selects the optional text operations.
-            canonical.push(namespaces::module("std", "string"));
-        }
+
         let mut declaration = Composition {
             documentation: documentation::markdown(facade.docs),
             ..Default::default()
         };
+        if facade.path == "string" {
+            // The optional default belongs to String's package; the facade selects it.
+            let defaults = namespaces::module("alloc", "string_defaults");
+            owners.insert(
+                defaults.clone(),
+                Composition {
+                    documentation: "Supplies an empty immutable String for `Default::default()`."
+                        .into(),
+                    ..Default::default()
+                },
+            );
+            declaration.dependencies.push(defaults);
+            canonical.push(namespaces::module("std", "string"));
+        }
         for &(kind, names) in facade.exports {
             for &name in names {
                 declaration.export_type(&owner, kind, name);

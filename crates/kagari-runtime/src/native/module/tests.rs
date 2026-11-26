@@ -1,5 +1,6 @@
 use crate::{
     Runtime,
+    error::RuntimeErrorKind,
     host::{
         HostCallContext, HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch,
         PreparedHostPathWrite,
@@ -311,7 +312,10 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         .host_policy(policy(HostPassingStyle::UniqueBorrow))
                         .returns(Type::i32()),
                 )?;
-                methods.bind(method, host::callback(callback))
+                methods.bind(
+                    method,
+                    host::callback(policy(HostPassingStyle::UniqueBorrow), callback),
+                )
             })?;
             group.trait_impl(interface.apply([])?, |methods| {
                 methods.host_policy("hp", policy(HostPassingStyle::SharedBorrow))?;
@@ -327,7 +331,10 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
                         )
                         .is_err()
                 );
-                methods.bind("hp", host::callback(callback))?;
+                methods.bind(
+                    "hp",
+                    host::callback(policy(HostPassingStyle::SharedBorrow), callback),
+                )?;
                 assert!(
                     methods
                         .host_policy("hp", policy(HostPassingStyle::UniqueBorrow))
@@ -392,7 +399,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
     let module = module.finish().unwrap();
     let installation = NativeInstallation::prepare(slice::from_ref(&module)).unwrap();
     let mut first = installation.runtime(Default::default());
-    let second = installation.runtime(Default::default());
+    let mut second = installation.runtime(Default::default());
     let ty = first
         .types()
         .get_by_name("example::roots::Player")
@@ -404,7 +411,17 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
     assert!(second.host().root(HostObjectId(9)).is_none());
     assert_eq!(first.host().path_descriptors().count(), 1);
     assert_eq!(second.host().path_descriptors().count(), 1);
-    assert!(!second.host().matches_root(root));
+    let local = second
+        .register_host_root(root.object_id(), ty, root.schema_epoch())
+        .unwrap();
+    assert_eq!(
+        second.retire_host_root(root).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    assert_eq!(second.host().root(root.object_id()), Some(local));
+    assert!(!second.host_borrows.permits_root_retention(root));
+    assert!(second.host_borrows.permits_root_retention(local));
+    assert!(first.host().matches_root(root));
     let mut conflicting = Runtime::default();
     conflicting
         .types

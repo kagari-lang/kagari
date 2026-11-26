@@ -1,16 +1,14 @@
 //! Cold nominal schemas and explicit trait contracts use common declarations and KBC.
 use crate::test_library;
-use crate::tests::support::bytecode::load_bytecode;
+use crate::tests::support::{bytecode::load_bytecode, lower_for_installation};
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
-use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_runtime::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind},
+    error::{RuntimeError, RuntimeErrorKind, reason::ErrorReason},
     host::{HostCallContext, HostError},
     metadata::TypeKind,
     native::{
@@ -58,6 +56,16 @@ fn policy() -> HostTypePolicy {
         ownership: HostTypeOwnership::HostRoot,
         reflection: HostReflectionPolicy::Metadata,
         path_access: PathAccess::ReadWrite,
+    }
+}
+
+fn add_score_policy() -> HostCallPolicy {
+    HostCallPolicy {
+        passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
+        effects: HostFunctionEffects {
+            may_mutate_host_state: true,
+            ..Default::default()
+        },
     }
 }
 
@@ -136,13 +144,7 @@ fn declarations() -> DefinitionMetadata<ModuleDecl> {
                 ],
                 associated_types: BTreeMap::new(),
             }),
-            host_policy: Some(HostCallPolicy {
-                passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
-                effects: HostFunctionEffects {
-                    may_mutate_host_state: true,
-                    ..Default::default()
-                },
-            }),
+            host_policy: Some(add_score_policy()),
         }],
     });
     module.documentation.insert(method, "Add score.".into());
@@ -150,7 +152,10 @@ fn declarations() -> DefinitionMetadata<ModuleDecl> {
     DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
-fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, RuntimeError> {
+fn bound(
+    declarations: DefinitionMetadata<ModuleDecl>,
+    policy: HostCallPolicy,
+) -> Result<NativeModule, RuntimeError> {
     let mut builder = ModuleBuilder::from_declaration(
         declarations,
         test_library::standard().catalog(),
@@ -162,6 +167,7 @@ fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, R
     builder.bind(
         method,
         host::callback(
+            policy,
             |_: &mut HostCallContext<'_>,
              _: &[ValueView<'_>]|
              -> Result<ValueView<'_>, HostError> {
@@ -173,6 +179,7 @@ fn bound(declarations: DefinitionMetadata<ModuleDecl>) -> Result<NativeModule, R
 }
 
 fn program(
+    installation: &[NativeModule],
     declaration: DefinitionMetadata<ModuleDecl>,
     text: &str,
 ) -> DefinitionMetadata<BytecodeProgram> {
@@ -189,14 +196,7 @@ fn program(
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap();
+    let bytecode = lower_for_installation(&checked, installation);
     let context = DefinitionContext::new().unwrap();
     let bytecode = bytecode.import_into(&context, &Default::default()).unwrap();
     let artifact = KbcArtifact::from_program(
@@ -217,12 +217,30 @@ fn program(
     DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap()
 }
 
-fn install(module: NativeModule) -> Runtime {
-    let mut runtime = Runtime::default();
+fn providers(model: NativeModule) -> Vec<NativeModule> {
     let mut modules = test_library::modules().unwrap();
-    modules.push(module);
-    NativeModule::install_all(&modules, &mut runtime).unwrap();
+    modules.push(model);
+    modules
+}
+
+fn install(modules: &[NativeModule]) -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(modules, &mut runtime).unwrap();
     runtime
+}
+
+fn assert_load_rejected(
+    runtime: &mut Runtime,
+    label: &str,
+    program: DefinitionMetadata<BytecodeProgram>,
+    expected: &str,
+) {
+    let error = load_bytecode(runtime, label, program).unwrap_err();
+    assert_eq!(
+        error.reason(),
+        &ErrorReason::ModuleValidation(expected.into())
+    );
+    assert_eq!(runtime.modules().loaded_count(), 0);
 }
 
 fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
@@ -239,18 +257,19 @@ fn trait_module(implementation: Option<HostPassingStyle>) -> NativeModule {
         module
             .implement(counter, |group| {
                 group.trait_impl(readable.apply([])?, |methods| {
-                    methods.host_policy(
-                        "get",
-                        HostCallPolicy {
-                            passing: vec![passing],
-                            effects: Default::default(),
-                        },
-                    )?;
+                    let method_policy = HostCallPolicy {
+                        passing: vec![passing],
+                        effects: Default::default(),
+                    };
+                    methods.host_policy("get", method_policy.clone())?;
                     methods.bind(
                         "get",
-                        host::callback(|_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-                            Ok(ValueView::from(1i32))
-                        }),
+                        host::callback(
+                            method_policy,
+                            |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                                Ok(ValueView::from(1i32))
+                            },
+                        ),
                     )
                 })
             })
@@ -269,29 +288,45 @@ fn host_trait_table_requires_bound_method_callbacks_before_linking() {
         BTreeMap::new(),
     )
     .unwrap();
-    assert!(unbound.finish().is_err());
+    assert_eq!(
+        unbound.finish().unwrap_err().reason(),
+        &ErrorReason::MetadataConflict("missing native implementation binding".into())
+    );
+    let modules = providers(module);
     let program = program(
+        &modules,
         contract,
         "use model::Counter; use model::Readable; pub fn read(c: Counter) -> i32 { c.get() }",
     );
-    let mut missing = install(trait_module(None));
-    assert!(load_bytecode(&mut missing, "trait", program.clone()).is_err());
-    assert_eq!(missing.modules().loaded_count(), 0);
-    let mut mismatched = install(trait_module(Some(HostPassingStyle::UniqueBorrow)));
-    assert!(load_bytecode(&mut mismatched, "trait", program.clone()).is_err());
-    assert_eq!(mismatched.modules().loaded_count(), 0);
-    load_bytecode(&mut install(module), "trait", program).unwrap();
+    let mut missing = install(&providers(trait_module(None)));
+    assert_load_rejected(
+        &mut missing,
+        "trait",
+        program.clone(),
+        "native declaration is not installed",
+    );
+    let mut mismatched = install(&providers(trait_module(Some(
+        HostPassingStyle::UniqueBorrow,
+    ))));
+    assert_load_rejected(
+        &mut mismatched,
+        "trait",
+        program.clone(),
+        "native declaration differs from its installed contract",
+    );
+    load_bytecode(&mut install(&modules), "trait", program).unwrap();
 }
 
 #[test]
 fn offline_members_generate_runtime_metadata_and_resolve_mutual_references() {
     let declaration = declarations();
-    let module = bound(declaration.clone()).unwrap();
+    let module = bound(declaration.clone(), add_score_policy()).unwrap();
     let player_id = declaration
         .records()
         .definition(DefinitionKind::Struct, "Player", declaration.definitions())
         .unwrap();
-    let mut runtime = install(module);
+    let modules = providers(module);
+    let mut runtime = install(&modules);
     let player = runtime.types().get_by_name("model::Player").unwrap();
     let team = runtime.types().get_by_name("model::Team").unwrap();
     assert_eq!(player.fields[0].ty, team.id);
@@ -323,6 +358,7 @@ fn offline_members_generate_runtime_metadata_and_resolve_mutual_references() {
         .unwrap()
     );
     let program = program(
+        &modules,
         declaration,
         "use model::Player; pub fn add(p: Player) { p.add_score(1); }",
     );
@@ -346,10 +382,10 @@ fn unresolved_members_and_duplicate_batches_publish_no_metadata() {
         }
         let invalid =
             DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap();
-        assert!(bound(invalid).is_err());
+        assert!(bound(invalid, add_score_policy()).is_err());
     }
-    let valid = bound(original).unwrap();
-    let mut runtime = install(valid.clone());
+    let valid = bound(original, add_score_policy()).unwrap();
+    let mut runtime = install(&providers(valid.clone()));
     let before = runtime.types().len();
     assert_eq!(
         valid.install(&mut runtime).unwrap_err().kind(),
@@ -363,10 +399,11 @@ fn unresolved_members_and_duplicate_batches_publish_no_metadata() {
 #[test]
 fn type_contract_changes_reject_artifacts_before_publication_but_documentation_does_not() {
     let original = declarations();
-    let module = bound(original.clone()).unwrap();
-    let mut runtime = install(module);
+    let module = bound(original.clone(), add_score_policy()).unwrap();
+    let modules = providers(module);
+    let mut runtime = install(&modules);
     let source = "use model::Player; pub fn add(p: Player) { p.add_score(1); }";
-    let baseline = program(original.clone(), source);
+    let baseline = program(&modules, original.clone(), source);
     for change in 0..4 {
         let (definitions, mut declaration) = original.clone().into_parts();
         match change {
@@ -399,9 +436,21 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
             DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap();
         // Each candidate is independently valid and has matching local callbacks;
         // rejection therefore checks the already installed contract, not bad syntax.
-        bound(changed.clone()).unwrap();
-        assert!(load_bytecode(&mut runtime, "types", program(changed, source)).is_err());
-        assert_eq!(runtime.modules().loaded_count(), 0);
+        let candidate_policy = changed.records().implementations[0].methods[0]
+            .host_policy
+            .clone()
+            .unwrap();
+        bound(changed.clone(), candidate_policy).unwrap();
+        let expected = match change {
+            0 | 1 => "registered value schema differs from its installed contract",
+            _ => "native declaration differs from its installed contract",
+        };
+        assert_load_rejected(
+            &mut runtime,
+            "types",
+            program(&modules, changed, source),
+            expected,
+        );
     }
     let (definitions, mut documented) = original.into_parts();
     let root = definitions.lookup_root(&documented.identity).unwrap();
@@ -418,19 +467,22 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
     }
     let documented =
         DefinitionMetadata::checked(definitions, documented, &Default::default()).unwrap();
-    let documented = program(documented, source);
-    assert_ne!(
-        baseline.records().update_evidence.source_manifest,
-        documented.records().update_evidence.source_manifest
+    let documented = program(&modules, documented, source);
+    assert!(baseline.records().update_evidence.source_manifest.is_none());
+    assert!(
+        documented
+            .records()
+            .update_evidence
+            .source_manifest
+            .is_none()
     );
     let bytes = |program: DefinitionMetadata<BytecodeProgram>| {
         let context = DefinitionContext::new().unwrap();
-        let mut program = program
+        let program = program
             .import_into(&context, &Default::default())
             .unwrap()
             .into_records();
-        // Authored documentation changes source anchors, not executable contracts.
-        program.update_evidence.source_manifest = None;
+
         KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
             .unwrap()
             .to_bytes(&context.snapshot())

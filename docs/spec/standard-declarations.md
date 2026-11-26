@@ -5,23 +5,25 @@ implementation; its signature does not grant permission to call Rust. A host
 must install the matching binding. Neither route infers a Kagari API from a Rust
 signature or requires a separate binary declaration product.
 
-This page describes current implemented behavior. Structured registrations and
-explicitly supplied external declaration sources feed common HIR and semantic
-checking under a common static environment. Runtime implementation registration is
-separate from those binding-free semantic facts; generated views are optional origins.
+The compiler checks project and bundled source alongside structured registrations.
+The editor checks the same Kagari surface using project, bundled and generated
+source. Neither analysis installs implementations. Runtime checks executable
+requirements against its own bindings and storage descriptors.
 [Architecture](../architecture.md#unified-library-registration) defines the owners.
 The [native registration guide](../native-registration.md) explains the authoring
 lifecycle, Local/Send preparation and a complete multi-owner fluent example.
 
 ## Ownership and installation
 
-Normal source analysis includes the [eleven packaged modules](../../library/core/src/lib.rs)
+Normal source analysis includes the [packaged modules](../../library/core/src/lib.rs)
 without installing anything. They own the 26 language traits, nine ordinary traits,
 `Option`/`Result` and their propagation, ranges and the `String` type. Their Script
 bodies compile through the same pipeline as the application's. The optional stdlib
-owns the six collection interfaces, Future/task APIs, `std` facades and extension
+owns the six collection interfaces, task APIs, `std` facades and extension
 methods. For example, `std::string` supplies `trim` on the existing `alloc::string::String`;
-the canonical type declaration alone supplies no such method. Array
+the canonical type declaration alone supplies no such method. The optional
+`Default for String` impl belongs to `alloc::string_defaults`, in the type’s
+`kagari-alloc` package, not the `std` facade. Array
 literals construct builtin fixed-length arrays independently of installed declarations.
 Concrete Vec/HashMap/HashSet providers are not currently supplied by the bundle;
 their restoration belongs to the separate NC collection work. References below
@@ -220,8 +222,8 @@ forward checked operations without runtime trait lookup.
 
 Collection interfaces use ordinary methods and parent traits. There is no
 storage-access marker on trait declarations. Installed implementations can supply
-protocols for nominal interface values; type-owned protocols belong to that
-interface's defining module. The standard library explicitly implements bounded
+protocols for nominal interface values under the [package orphan rule](traits.md#coherence-guidance).
+The standard library explicitly implements bounded
 Debug for its six collection interfaces, without PartialEq, Eq or Hash.
 `Interface::debug_preview` supplies bounded formatting. Content helpers compare
 through selected element/key protocols; boxing never forwards a hidden receiver's
@@ -304,35 +306,24 @@ of executable signatures and contract matching.
 
 ## Declaration analysis inputs
 
-All routes use the same HIR function/type/member/impl records and semantic checks:
+Each logical module has **one declaration input** in a request:
 
-- The frontend supplies packaged core once per analysis input set, not once per
-  user file. Its modules have stable `kagari-core:///` or `kagari-alloc:///` URIs,
-  package aliases and explicit dependencies, but no prelude. A competing owner
-  is an error. Snapshots retain the inputs for navigation and replay.
-- `AnalysisDatabase::set_native_modules` lowers owned, scoped `ModuleDecl` records
-  directly. Construction establishes declaration-to-HIR correspondence; no rendered
-  text or parser round trip is required. Exact identity references still undergo
-  visibility, dependency, category, arity, binder, bound and associated-output checks.
-- `set_native_sources` pairs registrations with explicitly supplied complete
-  `DeclarationSource` documents. The ordinary parser lowers them; structural and
-  non-trivia correspondence checks prevent attaching registration metadata to a
-  changed signature. Only static contracts attach to HIR; implementation binding
-  remains a separate Runtime responsibility.
-- `set_external_modules` accepts offline `ExternalModule` inputs: real source plus
-  scoped static sidecars. These are checked alongside project source without an
-  installed provider. The same checked complete-program boundary admits them for
-  compilation; supported-operation checks still apply. They install no Rust entries.
+| Consumer | Inputs | What owns the declaration location? |
+| --- | --- | --- |
+| Compiler / SDK | Captured project source, bundled core/alloc source, scoped `ModuleDecl` registrations (`AnalysisDatabase::set_native_modules`) | Parsed source owns its ranges. A registration lowers directly to HIR and has a declaration identity and documentation, not an AST or physical span. |
+| Editor | Captured project source, the same bundled source, generated `.kgr` documents and the export’s import scopes; **zero registrations** | Ordinary parsing gives each declaration its range in that exact document revision. |
 
-Structured declarations retain structured origins and documentation. Their logical
-file keys are not authored source: syntax, source surfaces and physical declaration
-locations may be absent. Parsed inputs retain their actual source ranges. Do not
-invent spans or treat a rendered view as a complete authored-source manifest.
+Bundled modules are supplied once per request; their `kagari-core:///` and
+`kagari-alloc:///` documents need no stdlib installation. A registration and a
+source document claiming the same module conflict; they are never merged.
+There is no source-plus-metadata sidecar route. Both kinds of input enter the
+same module graph, resolver and type checker. A scoped definition ID still
+requires a reachable, accessible declaration of the right kind and arity.
 
 ### Explicit Native syntax and fields
 
 The [ordinary grammar](syntax.md#native-declarations) and common static rules admit
-these declarations in structured, external and ordinary project inputs. Native
+the same Kagari declarations from registration or source. Native
 spelling declares external implementation, never an installed Rust callback. This
 example supplies declarations, not executable bindings:
 
@@ -367,6 +358,9 @@ instance methods (`self`) and associated functions (no `self`); generics, bounds
 and ordinary impl/trait rules still apply. `native type Name;` is fieldless;
 `native type Name { ... }` uses ordinary fields, attributes, visibility, `var`/`val`,
 generic types and bounds. A type is not an alias merely because it ends in `;`.
+An external Host handle is published as `native host type Name`, with the same
+field syntax but no type parameters. Registration and parsing preserve the Host
+category through imports, signatures and field results.
 
 Function implementation kinds are **Required**, **Script** and **Native**.
 `Read.read` is Required; `Read.answer` is a complete Script default; the impl's
@@ -392,62 +386,81 @@ Native and Script fields share ownership, type, visibility and writeability
 checking. For `counter: Counter<i32>`, `counter.value = 1` type-checks, while
 `counter.value = false` does not. `val child` forbids rebinding that slot; reading
 it returns an ordinary Child object handle.
-It does not freeze the referent through other aliases. Scalar reads copy the
-scalar value. This frontend support creates no field adapter or storage authority;
-unsupported executable Native fields still reject at the compiler/runtime boundary.
+It does not freeze the referent: if `Child` declares `var hp: i32`, then
+`counter.child.hp = 1` writes `hp`, not `child`. If `hp` is `val`, the write is
+invalid regardless of the prefix. Scalar reads copy the scalar value.
+
+For Host fields, both structured declarations and parsed fields yield checked
+field IDs and result types on expressions and assignment targets. These facts
+do not depend on a registered path. Executable lowering must match the root and
+ordered field IDs to a unique registered path with the checked types and enough
+access. A type-correct write can therefore fail lowering. At execution, a
+readonly view still cannot authorize a write through it.
 
 The standard library does not provide script reference wrapper constructors.
 User declarations named `Ref` or `RefMut` follow ordinary type application rules
 and receive no special borrowing, projection or conversion behavior.
 
-### Offline static metadata
+### Source-visible declarations and executable evidence
 
-[`ExternalModule`](../../crates/kagari-hir/src/analysis/external.rs) carries facts
-that source syntax alone cannot express. This is an in-memory analysis input,
-not a new sidecar file format, exporter, watcher or provider product:
+Publication preserves the caller’s declarations: nominal identities, field types
+and `val`/`var`, trait and impl signatures, bounds, associated outputs, and
+complete Script bodies. A re-export must select the same target in the same
+namespace under the published import scope. If both namespaces would bind in
+text but only one was exported, the renderer must not silently widen the API.
 
-| Input | Static meaning |
-| --- | --- |
-| Source, package alias, prelude and dependencies | Complete declarations/Script bodies, ownership, exposure and explicit library dependencies. |
-| `types` | Checked canonical constructor selection or Host category. Ordinary nominal Native types need no entry; physical storage layout is not an HIR sidecar. |
-| `hosts` | Scoped `ExternalHost` root, complete schema closure (including the exact root) and checked paths. A Host category without its schema/path metadata rejects, rather than becoming an ordinary Native object. Parsed fields must match the schema. |
-| `conversions` | Forward conversion contract on the actual trait: static method, associated error member and result enum identities. Exposure and signature are checked; there is no reverse relationship record or implicit implementation proof. |
-| `enum_failures`, `import_namespaces` | Failure-origin flags on actual enum variants and namespace categories on exact named import leaves. |
-| `methods` | Exceptional receiver-access/override restrictions, targeted at the actual function or trait/impl member. Impl selectors count blocks in source order. |
-| `contracts` | `NativeContract` ordered selected operations and optional concrete interface result, with explicitly imported definition scopes. |
+A document containing `pub native host type Player;` is enough to type-check a
+client. It is not a schema: if a module in the checked program declares `Player`
+from source, executable admission reports `MissingHostSchema` for its declaration
+path, even if `Player` has no fields and the program makes no Host calls. To
+compile that program, supply the owning module as a structured registration
+**instead of** its published text. Client modules can refer to the registered
+type normally. Source-free loading still checks the program’s requirements against
+the installation; the text is not consulted.
 
-Canonical String/Range constructor identity, arity and
-field shape are checked at common declaration preparation even if `types` is empty.
+Rust storage, Host schemas and paths, receiver loans, call policies, the ordered
+operations invoked by a Native body and its concrete interface result are not
+annotations on an editor document. Registered callable requirements name the
+receiver, applied trait, member and method arguments; slot order and duplicates
+matter. A generic bound alone does not select such an operation. The checker
+validates supplied requirements and concrete results against visible declarations,
+binders, bounds and associated outputs, including obligations on `Self`.
+An editor sees the callable’s declared Kagari signature, not a proof about the
+unavailable Rust body. [Executable contracts](#checked-executable-contracts)
+are validated independently.
+
+String and range constructors require the exact canonical definition and a public,
+unbounded, fieldless Native declaration with the required arity. Neither declaration
+route can grant that interpretation to another owner.
 [Reserved language roles](../../crates/kagari-hir/src/language/items.rs) require their
 canonical owners and independent visibility/binder/parent/member-shape checks,
-uniqueness and completeness, not an origin-granted foundation privilege.
+uniqueness and completeness, not an origin-granted foundation privilege. The canonical
+`TryFrom` relationship selects the declared forward member, its associated `Error`
+and the canonical `Result` constructor. A validated custom conversion designation
+is not an orphan exemption and does not redirect ordinary trait calls or change
+their result type.
 
 [Import scopes](../../crates/kagari-hir/src/imports/environment.rs) retain package
 aliases, explicit dependencies and selected preludes. Producer/package defaults are
 normalized before graph construction; an explicit module scope replaces those
-defaults. Accessible prelude bindings enter the ordinary implicit tier, and multiple
-selected preludes conflict. [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs)
+defaults. An inline child inherits its containing scope unless explicitly replaced;
+a separate physical file does not inherit by logical path prefix. Accessible
+prelude bindings enter the ordinary implicit tier; multiple selected preludes conflict. [AnalysisInputs](../../crates/kagari-hir/src/analysis/inputs.rs)
 retains explicit scopes for replay. Subsequent analysis uses the current scopes,
-and changes reset the environment fingerprint. Coherence follows actual
-declaration/receiver ownership, not input origin.
-
-Native operation slots retain order and duplicates, receiver, applied trait/member
-and method type arguments. They are not interchangeable with admission bounds.
-The common checker validates category, exact identity/arity, binder scope, bounds,
-associated-member ownership and concrete-result conformance, including obligations
-involving Self. Sidecars neither supply Rust callbacks nor bypass these checks.
-Missing/ambiguous targets, constructor-owner conflicts and invalid Host paths reject.
-An offline Native declaration remains unbound even after successful analysis;
-text, URI, matching names and static metadata never confer installed binding authority.
+and changes invalidate the environment fingerprint. A fingerprint identifies inputs;
+it is not evidence of successful checking or executable admission.
 
 ## Engine source presentation
 
-Source-enabled SDK engines default to the direct structured route above.
-`engine.native_declaration_sources()` still returns rendered immutable presentation
-views and sites, but those views are not the default analysis inputs. Registered
-Markdown is available without a parsed owning source; source locations are optional.
-For navigable files, a tooling host explicitly selects materialized views before
-sealing, retaining the parsed/validated route:
+SDK source compilation always lowers registered modules directly. To export them
+for an editor, pass the authored project snapshot to `native_declaration_sources`.
+It returns documents (stable key, logical module, display path and text) plus the
+import selections for that snapshot. The editor can analyze the documents with
+project source and packaged core, without registrations. For example, the editor
+resolves a `Player` parameter to the published `native host type Player;`, not to
+an ordinary native object with the same name. Its type checks need no Rust callback.
+
+To publish files rather than return only in-memory documents, opt in before sealing the engine:
 
 ```rust
 use kagari::engine::KagariEngine;
@@ -460,26 +473,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Construct application modules against builder.declarations(), then install them.
     builder.declaration_cache("target/kagari-declarations");
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;
-    assert!(!engine.native_declaration_sources().is_empty());
+    let views = engine.native_declaration_sources(engine.source_snapshot(), &Default::default())
+        .map_err(|error| format!("{error:?}"))?;
+    assert!(!views.documents.is_empty());
     Ok(())
 }
 ```
 
-Omitting the directory keeps presentation views in memory without filesystem IO
-and analysis uses structured declarations. Setting `declaration_cache` pairs the
-rendered documents with registrations through `set_native_sources`, validates them
-and publishes the files. CLI source commands configure this existing route
-automatically. The cache uses renderer-version/content paths;
-unchanged content reuses paths and doc-only changes preserve old snapshot targets.
-SDK errors retain the failing filesystem path and IO cause. Published normalized
-absolute paths and declaration ranges match the analyzed content; LSP integrations
-encode paths as file URIs at their protocol boundary. HIR declaration snapshots
-provide `documentation` and `module_documentation`; full analysis supplies
-`documentation_at` and `module_documentation_at` for item and module references.
+Without `declaration_cache`, engine construction does not render declarations;
+only an explicit tooling request does so. With a cache, `build()` publishes the
+source-independent registrations. A tooling request with project source can also
+export registrations that depend on its traits. The renderer uses each importer's
+scope for names and re-exports; it returns an error rather than naming a different
+target or namespace. CLI source commands neither request these documents nor publish files
+for registered declarations.
+
+Published display paths are normalized absolute paths under the configured cache:
+`<renderer-version>/<stable-key-hash>/<content-hash>.kgr`. Each document reuses its
+path for unchanged bytes; different owners have distinct paths even for identical
+text. A doc edit changes the path without changing the stable key or overwriting
+an earlier snapshot's file. SDK IO errors identify the path and cause. LSP integrations
+encode published paths as file URIs at their protocol boundary. Analyzer query
+views over a declaration snapshot provide `documentation` and `module_documentation`;
+full-snapshot views provide `documentation_at` and `module_documentation_at`.
 They preserve complete registered Markdown; a physical owning location exists only
-when real source was supplied. The materialized route retains precise parsed ranges.
-Source-independent declarations are checked during engine preparation; declarations
-requiring user-source traits are checked with those providers in the source snapshot.
+when real source was supplied. Parsing generated documents in an editor gives ranges
+in that text; publishing files does not add ranges or a complete source manifest to
+a structured compilation.
 
 Artifact-only and native-only SDK consumers install the same checked registration
 records without a source frontend, generated KGR or declaration binary. User-program
@@ -487,11 +507,12 @@ KBC/MIR artifacts and linked verification remain independent execution features.
 
 ## Checked executable contracts
 
-Structured, external and ordinary source declarations share binding-free HIR and
+Structured registrations and ordinary source declarations share binding-free HIR and
 static checking. Required/Script/Native remain distinct; Native has one checked
 semantic kind without an installed-entry selector. HIR retains caller-visible
-Host/access policy, ordered operations and result constraints, not callbacks, Rust
-storage adapters or internal loans. The [compiler handoff](../../crates/kagari-hir/src/compile_input/program.rs)
+call facts, ordered callable requirements and result constraints. Method selection
+uses the declared Kagari `self`; the compiler obtains any receiver-loan requirement
+from the selected member's registration, not from HIR method lookup. The [compiler handoff](../../crates/kagari-hir/src/compile_input/program.rs)
 requires complete checked facts and supported executable operations, not a provider
 registry or an input-route privilege. Missing demanded implementations are a linking
 failure rather than a different type-checking result.
@@ -500,10 +521,15 @@ Executable lowering carries provider-qualified native imports with concrete
 types, signatures, bounds and selected callable dependencies. Portable validation
 proves those facts against the executable dependency closure. Artifact loading checks the installed entry
 against the complete carried declaration; matching names alone are insufficient.
+For a path-backed Native call this includes the operation kind and exact path,
+not just its parameter and result types. The caller requires that path and its
+schema closure, including types reached through index and virtual segments.
+Those segments do not declare fields or indexing syntax. See the
+[Host field and path operation rules](host-interop.md#kagari-side-semantics).
 
 An ordinary generic bound states applicability. A selected callable requirement
 additionally states that the Rust body invokes a particular trait member. Linking
-resolves that member once for the concrete native application. `cx.selected(slot)`
+resolves that member once for the concrete native application. `cx.selected(&declared_call)`
 borrows the prepared callable; invocation does not repeat source lookup or trait
 resolution. Implicit language operations and explicit script implementations
 retain distinct checked targets.
@@ -511,8 +537,8 @@ retain distinct checked targets.
 Ordinary default materialization substitutes trait, receiver, method and
 associated-output arguments through normal instance planning. Interface tables retain
 `method_origins` linking an impl-owned placement to its canonical authored member.
-[Contract verification](../../crates/kagari-contract/src/types/verify.rs) checks those
-origins and final override policy as internal materialization provenance.
+[Contract verification](../../crates/kagari-contract/src/types/verify.rs) checks
+the placement and origin as evidence that the method is inherited rather than explicitly implemented.
 [Materialization verification](../../crates/kagari-contract/src/types/materialization.rs)
 checks placed Script identities against portable source/body records already checked
 against instructions by [bytecode verification](../../crates/kagari-bytecode/src/program.rs).
@@ -525,8 +551,10 @@ independently retains the installed canonical ScriptExpr and function contract, 
 compares them with the actual bytecode call/value trace: selected callees, call order,
 argument flow, applied types/signatures and returned value. Trait/receiver/method
 binders and associated projections/families are applied through the checked impl's
-outputs before comparison. For final Script methods supplied by a Native registration, absence of the
-installed canonical expression fails closed. Portable origins, a matching Script signature or an
+outputs before comparison. A body claiming to inherit an installed Script default
+is rejected if its canonical expression is absent or the body does not match. An
+explicit, signature-compatible override is a distinct impl member, not a claim of inheritance.
+Portable origins, a matching Script signature or an
 artifact-supplied digest cannot authorize a replacement; parsed source alone is not
 that independent canonical authority. This check covers the current expression grammar,
 rejects unsupported trace effects and requires neither HIR nor source parsing.
@@ -575,8 +603,9 @@ Sort, reverse, retain and dedup preserve completed effects; no rollback guarante
 or atomic bulk replacement is required. Receiver identity, generation, callback
 protection and storage revisions remain checked.
 
-`NativePayload` supplies tracing, logical units and ordinary Rust destruction.
-Every retained script Value and stored callable must be traced. `NativeStorage`
+`NativePayload` selects a storage registration. The underlying GC provider, not
+the declaration, must trace every retained script value and stored callable. See
+[payload accounting](host-interop.md#native-payload-accounting). `NativeStorage`
 registers the payload layout and either a checked factory or an explicitly
 constructed payload. New opaque types use the generic Opaque handle;
 they do not require new compiler, ABI, verifier or VM type variants.
@@ -613,10 +642,10 @@ these families. Iterator and comparison contracts retain only the checked symbol
 member bindings they consume. Library authoring handles are cached; layouts and
 type arguments remain scoped to the executing generation.
 
-A variant's `reports_failure` fact is explicit checked declaration/layout metadata.
-Packaged core supplies it for canonical `Result::Err`, which has one payload field.
-Construction captures optional diagnostic origin. Ordinary user source enums and
-native enum builders leave the fact false. Equality, hashing and payload access ignore it.
+`reports_failure` is derived from the checked public `core::result::Result<T, E>`
+with ordered variants `Ok(T), Err(E)`. Only its `Err` variant captures a diagnostic
+origin. Registered declarations and executable layouts must carry the matching bit;
+a same-shaped enum from another module cannot opt in. Equality, hashing and payload access ignore it.
 
 Try and FromResidual are authored core traits; their standard implementations live
 in the library alongside the carrier declarations. A native carrier uses
@@ -641,16 +670,14 @@ for multiple parameters. Method-local binders use `M` / `M1, M2, ...` when an
 enclosing generic binder already uses `T`, avoiding shadowing. Declarations,
 bounds and bodies share this spelling; semantic binder positions remain zero-based.
 The generated view is not an independently installable library or a second
-signature authority. Default compilation lowers structured registration records;
-explicit supplied views instead undergo ordinary parsing/lowering and non-trivia
-correspondence checks before static contracts attach. Both routes check complete
-ordinary Script default bodies and calls to declared Native helpers, including unused
-defaults; no dedicated forwarding-call record or installed selector is attached to HIR.
-Offline inputs must preserve complete Script definitions/defaults and required static sidecars.
+signature authority. SDK compilation lowers structured registration records;
+editor analysis parses the published documents as ordinary source. Both check
+complete Script defaults and their helper calls, including unused defaults. No
+helper selector, HIR IDs or hidden contract accompanies the generated text.
 Authored core declarations and members own their source ranges and documentation,
 including when reached through an installed `std` re-export. They need no generated
-view. Native registrations own their own prose; without materialization a physical
-range may be absent. Standard and application Native views use the same renderer;
+view. Native registrations own their own prose; structured inputs have no physical
+source range. Standard and application Native views use the same renderer;
 materialized navigation resolves parsed ranges in the exact supplied snapshot.
 Changing a view's URI changes its presentation location, while its registered
 module and callable identities remain unchanged. Native registration does not infer
@@ -668,10 +695,6 @@ observable result when the signature alone cannot explain the operation. Core
 examples should include their own imports and run without stdlib unless they
 explicitly build on a preceding example or name an optional provider.
 
-Current direct/offline equivalence and static-authority coverage lives in
-[HIR external tests](../../crates/kagari-hir/src/analysis/external/tests.rs) and
-[SDK registration-source tests](../../crates/kagari/src/engine/tests/registration_sources.rs).
-Collection-dependent coverage remains subject to the separate NC restoration gap;
-source-free executable checks are independent of declaration presentation.
-[Performance measurements](../performance-baseline.md) record measured costs;
-the [roadmap](../implementation-roadmap.md) owns pending work.
+The [publication tests](../../crates/kagari/src/engine/tests/registration_sources.rs)
+exercise document identity, importer scopes and cache behavior independently of
+[source-free loading](artifacts.md).

@@ -1,7 +1,7 @@
 //! Authenticate supplied ordinary Script expressions at the installed-library boundary.
 //!
 //! Product origins and instruction certificates establish internal consistency, not
-//! the semantics of an installed final method. The independent authority here is the
+//! the semantics of an installed Script body. The independent authority here is the
 //! installed module's ordinary expression, never a digest supplied by the artifact.
 mod trait_calls;
 
@@ -25,7 +25,7 @@ use kagari_common::{
     },
 };
 use kagari_contract::types::{
-    InterfaceTable, PublicItem, named::NamedContract, proofs::ProofCatalog, trait_contract,
+    InterfaceTable, PublicItem, named::NamedContract, proofs::ProofCatalog,
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
@@ -128,7 +128,7 @@ impl NativeRegistry {
         for (id, function, impl_parameters, impl_bounds) in functions {
             let Some(body) = module.script_bodies.get(&id) else {
                 // Parsed Script source can be supplied without a structured body. It
-                // grants no independent executable authority for a final default.
+                // grants no independent executable authority for an inherited default.
                 continue;
             };
             let expected = InstalledScript {
@@ -158,49 +158,6 @@ impl NativeRegistry {
         admission: &DefinitionAdmission,
     ) -> NativeResult<()> {
         let cancel = CancellationToken::default();
-        // Fail closed when a product asks for final library semantics without an
-        // independently installed expression. Origins alone cannot authorize it.
-        for item in &module.public_items {
-            let PublicItem::InterfaceTable(table) = item else {
-                continue;
-            };
-            let Ty::Trait(interface) = &table.trait_type else {
-                return Err(invalid());
-            };
-            let contract = program
-                .modules()
-                .iter()
-                .find_map(|owner| {
-                    trait_contract(
-                        &owner.identity,
-                        &owner.public_items,
-                        &owner.trait_contracts,
-                        &interface.declaration,
-                        program.definitions(),
-                    )
-                })
-                .ok_or_else(invalid)?;
-            for method in &contract.methods {
-                if method.implementation != CallableImplementation::Script
-                    || method.method_policy.override_allowed
-                {
-                    continue;
-                }
-                let canonical = program
-                    .definitions()
-                    .lookup_child(
-                        interface.declaration,
-                        DefinitionKind::Method,
-                        &method.name,
-                        0,
-                    )
-                    .ok_or_else(invalid)?;
-                let installed = admission.runtime_id(canonical)?;
-                if self.scripts.get_id(installed).is_none() {
-                    return Err(invalid());
-                }
-            }
-        }
         let defs = program.definitions();
         let convert = Protocol::From.module();
         let mut blankets = HashMap::new();
@@ -263,6 +220,14 @@ impl NativeRegistry {
                     script.product_body(admission, &cancel)?,
                     admission.product(&script.function, &cancel)?,
                 )
+            } else if inherited.is_some()
+                && self
+                    .catalog
+                    .contains_module(defs.resolve(canonical).map_err(|_| invalid())?.module())
+            {
+                // An installed default needs independent body evidence. Ordinary authored
+                // traits have no installed owner and use the verified product instead.
+                return Err(invalid());
             } else if let Some(table) = blankets.get(&placement) {
                 let method = &table.methods[0];
                 (

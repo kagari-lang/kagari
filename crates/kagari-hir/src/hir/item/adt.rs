@@ -6,13 +6,8 @@ use crate::hir::{
     origin::NodeOrigin,
     writeability::Writeability,
 };
-use kagari_common::identity::table::DefinitionId;
 use kagari_common::span::Span;
-use kagari_types::{
-    declaration::{TypeDeclaration, TypeDef, path::HostPathDeclaration},
-    visibility::Visibility,
-};
-use std::sync::Arc;
+use kagari_types::visibility::Visibility;
 
 /// A Native nominal interface, independent of its installed storage representation.
 ///
@@ -44,8 +39,8 @@ pub struct NativeTypeDeclaration {
     pub name_span: Option<Span>,
     /// Slot in `Module.native_types`.
     pub id: NativeTypeId,
-    /// Address-free Host schema and caller-visible path capabilities, if this is a Host declaration.
-    pub host: Option<HostContract>,
+    /// Whether values have Host identity (not owning Native storage).
+    pub is_host: bool,
     /// Declared visibility.
     pub visibility: Visibility,
     /// Declared nominal type name.
@@ -204,8 +199,6 @@ pub struct Variant {
     pub origin: NodeOrigin,
     /// Exact written name when available.
     pub name_span: Option<Span>,
-    /// Whether construction starts the declared failure-origin behavior.
-    pub reports_failure: bool,
     /// Arena/enum/slot identity used by `Module::variant`.
     pub id: VariantId,
     /// Variant name within its enum.
@@ -219,13 +212,4 @@ impl Variant {
     pub fn diagnostic_name_span(&self) -> Span {
         self.origin.diagnostic_name(self.name_span)
     }
-}
-
-/// Static Host schema/path closure. Contains no Rust layout, binding or storage classification.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostContract {
-    pub declaration: DefinitionId,
-    pub definition: Arc<TypeDef>,
-    pub paths: Arc<[HostPathDeclaration]>,
-    pub schemas: Arc<[TypeDeclaration]>,
 }

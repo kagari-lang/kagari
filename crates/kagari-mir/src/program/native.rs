@@ -22,6 +22,8 @@ use kagari_types::{
     },
 };
 
+use std::collections::HashSet;
+
 pub(super) fn validate(
     caller: &MirModule,
     closure: &[&ValidatedMirModule],
@@ -186,6 +188,7 @@ pub(super) fn validate(
     {
         return Ok(false);
     }
+    let mut checked_paths = HashSet::new();
     for import in caller.native_applications() {
         if !FoundationNative::import_allowed(import, &caller.identity, definitions) {
             return Ok(false);
@@ -205,7 +208,13 @@ pub(super) fn validate(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(declaration, catalog, cancel)? {
+        if !import.matches_declaration(declaration, catalog, cancel)?
+            || (declaration.path_operation.is_some()
+                && checked_paths.insert(declaration.declaration)
+                && declaration
+                    .validate_path_operation(&caller.external_types, definitions)
+                    .is_err())
+        {
             return Ok(false);
         }
         if let Some(entry) = FoundationNative::for_id(import.binding, definitions)

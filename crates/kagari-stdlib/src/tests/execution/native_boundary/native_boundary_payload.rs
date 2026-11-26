@@ -2,14 +2,16 @@ use crate::test_library;
 #[cfg(test)]
 use crate::tests::support::bytecode::load_bytecode;
 use crate::tests::{
-    execution::native_boundary::{compile_program, native_boundary_functions::fixture},
+    execution::native_boundary::{
+        compile_program, native_boundary_functions::fixture, support::round_trip_program,
+    },
     support::bytecode::reload_bytecode,
 };
 mod managed;
 mod methods;
 
 use kagari_runtime::{
-    error::RuntimeError,
+    error::{RuntimeError, reason::ErrorReason},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
@@ -79,6 +81,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         .unwrap();
     let player_type = declaration.finish().unwrap();
     let mut declaration = module.define_type("ReadOnlyPayload").unwrap();
+    declaration.type_parameter("T").unwrap();
     declaration
         .native_storage(NativeStorage::payload::<PlayerState>())
         .unwrap();
@@ -138,9 +141,19 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
             },
         )
         .unwrap();
+    let module = module.finish().unwrap();
     let (mut vm, owner) = fixture(
         include_str!("../../../../tests/fixtures/native/checked-data-edits.kgr"),
-        Some(&module.finish().unwrap()),
+        Some(&module),
+    );
+    let blocked = round_trip_program(compile_program(
+        include_str!("../../../../tests/fixtures/native/readonly-receiver-loan.kgr"),
+        Some(&module),
+    ));
+    let error = load_bytecode(&mut vm, "blocked", blocked).unwrap_err();
+    assert!(
+        matches!(error.reason(), ErrorReason::ModuleValidation(detail) if detail == "storage does not permit direct data editing"),
+        "{error:?}"
     );
     let _owner_program = owner;
     let owner = vm.select_program(&_owner_program).unwrap();
@@ -195,9 +208,13 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         42
     );
     assert_eq!(cx.runtime().gc_stats().provider_units, before);
+    let element = ConversionContext::new(cx.runtime_mut(), &owner)
+        .unwrap()
+        .type_for::<i32>()
+        .unwrap();
     let no_edit = cx
         .runtime_mut()
-        .bind_native_type::<PlayerState>(&_owner_program.root(), &no_edit, &[])
+        .bind_native_type::<PlayerState>(&_owner_program.root(), &no_edit, &[element])
         .unwrap()
         .create_with(&mut cx, |native| {
             native.scope().alloc_leaf(PlayerState {
@@ -207,16 +224,6 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         })
         .unwrap();
     assert!(no_edit.edit(&mut cx, |_| Ok(())).is_err());
-    assert!(
-        cx.runtime_mut()
-            .execute_typed::<_, i32>(
-                &_owner_program,
-                "blocked",
-                (no_edit.clone(),),
-                &Default::default()
-            )
-            .is_err()
-    );
     assert_eq!(no_edit.read(&mut cx, |state| Ok(state.hp)).unwrap(), 1);
     drop((object, alias, no_edit, cx));
     vm.collect_garbage().unwrap();

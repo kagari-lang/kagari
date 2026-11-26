@@ -278,56 +278,9 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
     assert!(!valid(&function));
     function.implementation = CallableImplementation::Script;
     assert!(valid(&function));
-    function.method_policy.override_allowed = false;
-    assert!(!valid(&function));
-    function.method_policy.override_allowed = true;
     function.implementation =
         CallableImplementation::Native(owner(&context, &module, DefinitionKind::Trait, "forged"));
     assert!(!valid(&function));
-}
-
-#[test]
-fn required_methods_cannot_forbid_an_implementation() {
-    let context = DefinitionContext::new().unwrap();
-    let module = ModuleIdentity::single_file("method-policy.kgr");
-    let interface_id = owner(&context, &module, DefinitionKind::Trait, "Reader");
-    context
-        .intern_child(interface_id, DefinitionKind::Method, "read", 0)
-        .unwrap();
-    let cancel = CancellationToken::default();
-    let mut interface = TraitDef {
-        conversion_adapter: None,
-        name: "Reader".into(),
-        associated_consts: vec![],
-        associated_types: vec![],
-        supertraits: vec![],
-        generic_params: vec![],
-        bounds: vec![],
-        methods: vec![FnDecl {
-            host_policy: None,
-            method_policy: Default::default(),
-            name: "read".into(),
-            implementation: CallableImplementation::Required,
-            generic_params: vec![],
-            bounds: vec![],
-            params: vec![],
-            return_type: Ty::Builtin(BuiltinType::I32),
-        }],
-    };
-    let valid = |interface: &TraitDef| {
-        validate(
-            &[PublicItem::Trait(interface.clone())],
-            &module,
-            &cancel,
-            &context.snapshot(),
-        )
-        .is_ok()
-    };
-    assert!(valid(&interface));
-    interface.methods[0].method_policy.override_allowed = false;
-    assert!(!valid(&interface));
-    interface.methods[0].implementation = CallableImplementation::Script;
-    assert!(valid(&interface));
 }
 
 #[test]
@@ -417,29 +370,8 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
-    declared.implementation = CallableImplementation::Script;
-    declared.method_policy.override_allowed = false;
-    assert!(!same_method_contract(
-        &declared,
-        &implemented,
-        &trait_instance,
-        &make_table(),
-        &cancel,
-        &context.snapshot()
-    ));
-    declared.method_policy.override_allowed = true;
-    assert!(same_method_contract(
-        &declared,
-        &implemented,
-        &trait_instance,
-        &make_table(),
-        &cancel,
-        &context.snapshot()
-    ));
-    declared.implementation = CallableImplementation::Required;
     let original_param = implemented.params[0].ty.clone();
     implemented.params[0].ty = Ty::Array(Box::new(Ty::Tuple(vec![
         for_type.clone(),
@@ -450,8 +382,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     implemented.params[0].ty = original_param;
     declared.bounds.push(GenericBound {
@@ -477,8 +408,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     implemented.bounds[0].constraints.clear();
     assert!(!same_method_contract(
@@ -486,8 +416,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let marker = owner(&context, &module, DefinitionKind::Trait, "Marker");
     let applied = |parameter_owner| NominalTy {
@@ -505,8 +434,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let instance = &mut implemented.bounds[0].constraints[0];
     instance.arguments[0] = Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)));
@@ -515,8 +443,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &implemented,
         &trait_instance,
         &make_table(),
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
 }
 
@@ -611,8 +538,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         &implemented,
         &view,
         &table,
-        &cancel,
-        &context.snapshot()
+        &cancel
     ));
     let normalize = |ty: &Ty| {
         normalize_projections(

@@ -25,6 +25,30 @@ pub(super) struct Budget {
 }
 
 impl Budget {
+    pub(super) fn projection(
+        &mut self,
+        state_bytes: &mut usize,
+        work: usize,
+        allocation: usize,
+        context: Context<'_>,
+    ) -> Result<(), MirVerificationError> {
+        self.work(work, context)?;
+        *state_bytes = state_bytes.saturating_add(allocation);
+        self.scratch(*state_bytes, context)
+    }
+
+    pub(super) fn scratch(
+        &self,
+        bytes: usize,
+        context: Context<'_>,
+    ) -> Result<(), MirVerificationError> {
+        context.limit(
+            self.bytes.saturating_add(bytes),
+            MAX_ANALYSIS_BYTES,
+            "MIR analysis state bytes",
+        )
+    }
+
     pub(super) fn work(
         &mut self,
         count: usize,

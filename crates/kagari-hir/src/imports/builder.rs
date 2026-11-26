@@ -113,12 +113,7 @@ impl ModuleGraph {
             cancel.check()?;
             let unit = SourceUnit::of(module, &base.definitions);
             base.modules.entry(unit.module).or_default().push(unit);
-            if !module.trait_references.is_empty() {
-                base.registered_trait_access.insert(
-                    unit.module,
-                    module.trait_references.iter().map(|(id, _)| *id).collect(),
-                );
-            }
+
             base.module_dependencies.insert(
                 unit.module,
                 environment

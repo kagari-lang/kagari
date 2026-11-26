@@ -16,7 +16,8 @@ pub(super) fn matches_declaration(
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
     let function = &declaration.function;
-    if import.instance.declaration != declaration.declaration
+    if (declaration.path_operation.is_some() && import.generic.is_some())
+        || import.instance.declaration != declaration.declaration
         || import.receiver_access != function.method_policy.receiver_access
         || function.implementation != CallableImplementation::Native(import.binding)
         || import.instance.arguments.len() != function.generic_params.len()

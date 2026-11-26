@@ -8,11 +8,11 @@ use crate::{
         ExecutionRoots, SessionId, Slots, ValueBank, ValueLocation, frames::FrameBanks,
     },
     execution_metadata::managed::{
-        applications::ApplicationObject, environments::EnvironmentObject,
-        groups::OperationGroupObject,
+        ProtectedMetadata, applications::ApplicationObject, environments::EnvironmentObject,
+        groups::OperationGroupObject, sources::MetadataError,
     },
     frame::types::arguments::TypeArgument,
-    host::HostRegistryId,
+    host::{HostBorrowTable, HostRegistryId},
     module::{ExecutableModule, ModuleKey, managed::revision::RevisionState},
     native::{
         conversion::arguments::ArgumentValues,
@@ -21,7 +21,7 @@ use crate::{
     resource::{ResourceState, candidate::CandidateOrigin},
     task::payload::{ScopePayload, TaskPayload},
     value::{
-        aggregates::{structures::StructObject, tuples::TupleObject},
+        aggregates::structures::StructObject,
         arrays::ArrayObject,
         carriers::{RootedValue, ScopedValue},
         cells::CellObject,
@@ -59,6 +59,7 @@ pub(crate) fn async_protected(
                 values.len(),
                 |slots, index| values[index].get(slots),
                 resources,
+                &runtime.host_borrows,
             ))
         })
     });
@@ -81,6 +82,7 @@ pub(crate) fn async_arguments(
     slots: &mut Slots<'_, '_>,
     values: ArgumentValues<'_>,
     resources: &ResourceState,
+    borrows: &HostBorrowTable,
 ) -> Result<bool, CheckError> {
     values.check_bounds(slots)?;
     async_inputs(
@@ -88,6 +90,7 @@ pub(crate) fn async_arguments(
         values.len(),
         |slots, index| values.scoped(slots, index),
         resources,
+        borrows,
     )
 }
 
@@ -96,24 +99,15 @@ fn async_inputs<'gc>(
     count: usize,
     mut get: impl FnMut(&mut Slots<'_, 'gc>, usize) -> Result<ScopedValue<'gc>, GcError>,
     resources: &ResourceState,
+    borrows: &HostBorrowTable,
 ) -> Result<bool, CheckError> {
+    let mut walk = DataWalk::retention(borrows);
     for index in 0..count {
         if index.is_multiple_of(1024) {
             resources.poll_closed()?;
         }
         let value = get(slots, index)?;
-        if !ValueProperties::of(slots.scope(), value)?.storable {
-            return Ok(false);
-        }
-    }
-    let mut walk = DataWalk::default();
-    for index in 0..count {
-        if index.is_multiple_of(1024) {
-            resources.poll_closed()?;
-        }
-        if let Some(object) = get(slots, index)?.object()
-            && !walk.object(slots.scope(), object, resources)?
-        {
+        if !walk.value(slots.scope(), value, resources)? {
             return Ok(false);
         }
     }
@@ -121,31 +115,48 @@ fn async_inputs<'gc>(
 }
 
 /// Ordinary async data may contain durable Future/Task values. It cannot hide
-/// external Host descriptors behind mutable/erased fields.
+/// path views or active resource guards behind mutable/erased fields.
 /// The whole walk borrows a closed scope: no collection, mutation or executing
 /// callback can invalidate its visited set. No admission result is cached.
 pub(crate) fn async_scoped<'gc>(
     cx: &Scope<'gc>,
     values: &[ScopedValue<'gc>],
     resources: &ResourceState,
+    borrows: &HostBorrowTable,
 ) -> Result<bool, CheckError> {
-    for (index, value) in values.iter().enumerate() {
-        if index.is_multiple_of(1024) {
-            resources.poll_closed()?;
+    DataWalk::retention(borrows).values(cx, values, resources)
+}
+
+/// A producer can retain a receiver through executable evidence as well as its
+/// explicit arguments. Admit both before publishing the new computation.
+pub(crate) fn check_captures<'gc>(
+    cx: &Scope<'gc>,
+    values: &[ScopedValue<'gc>],
+    metadata: &[ProtectedMetadata<'gc>],
+    resources: &ResourceState,
+    borrows: &HostBorrowTable,
+) -> Result<(), MetadataError> {
+    let mut walk = DataWalk::retention(borrows);
+    let check = (|| -> Result<(), CheckError> {
+        if !walk.values(cx, values, resources)? {
+            return Err(
+                RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue).into(),
+            );
         }
-        if !ValueProperties::of(cx, *value)?.storable {
-            return Ok(false);
+        for source in metadata {
+            if !walk.object(cx, source.erase(), resources)? {
+                return Err(RuntimeError::from(
+                    TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
+                )
+                .into());
+            }
         }
-    }
-    let mut walk = DataWalk::default();
-    for value in values {
-        if let Some(object) = value.object()
-            && !walk.object(cx, object, resources)?
-        {
-            return Ok(false);
-        }
-    }
-    Ok(true)
+        Ok(())
+    })();
+    check.map_err(|error| match error {
+        CheckError::Storage(error) => error.into(),
+        CheckError::Execution(error) => error.into(),
+    })
 }
 
 /// Recheck a computation graph after a queued interval. Its genuine source root
@@ -154,24 +165,32 @@ pub(crate) fn async_object<'gc>(
     cx: &Scope<'gc>,
     object: Gc<'gc, AnyObject>,
     resources: &ResourceState,
+    borrows: &HostBorrowTable,
 ) -> Result<bool, CheckError> {
-    DataWalk::default().object(cx, object, resources)
+    DataWalk::retention(borrows).object(cx, object, resources)
 }
 
 /// One closed parking proof shares visitation across frames and auxiliary roots.
 /// The frame owner decides control-state precedence before submitting each range.
-pub(crate) struct AsyncDataWalk<'gc>(DataWalk<'gc>);
+pub(crate) struct AsyncDataWalk<'gc, 'a>(DataWalk<'gc, 'a>);
 
-impl Default for AsyncDataWalk<'_> {
-    fn default() -> Self {
+impl<'gc, 'a> AsyncDataWalk<'gc, 'a> {
+    pub(crate) fn new(borrows: &'a HostBorrowTable) -> Self {
         Self(DataWalk {
             checkpoint: DataCheckpoint::ParkingCommit,
-            ..DataWalk::default()
+            ..DataWalk::retention(borrows)
         })
     }
-}
 
-impl<'gc> AsyncDataWalk<'gc> {
+    pub(crate) fn object(
+        &mut self,
+        cx: &Scope<'gc>,
+        object: Gc<'gc, AnyObject>,
+        resources: &ResourceState,
+    ) -> Result<bool, CheckError> {
+        self.0.object(cx, object, resources)
+    }
+
     pub(crate) fn frame(
         &mut self,
         slots: &mut Slots<'_, 'gc>,
@@ -246,7 +265,7 @@ impl<'gc> AsyncDataWalk<'gc> {
                 bank,
                 slot,
             })?;
-            if !ValueProperties::of(slots.scope(), value)?.storable {
+            if !ValueProperties::of(slots.scope(), value)?.retainable {
                 return Ok(false);
             }
         }
@@ -293,21 +312,53 @@ impl DataCheckpoint {
 
 /// Only this closed batch can reuse visited identities. A later admission starts
 /// fresh, because an alias may have changed any mutable/private descendant.
-#[derive(Default)]
-pub(super) struct DataWalk<'gc> {
+pub(super) struct DataWalk<'gc, 'a> {
     pending: Vec<Gc<'gc, AnyObject>>,
     seen: HashSet<Gc<'gc, AnyObject>>,
     scratch: EdgeInspector,
-    candidate: Option<(HostRegistryId, ModuleKey)>,
+    policy: DataPolicy<'a>,
     checkpoint: DataCheckpoint,
 }
 
-impl<'gc> DataWalk<'gc> {
-    pub(super) fn candidate(owner: (HostRegistryId, ModuleKey)) -> Self {
+enum DataPolicy<'a> {
+    Retention(&'a HostBorrowTable),
+    Candidate((HostRegistryId, ModuleKey)),
+}
+
+impl<'gc, 'a> DataWalk<'gc, 'a> {
+    fn new(policy: DataPolicy<'a>) -> Self {
         Self {
-            candidate: Some(owner),
-            ..Self::default()
+            policy,
+            pending: Vec::new(),
+            seen: HashSet::new(),
+            scratch: EdgeInspector::default(),
+            checkpoint: DataCheckpoint::Executing,
         }
+    }
+
+    fn retention(borrows: &'a HostBorrowTable) -> Self {
+        Self::new(DataPolicy::Retention(borrows))
+    }
+
+    pub(super) fn candidate(owner: (HostRegistryId, ModuleKey)) -> Self {
+        Self::new(DataPolicy::Candidate(owner))
+    }
+
+    fn values(
+        &mut self,
+        cx: &Scope<'gc>,
+        values: &[ScopedValue<'gc>],
+        resources: &ResourceState,
+    ) -> Result<bool, CheckError> {
+        for (index, value) in values.iter().enumerate() {
+            if index.is_multiple_of(1024) {
+                resources.poll_closed()?;
+            }
+            if !self.value(cx, *value, resources)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     pub(super) fn value(
@@ -316,7 +367,12 @@ impl<'gc> DataWalk<'gc> {
         value: ScopedValue<'gc>,
         resources: &ResourceState,
     ) -> Result<bool, CheckError> {
-        if !ValueProperties::of(cx, value)?.storable {
+        let facts = ValueProperties::of(cx, value)?;
+        let admitted = match self.policy {
+            DataPolicy::Retention(_) => facts.retainable,
+            DataPolicy::Candidate(_) => facts.storable,
+        };
+        if !admitted {
             return Ok(false);
         }
         match value.object() {
@@ -338,7 +394,7 @@ impl<'gc> DataWalk<'gc> {
         while let Some(object) = first.take().or_else(|| self.pending.pop()) {
             // Candidate ownership admission precedes the call's cancellation
             // checkpoint. Descendant scanning remains cooperatively polled.
-            if let Some(owner) = self.candidate
+            if let DataPolicy::Candidate(owner) = self.policy
                 && !candidate_object(cx, object, owner)?
             {
                 return Ok(false);
@@ -354,13 +410,22 @@ impl<'gc> DataWalk<'gc> {
             if !self.seen.insert(object) {
                 continue;
             }
-            if is::<HostRootObject>(cx, object)? || is::<HostPathObject>(cx, object)? {
+            if is::<HostPathObject>(cx, object)? {
                 return Ok(false);
             }
-            match cx.downcast::<TupleObject>(object) {
-                Ok(tuple) if !cx.read(tuple, TupleObject::properties).storable => return Ok(false),
-                Ok(_) | Err(GcError::Representation) => {}
-                Err(error) => return Err(error.into()),
+            match self.policy {
+                DataPolicy::Candidate(_) if is::<HostRootObject>(cx, object)? => return Ok(false),
+                DataPolicy::Retention(borrows) => {
+                    // Check only resources reached by this computation. A synchronous
+                    // caller may hold an unrelated guard while creating a Future.
+                    if object_matches(cx, object, |root: &HostRootObject| {
+                        !borrows.permits_root_retention(root.handle())
+                    })? || object_matches(cx, object, NativeObject::operation_active)?
+                    {
+                        return Ok(false);
+                    }
+                }
+                DataPolicy::Candidate(_) => {}
             }
             let mut until_poll = 1024;
             // Unlike the public GC inspector, both visit/checkpoint closures
@@ -477,6 +542,18 @@ fn metadata<'gc>(cx: &Scope<'gc>, object: Gc<'gc, AnyObject>) -> Result<bool, Gc
         || is::<OperationGroupObject>(cx, object)?)
 }
 
+fn object_matches<'gc, T: GcObject>(
+    cx: &Scope<'gc>,
+    object: Gc<'gc, AnyObject>,
+    test: impl FnOnce(&T) -> bool,
+) -> Result<bool, GcError> {
+    match cx.downcast::<T>(object) {
+        Ok(object) => Ok(cx.read(object, test)),
+        Err(GcError::Representation) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 fn is<'gc, T: GcObject>(cx: &Scope<'gc>, object: Gc<'gc, AnyObject>) -> Result<bool, GcError> {
     match cx.downcast::<T>(object) {
         Ok(_) => Ok(true),
@@ -497,6 +574,7 @@ pub(crate) fn async_result(
     let Runtime {
         memory,
         host,
+        host_borrows,
         resources,
         ..
     } = &mut *runtime;
@@ -510,9 +588,9 @@ pub(crate) fn async_result(
         if !matched {
             return Ok(Err(RuntimeError::module_validation("async result type")));
         }
-        // Full async reachability remains distinct from top-level storability:
-        // a trait box may hide a Host receiver. Do not weaken this to a tag test.
-        let valid = match async_scoped(cx, slice::from_ref(&value), resources) {
+        // Result caching is a retention boundary too: a private payload edge
+        // can hide a view or an active operation guard.
+        let valid = match async_scoped(cx, slice::from_ref(&value), resources, host_borrows) {
             Ok(valid) => valid,
             Err(CheckError::Storage(error)) => return Err(error),
             Err(CheckError::Execution(error)) => return Ok(Err(error)),

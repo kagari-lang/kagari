@@ -34,7 +34,8 @@ pub fn native(
     let Ty::Trait(interface) = &table.trait_type else {
         return Err(invalid);
     };
-    if source.declaration != origin.authored
+    if source.path_operation.is_some()
+        || source.declaration != origin.authored
         || definitions.parent(origin.authored).ok() != Some(Some(interface.declaration))
         || definitions.parent(origin.placement).ok() != Some(Some(table.declaration))
         || !matches!(
@@ -103,7 +104,6 @@ pub fn native(
         )
     };
     let mut function = source.function.clone();
-    function.method_policy.override_allowed = true;
     function.generic_params = table.generic_params.iter().cloned().chain(own).collect();
     function.params = function
         .params
@@ -162,6 +162,7 @@ pub fn native(
         })
         .collect::<Result<_, TypeTransformError>>()?;
     Ok(NativeDeclaration {
+        path_operation: None,
         declaration: origin.placement,
         function,
         concrete_result: source.concrete_result.as_ref().map(apply).transpose()?,
@@ -170,7 +171,7 @@ pub fn native(
 }
 
 /// Check internal source/body association for ordinary placements. This is not an
-/// independent semantic oracle: installed library bodies authenticate final Script
+/// independent semantic oracle: installed library bodies authenticate inherited Script
 /// implementations at execution linking, outside the untrusted product.
 pub fn script_bodies<'a>(
     tables: impl IntoIterator<Item = &'a InterfaceTable>,

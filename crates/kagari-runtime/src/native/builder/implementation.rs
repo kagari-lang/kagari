@@ -1,4 +1,5 @@
-//! Scoped implementation groups bind existing Kagari members to Rust entries.
+//! Scoped implementation groups bind Kagari members to Rust entries.
+mod authored;
 use crate::{
     error::RuntimeError,
     native::{
@@ -9,12 +10,14 @@ use crate::{
         types::{AppliedTrait, ParameterRef, Receiver, Type},
     },
 };
+use authored::AuthoredMethods;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_types::{
     declaration::{
+        FnDecl,
         host::HostCallPolicy,
         module::{ImplDecl, ModuleDecl},
     },
@@ -164,7 +167,7 @@ impl<'module> ImplementationBuilder<'module> {
     pub fn trait_impl<T>(
         &mut self,
         applied: AppliedTrait,
-        configure: impl FnOnce(&mut MethodsBuilder) -> NativeResult<T>,
+        configure: impl FnOnce(&mut MethodsBuilder<'_>) -> NativeResult<T>,
     ) -> NativeResult<T> {
         let contract = applied.contract.adopt(self.module.context())?;
         let Ty::Trait(ty) = applied.ty().adopt(self.module.context())? else {
@@ -202,8 +205,18 @@ impl<'module> ImplementationBuilder<'module> {
             .map_err(|_| {
                 RuntimeError::metadata_conflict("invalid implementation receiver substitution")
             })?;
+        // Verified catalogs also contain reserved language protocols. Use the
+        // source-reference boundary, not catalog provenance alone, to distinguish them.
+        let requires_declaration = self
+            .module
+            .providers
+            .is_source_requirement(applied.contract.id, &self.module.declaration.identity);
         let mut methods = MethodsBuilder {
             applied,
+            requires_declaration,
+            authored: AuthoredMethods::default(),
+            parameters: &parameters,
+            substitution: &substitution,
             catalog: self.module.providers.clone(),
             id,
             documentation: BTreeMap::new(),
@@ -238,16 +251,24 @@ impl<'module> ImplementationBuilder<'module> {
             .implement_trait(
                 methods.applied.contract.contract.as_ref(),
                 ImplDecl {
-                    generic_params: parameters,
+                    generic_params: parameters.clone(),
                     bounds: vec![],
                     trait_type: Some(applied_type),
                     for_type: receiver,
-                    methods: vec![],
+                    methods: methods.authored.methods,
                 },
                 &identities,
                 &context,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        self.module
+            .declaration
+            .callable_requirements
+            .extend(methods.authored.requirements);
+        self.module
+            .declaration
+            .concrete_results
+            .extend(methods.authored.concrete_results);
         let implementation = self
             .module
             .declaration
@@ -296,8 +317,12 @@ impl<'module> ImplementationBuilder<'module> {
     }
 }
 
-pub struct MethodsBuilder {
+pub struct MethodsBuilder<'a> {
     applied: AppliedTrait,
+    requires_declaration: bool,
+    authored: AuthoredMethods,
+    parameters: &'a [GenericParam],
+    substitution: &'a TypeSubstitution<'a>,
     catalog: DeclarationCatalog,
     id: DefinitionId,
     receiver_codec: Option<Codec>,
@@ -307,7 +332,7 @@ pub struct MethodsBuilder {
     host_policies: BTreeMap<String, HostCallPolicy>,
 }
 
-impl MethodsBuilder {
+impl MethodsBuilder<'_> {
     /// Set an explicit native impl's external passing/effects before selecting
     /// its callback. This does not change the Kagari trait's Self contract.
     pub fn host_policy(&mut self, name: &str, policy: HostCallPolicy) -> NativeResult<()> {
@@ -383,7 +408,14 @@ impl MethodsBuilder {
         Ok(())
     }
 
+    /// Select an entry for a known native trait or language protocol. Foreign
+    /// source-trait requirements need `define_method` and their own signature.
     pub fn bind<M, R>(&mut self, name: &str, entry: impl NativeAdapter<M, R>) -> NativeResult<()> {
+        if self.requires_declaration {
+            return Err(conflict(
+                "source trait implementations require an authored method declaration",
+            ));
+        }
         let mut method = self
             .applied
             .contract
@@ -393,14 +425,31 @@ impl MethodsBuilder {
             .find(|method| method.name == name)
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?
             .clone();
-        if let Some(access) = self.receiver_access.get(name) {
+        self.apply_policies(&mut method);
+        let binding = self.prepare(&method, entry)?;
+        self.bindings.insert(name.into(), binding);
+        Ok(())
+    }
+
+    fn apply_policies(&self, method: &mut FnDecl) {
+        if let Some(access) = self.receiver_access.get(&method.name) {
             method.method_policy.receiver_access = Some(*access);
         }
-        if let Some(policy) = self.host_policies.get(name) {
+        if let Some(policy) = self.host_policies.get(&method.name) {
             method.host_policy = Some(policy.clone());
         }
-        let binding = entry.prepare(&method, &self.catalog)?;
-        binding.check_policies(&method)?;
+    }
+
+    fn prepare<M, R>(
+        &self,
+        method: &FnDecl,
+        entry: impl NativeAdapter<M, R>,
+    ) -> NativeResult<NativeBinding> {
+        if self.bindings.contains_key(&method.name) {
+            return Err(conflict("duplicate implementation member binding"));
+        }
+        let binding = entry.prepare(method, &self.catalog)?;
+        binding.check_policies(method)?;
         let receiver = method
             .params
             .first()
@@ -417,13 +466,7 @@ impl MethodsBuilder {
                 "binding receiver differs from the configured receiver codec",
             ));
         }
-        if self.bindings.contains_key(name) {
-            return Err(RuntimeError::metadata_conflict(
-                "duplicate implementation member binding",
-            ));
-        }
-        self.bindings.insert(name.into(), binding);
-        Ok(())
+        Ok(binding)
     }
 }
 

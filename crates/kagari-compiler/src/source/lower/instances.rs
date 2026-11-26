@@ -57,6 +57,7 @@ mod calls;
 mod coercions;
 mod constants;
 mod constructions;
+mod host_paths;
 mod interface_coercions;
 mod locals;
 pub(crate) mod methods;

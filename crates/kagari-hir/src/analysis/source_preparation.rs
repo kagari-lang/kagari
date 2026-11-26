@@ -1,7 +1,7 @@
 //! Physical parse retention and logical inline source preparation.
 
 use crate::{
-    analysis::{error::AnalysisError, external::LibraryLowering},
+    analysis::error::AnalysisError,
     collections::{HashMap, HashSet},
     lower::{LoweredModule, lower_module_controlled, supplied_module_syntax},
 };
@@ -43,21 +43,24 @@ enum ParsedInput {
         physical: Arc<Parse>,
         location: ModuleLocation,
     },
-    Native(Arc<Parse>),
     Structured,
 }
 
 impl ParsedModule {
-    pub(crate) fn root(parsed: Option<Parse>) -> Self {
-        match parsed {
-            Some(parsed) => Self {
-                diagnostics: (0..parsed.diagnostics().len()).collect(),
-                input: ParsedInput::Native(Arc::new(parsed)),
+    pub(crate) fn root(parsed: Parse) -> Self {
+        Self {
+            diagnostics: (0..parsed.diagnostics().len()).collect(),
+            input: ParsedInput::Source {
+                location: parsed.module().location(),
+                physical: Arc::new(parsed),
             },
-            None => Self {
-                diagnostics: Arc::default(),
-                input: ParsedInput::Structured,
-            },
+        }
+    }
+
+    pub(super) fn structured() -> Self {
+        Self {
+            diagnostics: Arc::default(),
+            input: ParsedInput::Structured,
         }
     }
 
@@ -66,7 +69,6 @@ impl ParsedModule {
             ParsedInput::Source { physical, location } => {
                 Some(location.resolve(physical).expect("retained module locator"))
             }
-            ParsedInput::Native(parsed) => Some(parsed.module()),
             ParsedInput::Structured => None,
         }
     }
@@ -92,7 +94,6 @@ impl ParsedModule {
     fn shared_parse(&self) -> Option<&Arc<Parse>> {
         match &self.input {
             ParsedInput::Source { physical, .. } => Some(physical),
-            ParsedInput::Native(parsed) => Some(parsed),
             ParsedInput::Structured => None,
         }
     }
@@ -110,18 +111,11 @@ pub(super) struct PreparedSource {
 }
 
 impl PreparedSyntax {
-    /// Lowers this logical view and applies any root sidecar before sharing it.
-    pub(super) fn lower(
-        self,
-        attachments: Option<LibraryLowering<'_>>,
-        cancel: &CancellationToken,
-    ) -> Result<PreparedSource, AnalysisError> {
+    /// Lowers this logical view from its physical parse.
+    fn lower(self, cancel: &CancellationToken) -> Result<PreparedSource, AnalysisError> {
         cancel.check()?;
         let syntax = self.parsed.syntax().expect("prepared source syntax");
-        let mut lowered = lower_module_controlled(self.source, &syntax, cancel);
-        if let Some(attachments) = attachments {
-            attachments.attach(&mut lowered, cancel)?;
-        }
+        let lowered = lower_module_controlled(self.source, &syntax, cancel);
         cancel.check()?;
         Ok(PreparedSource {
             parsed: self.parsed,
@@ -144,7 +138,7 @@ pub(super) fn prepare(
     let syntax = prepare_syntax(&mut preparer, sources, cancel)?;
     let files = syntax
         .into_iter()
-        .map(|(id, input)| Ok((id, input.lower(None, cancel)?)))
+        .map(|(id, input)| Ok((id, input.lower(cancel)?)))
         .collect::<Result<_, AnalysisError>>()?;
     cancel.check()?;
     Ok(files)

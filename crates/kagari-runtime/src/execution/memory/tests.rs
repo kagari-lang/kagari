@@ -1,4 +1,5 @@
 use crate::{
+    Runtime,
     execution::{
         memory::{GcHeapConfig, ManagedMemory},
         roots::{
@@ -6,14 +7,14 @@ use crate::{
             ValueBank, ValueLocation, pending::PendingSlots,
         },
     },
-    host::{HostObjectId, HostRootHandle, HostSchemaEpoch},
-    metadata::{AbiFingerprint, TypeId},
+    host::HostObjectId,
     resource::ResourceState,
-    value::host_values::HostRootObject,
+    test_support::layouts::host_values,
     value::{
         aggregates::tuples::TupleObject,
         carriers::{RootedValue, ScopedValue, StoredValue},
         cells::CellObject,
+        host_values::HostRootObject,
         properties::ValueProperties,
         strings::StringObject,
         view::ValueView,
@@ -528,10 +529,12 @@ fn conversion_result_survives_child_scratch_and_host_retention() -> Result<(), G
 
 #[test]
 fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
-    let resources = &ResourceState::default();
-    let mut memory = ManagedMemory::new(GcHeapConfig::default());
+    let mut runtime = Runtime::default();
+    let (host, path) = host_values(&mut runtime, 1);
+    let handle = runtime.host().root(HostObjectId(1)).unwrap();
+    let (memory, resources) = (&mut runtime.memory, &runtime.resources);
     let execution = memory.enter_execution(resources)?;
-    let cell = memory.scope(resources, |cx, roots| {
+    let (cell, path_slot) = memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {
             let cell = CellObject::alloc(
                 slots.scope(),
@@ -540,24 +543,22 @@ fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
                 Default::default(),
             )?;
             let key = slots.push_dependency(execution, cell)?;
-            let text = StringObject::alloc(slots.scope(), "shared capture".to_owned())?;
-            CellObject::set(
-                slots.scope(),
-                cell,
-                ValueType::Generic,
-                ScopedValue::managed(text),
-            )?;
-            Ok(key)
+            let durable = host.get(slots.scope())?;
+            CellObject::set(slots.scope(), cell, ValueType::Generic, durable)?;
+            let view = path.get(slots.scope())?;
+            Ok((key, slots.push_local(execution, view)?))
         })
     })?;
+    drop((host, path));
     memory.collect(resources)?;
-    assert_eq!(memory.stats().objects, 2);
+    // The cell owns the durable handle; only the separate local holds the path view.
+    assert_eq!(memory.stats().objects, 3);
     assert_eq!(memory.stats().root_registrations, 0);
     memory.scope(resources, |cx, roots| {
         ExecutionRoots::with(roots, cx, |slots| {
             let cell = slots.dependency(cell)?;
-            // A wrong requested physical contract and a nested non-storable
-            // temporary both fail without overwriting the already committed text.
+            // Neither a wrong physical contract nor a tuple containing a path
+            // view may overwrite the committed handle.
             assert!(matches!(
                 CellObject::set(
                     slots.scope(),
@@ -571,17 +572,9 @@ fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
                 CellObject::get(slots.scope(), cell, ValueType::HeapObject),
                 Err(GcError::Representation)
             ));
-            let temporary = HostRootObject::alloc(
-                slots.scope(),
-                HostRootHandle::new(
-                    Default::default(),
-                    HostObjectId(1),
-                    TypeId::new(0),
-                    HostSchemaEpoch::new(0),
-                    AbiFingerprint(1),
-                ),
-            )?;
-            let invalid = TupleObject::alloc(slots.scope(), &[ScopedValue::managed(temporary)])?;
+            let view = slots.get(path_slot)?;
+            let invalid = TupleObject::alloc(slots.scope(), &[view])?;
+            slots.set(path_slot, ScopedValue::unit())?;
             assert!(matches!(
                 CellObject::set(
                     slots.scope(),
@@ -592,14 +585,10 @@ fn capture_cells_preserve_contracts_and_retire_cycles() -> Result<(), GcError> {
                 Err(GcError::Representation)
             ));
             let value = CellObject::get(slots.scope(), cell, ValueType::Generic)?;
-            let text = slots
+            let root = slots
                 .scope()
-                .downcast::<StringObject>(value.object().unwrap())?;
-            assert!(
-                slots
-                    .scope()
-                    .read(text, |text| text.as_str() == "shared capture")
-            );
+                .downcast::<HostRootObject>(value.object().unwrap())?;
+            assert_eq!(slots.scope().read(root, HostRootObject::handle), handle);
             Ok(())
         })
     })?;

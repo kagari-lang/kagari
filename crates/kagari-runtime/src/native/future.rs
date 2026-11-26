@@ -64,6 +64,9 @@ trait Producer: fmt::Debug + Send + Sync {
 }
 
 pub(crate) trait PendingNative: fmt::Debug + Send {
+    /// Source retained for completion conversion, independent of the cleared awaitable slot.
+    fn conversion_source(&self) -> Option<&Root<ColdObject>>;
+
     fn poll<'result>(
         &mut self,
         runtime: &mut Runtime,
@@ -139,6 +142,10 @@ impl<R> fmt::Debug for TypedPending<R> {
 }
 
 impl<R: IntoKagari + Send + 'static> PendingNative for TypedPending<R> {
+    fn conversion_source(&self) -> Option<&Root<ColdObject>> {
+        Some(&self.source)
+    }
+
     fn poll<'result>(
         &mut self,
         runtime: &mut Runtime,

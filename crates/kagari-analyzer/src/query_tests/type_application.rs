@@ -30,9 +30,24 @@ fn core_type_annotations_resolve_aliases_and_qualified_source_declarations() {
     let annotation = |parameter: &str| text.find(parameter).unwrap() + parameter.len();
     for (left, right, uri, spelling) in [
         ("a: ", "b: ", "kagari-alloc:///string.kgr", "String"),
-        ("a: ", "c: ", "kagari-alloc:///string.kgr", "String"),
-        ("d: ", "e: ", "kagari-core:///option.kgr", "Option"),
-        ("f: ", "g: ", "kagari-core:///ops.kgr", "RangeFull"),
+        (
+            "a: ",
+            "c: library::",
+            "kagari-alloc:///string.kgr",
+            "String",
+        ),
+        (
+            "d: language::",
+            "e: ",
+            "kagari-core:///option.kgr",
+            "Option",
+        ),
+        (
+            "f: core::ops::",
+            "g: ",
+            "kagari-core:///ops.kgr",
+            "RangeFull",
+        ),
     ] {
         let left = annotation(left);
         let right = annotation(right);
@@ -49,6 +64,7 @@ fn core_type_annotations_resolve_aliases_and_qualified_source_declarations() {
                 .is_some_and(|ty| !ty.is_unresolved())
         );
     }
+
     assert_eq!(
         file.queries().type_at(annotation("a: ")),
         Some(TypeId::Builtin(BuiltinType::String))
@@ -149,8 +165,8 @@ fn nested_namespace_types_keep_distinct_declaration_identities() {
         "{:?}",
         file.result().diagnostics()
     );
-    let a = text.find("library::left::Same").unwrap();
-    let b = text.find("library::right::Same").unwrap();
+    let a = text.find("library::left::Same").unwrap() + "library::left::".len();
+    let b = text.find("library::right::Same").unwrap() + "library::right::".len();
     assert_eq!(
         snapshot
             .queries()

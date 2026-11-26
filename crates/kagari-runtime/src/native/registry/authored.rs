@@ -132,7 +132,7 @@ pub(super) fn validate(
             != Some(expected)
         {
             return Err(RuntimeError::module_validation(format!(
-                "{} requires the exact public authored trait {}::{}",
+                "source trait references differ: {} requires the exact public authored trait {}::{}",
                 importer.identity, owner.identity, expected.name
             )));
         }

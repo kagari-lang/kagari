@@ -5,12 +5,14 @@ use crate::native::{
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
-    metadata::DefinitionMetadata,
 };
-use kagari_types::declaration::{
-    TraitDef,
-    module::ModuleDecl,
-    names::{ExportName, NameNamespace},
+use kagari_types::{
+    declaration::{
+        TraitDef,
+        module::ModuleDecl,
+        names::{ExportName, NameNamespace},
+    },
+    ty::NominalTy,
 };
 
 fn owner(name: &str) -> ModuleIdentity {
@@ -209,31 +211,26 @@ fn reexport_only_provider_owner_is_rejected_before_recipe_execution() {
 #[test]
 fn owner_inventory_merges_and_imports_without_claiming_interned_references() {
     let context = DefinitionContext::new().unwrap();
-    let referenced = context.intern_root(&owner("referenced_only")).unwrap();
-    let referenced = context
-        .intern_child(referenced, DefinitionKind::Trait, "Unprovided", 0)
-        .unwrap();
     let mut first = ModuleDecl::new(owner("first"));
-    first.trait_references.insert(
-        referenced,
-        TraitDef {
-            name: "Unprovided".into(),
-            conversion_adapter: None,
-            generic_params: vec![],
-            bounds: vec![],
-            supertraits: vec![],
-            methods: vec![],
-            associated_types: vec![],
-            associated_consts: vec![],
-        },
-    );
-    let first = DefinitionMetadata::checked(
-        first.collect_definitions(&context).unwrap(),
-        first,
-        &Default::default(),
-    )
-    .unwrap();
-    let original = DeclarationCatalog::from_declarations([&first]).unwrap();
+    let foreign = context.intern_root(&owner("referenced_only")).unwrap();
+    let parent = context
+        .intern_child(foreign, DefinitionKind::Trait, "Unprovided", 0)
+        .unwrap();
+    first.traits.push(TraitDef {
+        name: "Child".into(),
+        supertraits: vec![NominalTy {
+            declaration: parent,
+            arguments: vec![],
+            associated_types: Default::default(),
+        }],
+        generic_params: vec![],
+        bounds: vec![],
+        associated_consts: vec![],
+        associated_types: vec![],
+        methods: vec![],
+        conversion_adapter: None,
+    });
+    let original = DeclarationCatalog::declared([&first], &context).unwrap();
     let other = DeclarationCatalog::declared(
         [&ModuleDecl::new(owner("second"))],
         &DefinitionContext::new().unwrap(),
@@ -245,9 +242,9 @@ fn owner_inventory_merges_and_imports_without_claiming_interned_references() {
         original_import
             .definitions()
             .lookup_root(&owner("referenced_only"))
-            .is_some(),
-        "the reference must survive importing without becoming a provider"
+            .is_some()
     );
+
     let mut merged = original.clone();
     merged.merge(&other).unwrap();
     merged.merge(&other).unwrap();

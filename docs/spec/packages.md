@@ -189,7 +189,10 @@ The selected closure includes every declared dependency and every module reached
 by `mod` declarations, including unused dependencies and uncalled function bodies.
 Unrelated directory files are not modules. Dependencies used only for trait
 implementations still participate in candidate selection and overlap checks.
-Kagari's existing trait rules remain; package boundaries do not add Rust orphan rules.
+The impl’s package, not its module path, workspace, dependency alias or registration
+origin, is the ownership boundary for the [trait orphan rule](traits.md#coherence-guidance).
+A sibling module can implement a package-owned trait; importing or re-exporting
+a foreign trait does not make it local.
 
 Dependency aliases name only direct dependencies of the importing package. Public
 re-exports can provide accessible paths to dependency items without changing their
@@ -232,7 +235,7 @@ separate sessions can retain independent query state for different roots.
 The SDK's package input fingerprint combines:
 
 - exact source bytes, module membership, selections and dependency aliases;
-- canonical native and offline Host declaration contracts;
+- scoped registration contracts, including Host schema and callable requirements;
 - parser, constant-evaluation and diagnostic limits;
 - the compiler contract identifier.
 

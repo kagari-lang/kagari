@@ -135,14 +135,16 @@ test('explicit Native declarations share ordinary fields, types and complete Scr
   const file = path.join(__dirname, '../../../crates/kagari-syntax/tests/fixtures/declarations/mixed.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));
   const types = nodes(tree.rootNode, 'native_type_item');
-  assert.deepEqual(types.map(node => node.childForFieldName('name').text), ['List', 'Counter', 'Handle']);
+  assert.deepEqual(types.map(node => node.childForFieldName('name').text), ['List', 'Counter', 'Handle', 'host', 'Player']);
+    assert.deepEqual(types.filter(node => node.children.some(child => child.type === 'host'))
+      .map(node => node.childForFieldName('name').text), ['Handle', 'Player']);
   assert.equal(types[0].childForFieldName('body'), null);
   assert.equal(nodes(types[1], 'field_declaration').length, 2);
   assert.equal(nodes(tree.rootNode, 'struct_item').length, 1);
   assert.equal(nodes(tree.rootNode, 'associated_type_binding')[0].text, 'Item = i32');
   const functions = nodes(tree.rootNode, 'function_item');
   assert.deepEqual(functions.map(node => [node.childForFieldName('name').text, !!node.childForFieldName('body')]),
-    [['identity', true], ['borrow', false]]);
+    [['identity', true], ['collect', false]]);
   const methods = nodes(tree.rootNode, 'method_item');
   assert.deepEqual(methods.map(node => [node.childForFieldName('name').text, !!node.childForFieldName('body')]),
     [['read', false], ['answer', true], ['new', false], ['inspect', false], ['read', false]]);

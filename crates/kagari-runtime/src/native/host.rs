@@ -1,14 +1,14 @@
 //! External-ID services borrow existing Native inputs and publish before scope exit.
+pub(crate) mod path;
+
 use crate::{
     Runtime,
     error::RuntimeError,
     execution::roots::{ExecutionRoots, SessionId},
-    host::{HostCallContext, HostError},
+    host::{HostBorrowKind, HostCallContext, HostError},
     module::ExecutableModule,
     native::{
-        adapter::{Host, NativeAdapter},
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        catalog::DeclarationCatalog,
         context::NativeCall,
     },
     value::{
@@ -19,16 +19,14 @@ use crate::{
     value_check,
 };
 use kagari_gc::error::GcError;
-use kagari_types::declaration::{
-    FnDecl,
-    host::{HostCallPolicy, HostPassingStyle, PathAccess},
-};
+use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle, PathAccess};
 use std::{fmt::Write, slice};
 
-/// Bind an external-ID callback with one explicit call-lifetime signature. The
-/// constructor supplies Rust's higher-ranked expectation before adapter inference;
-/// the returned authoring value prepares the ordinary single Native entry.
+/// Bind an external-ID callback to its Rust-authored passing and effect policy.
+/// Registration checks this binding against the declaration; executable metadata
+/// cannot select or weaken the policy applied before callback entry.
 pub fn callback(
+    policy: HostCallPolicy,
     entry: impl for<'call> Fn(
         &mut HostCallContext<'call>,
         &[ValueView<'call>],
@@ -36,95 +34,81 @@ pub fn callback(
     + Send
     + Sync
     + 'static,
-) -> impl NativeAdapter<Host, ()> {
-    HostCallback(entry)
+) -> NativeBinding {
+    let mut binding = NativeBinding::scoped(
+        vec![Codec::Value; policy.passing.len()],
+        Codec::Value,
+        move |call| {
+            invoke_host(call, |cx, args| {
+                entry(cx, args).map_err(RuntimeError::from_host)
+            })
+        },
+    );
+    binding.host_policy = Some(policy);
+    binding.converted_result = true;
+    binding
 }
 
-struct HostCallback<F>(F);
-
-impl<F> NativeAdapter<Host, ()> for HostCallback<F>
-where
-    F: for<'call> Fn(
-            &mut HostCallContext<'call>,
-            &[ValueView<'call>],
-        ) -> Result<ValueView<'call>, HostError>
-        + Send
-        + Sync
-        + 'static,
-{
-    fn prepare(self, declaration: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
-        let callback = self.0;
-        let policy = declaration.host_policy.clone().ok_or_else(|| {
-            RuntimeError::metadata_conflict(
-                "host callback requires explicit external access policy",
-            )
-        })?;
-        if policy.passing.len() != declaration.params.len() {
-            return Err(RuntimeError::metadata_conflict(
-                "host passing policy arity differs from declaration",
-            ));
+pub(super) fn invoke_host(
+    call: &mut NativeCall<'_>,
+    body: impl for<'call> FnOnce(
+        &mut HostCallContext<'call>,
+        &[ValueView<'call>],
+    ) -> NativeResult<ValueView<'call>>,
+) -> NativeResult<()> {
+    let policy = call
+        .function
+        .binding
+        .host_policy
+        .as_ref()
+        .ok_or_else(|| RuntimeError::module_validation("Host entry lacks installed policy"))?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(call.arguments.len())
+        .map_err(|_| RuntimeError::resource_limit("Host argument views"))?;
+    for index in 0..call.arguments.len() {
+        values.push(call.argument(index)?.reborrow());
+    }
+    value_check::candidate_protected(call.runtime, &values)?;
+    call.runtime.validate_native_host_policy(policy)?;
+    let trace = begin_trace(call, &values)?;
+    let owner = call.owner;
+    let function = call.function;
+    // The Native/caller prefix already protects these inputs. This
+    // context owns Host loans and callback locals, not a copied pack.
+    let published = (|| {
+        // Own the view list inside this invocation interval, so its
+        // invariant call lifetime cannot escape through a capture.
+        let values = values;
+        let place = call.pending_place()?;
+        let mut context = HostCallContext::new(call.runtime, &[])?;
+        context.validate_arguments(&values)?;
+        check_arguments(&mut context, owner, function, &values)?;
+        acquire_arguments(&mut context, &values, policy)?;
+        let result = body(&mut context, &values)
+            .and_then(|value| check_result(context.runtime_mut(), owner, function, value));
+        // Preserve post-call termination before the callback's
+        // business error/result, including swallowed reentry traps.
+        context.runtime().resources.poll_execution()?;
+        let value = result?;
+        context.validate_result(&value)?;
+        let published = place.publish(context.runtime_mut(), &value)?;
+        // Successful snapshots need the still-live callback source.
+        context
+            .runtime_mut()
+            .finish_host_call_trace(trace, Ok(&value))?;
+        Ok::<_, RuntimeError>(published)
+    })();
+    match published {
+        // The pending cell already owns the result when Host locals
+        // and reservations end. Ordinary invocation stages once.
+        Ok(published) => call.accept_staged(published),
+        Err(error) => {
+            // Also finish failures before scope creation/publication.
+            // Error capture needs no retired source or heap access.
+            call.runtime.finish_host_call_trace(trace, Err(&error))?;
+            Err(error)
         }
-        let proof = policy.clone();
-        let mut binding = NativeBinding::scoped(
-            vec![Codec::Value; declaration.params.len()],
-            Codec::Value,
-            move |call| {
-                let mut values = Vec::new();
-                values
-                    .try_reserve_exact(call.arguments.len())
-                    .map_err(|_| RuntimeError::resource_limit("Host argument views"))?;
-                for index in 0..call.arguments.len() {
-                    values.push(call.argument(index)?.reborrow());
-                }
-                value_check::candidate_protected(call.runtime, &values)?;
-                call.runtime.validate_native_host_policy(&policy)?;
-                let trace = begin_trace(call, &values)?;
-                let owner = call.owner;
-                let function = call.function;
-                // The Native/caller prefix already protects these inputs. This
-                // context owns Host loans and callback locals, not a copied pack.
-                let published = (|| {
-                    // Own the view list inside this invocation interval, so its
-                    // invariant call lifetime cannot escape through a capture.
-                    let values = values;
-                    let place = call.pending_place()?;
-                    let mut context = HostCallContext::new(call.runtime, &[])?;
-                    context.validate_arguments(&values)?;
-                    check_arguments(&mut context, owner, function, &values)?;
-                    acquire_arguments(&mut context, &values, &policy)?;
-                    let result = callback(&mut context, &values)
-                        .map_err(RuntimeError::from_host)
-                        .and_then(|value| {
-                            check_result(context.runtime_mut(), owner, function, value)
-                        });
-                    // Preserve post-call termination before the callback's
-                    // business error/result, including swallowed reentry traps.
-                    context.runtime().resources.poll_execution()?;
-                    let value = result?;
-                    context.validate_result(&value)?;
-                    let published = place.publish(context.runtime_mut(), &value)?;
-                    // Successful snapshots need the still-live callback source.
-                    context
-                        .runtime_mut()
-                        .finish_host_call_trace(trace, Ok(&value))?;
-                    Ok::<_, RuntimeError>(published)
-                })();
-                match published {
-                    // The pending cell already owns the result when Host locals
-                    // and reservations end. Ordinary invocation stages once.
-                    Ok(published) => call.accept_staged(published),
-                    Err(error) => {
-                        // Also finish failures before scope creation/publication.
-                        // Error capture needs no retired source or heap access.
-                        call.runtime.finish_host_call_trace(trace, Err(&error))?;
-                        Err(error)
-                    }
-                }
-            },
-        );
-        binding.host_policy = Some(proof);
-        binding.converted_result = true;
-        Ok(binding)
     }
 }
 
@@ -197,9 +181,11 @@ fn acquire_arguments(
     policy: &HostCallPolicy,
 ) -> NativeResult<()> {
     for (value, passing) in values.iter().zip(&policy.passing) {
-        if *passing == HostPassingStyle::Owned {
-            continue;
-        }
+        let kind = match passing {
+            HostPassingStyle::Owned => continue,
+            HostPassingStyle::SharedBorrow => HostBorrowKind::Shared,
+            HostPassingStyle::UniqueBorrow => HostBorrowKind::Unique,
+        };
         let root = {
             let Runtime {
                 memory, resources, ..
@@ -218,7 +204,7 @@ fn acquire_arguments(
                         Some(ObjectKind::HostPath) => {
                             let object = slots.scope().downcast::<HostPathObject>(object)?;
                             let facts = slots.scope().read(object, HostPathObject::facts);
-                            if *passing == HostPassingStyle::UniqueBorrow
+                            if kind == HostBorrowKind::Unique
                                 && facts.access != PathAccess::ReadWrite
                             {
                                 Err(RuntimeError::host_call_failure(
@@ -237,19 +223,7 @@ fn acquire_arguments(
         // Acquiring/validating a loan can report a traced error. The physical
         // source loan above has ended before entering any borrow-table service.
         if let Some(root) = root {
-            match passing {
-                HostPassingStyle::SharedBorrow => {
-                    context
-                        .borrows()
-                        .borrow_shared(root.object_id(), root.type_id())?;
-                }
-                HostPassingStyle::UniqueBorrow => {
-                    context
-                        .borrows()
-                        .borrow_unique(root.object_id(), root.type_id())?;
-                }
-                HostPassingStyle::Owned => unreachable!("owned root needs no automatic loan"),
-            }
+            context.borrow_root(root, kind)?;
         }
     }
     Ok(())

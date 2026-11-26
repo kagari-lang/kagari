@@ -20,7 +20,7 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::{callable::MethodPolicy, declaration::conversion::ConversionAdapter};
+use kagari_types::declaration::conversion::ConversionAdapter;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -37,13 +37,11 @@ pub struct MethodParameter {
     pub ty: TypeId,
 }
 
-/// A canonical trait method contract with default and override policy.
+/// A canonical trait method contract with its optional default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
     /// Script/native default implementation, or absent for a required method.
     pub default: Option<MethodDefault>,
-    /// Installed/checked override policy attached to this declaration.
-    pub policy: MethodPolicy,
     /// Canonical semantic definition identity used as the catalog key.
     pub id: DefinitionId,
     /// Canonical definition identity of the enclosing declaration.
@@ -225,10 +223,6 @@ impl AggregateCatalog {
                         }
                         FunctionImplementation::Script => Some(MethodDefault::Script),
                         FunctionImplementation::Required => None,
-                    },
-                    policy: MethodPolicy {
-                        override_allowed: method.override_allowed,
-                        receiver_access: None,
                     },
                     id: *method_id,
                     owner: *id,
@@ -416,12 +410,5 @@ impl AggregateCatalog {
     pub fn trait_method(&self, id: &DefinitionId) -> Option<&MethodSignature> {
         let (owner, slot) = self.methods.get(id)?;
         self.trait_(owner)?.methods.get(*slot)
-    }
-}
-
-impl MethodSignature {
-    /// Returns the declaration's checked override permission.
-    pub fn allows_override(&self) -> bool {
-        self.policy.override_allowed
     }
 }

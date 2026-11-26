@@ -4,27 +4,26 @@ use crate::{
     error::RuntimeErrorKind,
     execution::roots::{ExecutionRoots, ValueLocation, pending::PendingSlots},
     frame::{ExecutionStack, owned::tests::module},
-    host::{HostObjectId, HostSchemaEpoch},
-    native::{binding::NativeResult, builder::ModuleBuilder, future::PendingNative},
+    host::HostObjectId,
+    native::{
+        binding::NativeResult,
+        future::{PendingNative, storage::ColdObject},
+    },
+    test_support::layouts::host_values,
     value::{
         aggregates::tuples::TupleObject,
-        carriers::ScopedValue,
+        carriers::{RootedValue, ScopedValue},
         cells::CellObject,
-        host_values::HostRootObject,
         place::{PublishedResult, ResultPlace},
-        strings::StringObject,
     },
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::Slot;
 use kagari_contract::ids::FunctionRef;
 use kagari_gc::root::Root;
-use kagari_types::{
-    declaration::host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
-    scalar::BuiltinType,
-    ty::Ty,
-};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{
+    mem,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -34,28 +33,32 @@ use std::{
 
 #[derive(Debug)]
 struct MutatingPoll {
-    cell: Root<CellObject>,
+    first_poll: bool,
     awaitable: ValueLocation,
-    external: Root<HostRootObject>,
+    path: RootedValue,
     cancelled: Arc<AtomicUsize>,
 }
 
 impl PendingNative for MutatingPoll {
+    fn conversion_source(&self) -> Option<&Root<ColdObject>> {
+        None
+    }
+
     fn poll<'result>(
         &mut self,
         runtime: &mut Runtime,
         _: ResultPlace<'result>,
     ) -> NativeResult<Poll<PublishedResult<'result>>> {
+        if mem::take(&mut self.first_poll) {
+            return Ok(Poll::Pending);
+        }
         runtime
             .memory
             .scope(&runtime.resources, |cx, roots| {
                 ExecutionRoots::with(roots, cx, |slots| {
-                    let cell = slots.scope().get(&self.cell)?;
-                    let external = slots.scope().get(&self.external)?;
-                    let tuple = TupleObject::alloc(
-                        slots.scope(),
-                        &[ScopedValue::managed(cell), ScopedValue::managed(external)],
-                    )?;
+                    let cell = slots.get(self.awaitable)?;
+                    let path = self.path.get(slots.scope())?;
+                    let tuple = TupleObject::alloc(slots.scope(), &[cell, path])?;
                     slots.set(self.awaitable, ScopedValue::managed(tuple))
                 })
             })
@@ -72,23 +75,10 @@ impl PendingNative for MutatingPoll {
 #[test]
 fn waiting_commit_rechecks_graph_after_poll_mutation() {
     let mut runtime = Runtime::default();
-    let mut library = ModuleBuilder::new("waiting", &Default::default()).unwrap();
-    let mut external = library.define_type("External").unwrap();
-    external
-        .external(HostTypePolicy {
-            ownership: HostTypeOwnership::HostRoot,
-            reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::ReadOnly,
-        })
-        .unwrap();
-    external.finish().unwrap();
-    library.finish().unwrap().install(&mut runtime).unwrap();
-    let ty = runtime.types().get_by_name("waiting::External").unwrap().id;
-    let handle = runtime
-        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
-        .unwrap();
     let module = module(&mut runtime, 1, false);
-    let baseline = runtime.collected_gc_stats().root_registrations;
+    let baseline = runtime.collected_gc_stats();
+    let (host, path) = host_values(&mut runtime, 7);
+    let handle = runtime.host().root(HostObjectId(7)).unwrap();
     let owner = runtime
         .start_owned_execution(&module, FunctionRef::new(0), &[], Default::default())
         .unwrap();
@@ -106,22 +96,20 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
                 )
             };
             let pending = PendingSlots::new(stack.session);
-            let (cell, external) = runtime
+            runtime
                 .memory
                 .scope(&runtime.resources, |cx, roots| {
                     ExecutionRoots::with(roots, cx, |slots| {
-                        let text =
-                            StringObject::alloc(slots.scope(), "safe before polling".into())?;
+                        let value = host.get(slots.scope())?;
                         let cell = CellObject::alloc(
                             slots.scope(),
                             ValueType::Generic,
-                            ScopedValue::managed(text),
+                            value,
                             Default::default(),
                         )?;
                         frame.write(slots, location, ScopedValue::managed(cell))?;
                         slots.set(pending.awaitable(), ScopedValue::managed(cell))?;
-                        let external = HostRootObject::alloc(slots.scope(), handle)?;
-                        Ok((slots.scope().retain(cell)?, slots.scope().retain(external)?))
+                        Ok(())
                     })
                 })
                 .map_err(|error| runtime.managed_memory_error(error))?;
@@ -132,14 +120,54 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
             *stack.session_state(runtime).pending.borrow_mut() = Some(PendingWait {
                 destination: None,
                 pending: PendingOperation::Native(Box::new(MutatingPoll {
-                    cell,
+                    first_poll: true,
                     awaitable: pending.awaitable(),
-                    external,
+                    path,
                     cancelled: cancelled.clone(),
                 })),
                 output,
                 slots: pending,
             });
+            assert!(matches!(stack.poll_await(runtime)?, Poll::Pending));
+            Ok(())
+        })
+        .unwrap();
+    ExecutionStack::park_waiting(&mut activation).unwrap();
+    drop(activation);
+    drop(host);
+    runtime.collect_garbage().unwrap();
+    runtime.retire_host_root(handle).unwrap();
+    let replacement = runtime
+        .register_host_root(HostObjectId(8), handle.type_id(), handle.schema_epoch())
+        .unwrap();
+    let mut activation = Some(runtime.resume_owned_execution(&owner).unwrap());
+    activation
+        .as_mut()
+        .unwrap()
+        .with(|runtime, stack| {
+            // Parking is still legal. Only access checks whether the captured ID is live.
+            assert!(stack.can_park(runtime)?);
+            let stale = runtime
+                .memory
+                .scope(&runtime.resources, |cx, roots| {
+                    ExecutionRoots::with(roots, cx, |slots| {
+                        let value = slots.get(PendingSlots::new(stack.session).awaitable())?;
+                        let cell = slots
+                            .scope()
+                            .downcast::<CellObject>(value.object().unwrap())?;
+                        let host = CellObject::get(slots.scope(), cell, ValueType::Generic)?;
+                        host.retain(slots.scope())
+                    })
+                })
+                .unwrap();
+            assert_eq!(
+                runtime.host_scope(&[stale]).err().unwrap().kind(),
+                RuntimeErrorKind::HostCallFailure
+            );
+            assert_eq!(
+                runtime.host().root(replacement.object_id()),
+                Some(replacement)
+            );
             assert!(matches!(stack.poll_await(runtime)?, Poll::Pending));
             assert!(!stack.can_park(runtime)?);
             Ok(())
@@ -163,5 +191,7 @@ fn waiting_commit_rechecks_graph_after_poll_mutation() {
     runtime.finish_owned_execution(&owner).unwrap();
     assert_eq!(cancelled.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
-    assert_eq!(runtime.collected_gc_stats().root_registrations, baseline);
+    let after = runtime.collected_gc_stats();
+    assert_eq!(after.root_registrations, baseline.root_registrations);
+    assert_eq!(after.objects, baseline.objects);
 }

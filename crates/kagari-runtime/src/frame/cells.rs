@@ -3,10 +3,8 @@ use crate::{
     Runtime,
     error::{RuntimeError, trap::TrapReason},
     frame::{FrameStack, instruction::Inputs},
-    value::{
-        carriers::ScopedValue, cells::CellObject, kind::ObjectKind, properties::ValueProperties,
-    },
-    value_check::scoped::CheckError,
+    value::{carriers::ScopedValue, cells::CellObject, kind::ObjectKind},
+    value_check::{data::async_scoped, scoped::CheckError},
 };
 use kagari_bytecode::instruction::Slot;
 use kagari_gc::error::GcError;
@@ -24,7 +22,12 @@ impl FrameStack {
         inputs.write(self, runtime, |cx| {
             let value = cx.field(0)?;
             if !value.has_representation(representation)
-                || !ValueProperties::of(cx.slots.scope(), value)?.storable
+                || !async_scoped(
+                    cx.slots.scope(),
+                    slice::from_ref(&value),
+                    cx.resources,
+                    cx.borrows,
+                )?
             {
                 return Err(RuntimeError::from(TrapReason::InvalidCellValue).into());
             }
@@ -76,7 +79,12 @@ impl FrameStack {
             // A tagged cell's incoming value precedes target/contract validation.
             // InvalidCellValue and InvalidCaptureCell remain distinct traps.
             if !value.has_representation(representation)
-                || !ValueProperties::of(cx.slots.scope(), value)?.storable
+                || !async_scoped(
+                    cx.slots.scope(),
+                    slice::from_ref(&value),
+                    cx.resources,
+                    cx.borrows,
+                )?
             {
                 return Err(RuntimeError::from(TrapReason::InvalidCellValue).into());
             }

@@ -36,15 +36,7 @@ pub(crate) fn inherent_substitution(
     )
     .ok()?;
     let owner = aggregates.normalize_type(definitions, &method.owner.instantiate(&substitution));
-    if method.receiver_access.is_some()
-        && !matches!(
-            receiver,
-            TypeId::NativeObject(_) | TypeId::Generic(_) | TypeId::SelfType(_)
-        )
-    {
-        // Plain GC structs cannot supply the Rust loan required by a native method.
-        return None;
-    }
+
     (!owner.conflicts_with(receiver)).then_some(substitution)
 }
 

@@ -4,6 +4,7 @@ use crate::test_support::standard::standard_library;
 use crate::{
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
+    error::EmbeddingError,
     program::Compilation,
 };
 use kagari_bytecode::{
@@ -18,7 +19,12 @@ use kagari_common::identity::{
 use kagari_runtime::{
     host::{HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch, PreparedHostPathWrite},
     module::entry::ProgramEntry,
-    native::{builder::ModuleBuilder, declarations::FunctionDecl, host, types::Type},
+    native::{
+        builder::ModuleBuilder,
+        declarations::{FunctionDecl, MethodDecl},
+        host,
+        types::{FunctionRef, Type, TypeRef},
+    },
     value::view::ValueView,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -30,7 +36,10 @@ use kagari_types::{
             HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostPassingStyle,
             HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
         },
-        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            NativePathOperationKind,
+        },
     },
     scalar::BuiltinType,
     ty::Ty,
@@ -40,6 +49,52 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicI32, Ordering},
 };
+
+fn score_methods(
+    builder: &mut ModuleBuilder,
+    player: &TypeRef,
+    indices: &[&str],
+    kinds: &[NativePathOperationKind],
+) -> Vec<(FunctionRef, NativePathOperationKind)> {
+    builder
+        .implement(player.clone(), |group| {
+            group.inherent_impl(|methods| {
+                kinds
+                    .iter()
+                    .map(|&kind| {
+                        let (name, result) = match kind {
+                            NativePathOperationKind::Read => ("read_score", Type::i32()),
+                            NativePathOperationKind::Add => ("add_score", Type::i32()),
+                            NativePathOperationKind::Set => ("set_score", Type::unit()),
+                        };
+                        let write = kind != NativePathOperationKind::Read;
+                        let mut method = MethodDecl::instance(name);
+                        for index in indices {
+                            method = method.parameter(*index, Type::i32());
+                        }
+                        if write {
+                            method = method.parameter("rhs", Type::i32());
+                        }
+                        let method = method.returns(result).host_policy(HostCallPolicy {
+                            passing: vec![
+                                HostPassingStyle::Owned;
+                                1 + indices.len() + usize::from(write)
+                            ],
+                            effects: HostFunctionEffects {
+                                may_call_host_services: true,
+                                may_mutate_host_state: write,
+                                may_allocate: true,
+                                may_trap: true,
+                                ..Default::default()
+                            },
+                        });
+                        Ok((methods.define_method(method)?, kind))
+                    })
+                    .collect()
+            })
+        })
+        .unwrap()
+}
 
 fn assert_source_index_path(field_prefix: bool) {
     let catalog = standard_library().declarations().catalog();
@@ -114,24 +169,25 @@ fn assert_source_index_path(field_prefix: bool) {
         .unwrap();
     let trace = Arc::new(Mutex::new(Vec::new()));
     let state = Arc::new(AtomicI32::new(10));
+    let make_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let make = builder
         .define_function(
             FunctionDecl::new("make")
                 .returns(player.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(make_policy.clone()),
         )
         .unwrap();
     let calls = trace.clone();
     builder
         .bind(
             make,
-            host::callback(move |cx, _| {
+            host::callback(make_policy, move |cx, _| {
                 calls.lock().unwrap().push("make");
                 let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
                 let root = cx.runtime_mut().host_root_value(root).unwrap();
@@ -141,19 +197,22 @@ fn assert_source_index_path(field_prefix: bool) {
         )
         .unwrap();
     for (name, result) in [("index", 1), ("rhs", 2)] {
+        let function_policy = HostCallPolicy {
+            passing: vec![],
+            effects: Default::default(),
+        };
         let function = builder
-            .define_function(FunctionDecl::new(name).returns(Type::i32()).host_policy(
-                HostCallPolicy {
-                    passing: vec![],
-                    effects: Default::default(),
-                },
-            ))
+            .define_function(
+                FunctionDecl::new(name)
+                    .returns(Type::i32())
+                    .host_policy(function_policy.clone()),
+            )
             .unwrap();
         let calls = trace.clone();
         builder
             .bind(
                 function,
-                host::callback(move |_, _| {
+                host::callback(function_policy, move |_, _| {
                     calls.lock().unwrap().push(name);
                     Ok(ValueView::from(result))
                 }),
@@ -187,6 +246,14 @@ fn assert_source_index_path(field_prefix: bool) {
                 }),
         )
         .unwrap();
+    for (method, kind) in score_methods(
+        &mut builder,
+        &player,
+        &["index"],
+        &[NativePathOperationKind::Read, NativePathOperationKind::Add],
+    ) {
+        builder.bind_path_operation(method, &path, kind).unwrap();
+    }
     let engine = KagariEngine::with_native_modules(
         Default::default(),
         standard_library()
@@ -197,20 +264,31 @@ fn assert_source_index_path(field_prefix: bool) {
             .collect(),
     )
     .unwrap();
-    let prefix = if field_prefix { ".scores" } else { "" };
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-index.kgr", format!(
-        "use game as api; fn main() -> i32 {{ var player = api::make(); player{prefix}[api::index()] += api::rhs(); player{prefix}[1] }}"
-    )), Default::default()).unwrap();
+    let source =
+        include_str!("../../../../tests/fixtures/embedding/host/index-score-operations.kgr");
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("host-index.kgr", source),
+            Default::default(),
+        )
+        .unwrap();
+    let error = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "invalid-host-index.kgr",
+                "use game as api; fn main() -> i32 { api::make().read_score(true) }",
+            ),
+            Default::default(),
+        )
+        .unwrap_err();
+    let EmbeddingError::Diagnostics { diagnostics } = error else {
+        panic!("expected an index argument diagnostic, got {error:?}");
+    };
     assert!(
-        engine
-            .compile_to_artifact(
-                SourceFile::new(
-                    "invalid-host-index.kgr",
-                    format!("use game as api; fn main() -> i32 {{ api::make(){prefix}[true] }}")
-                ),
-                Default::default()
-            )
-            .is_err()
+        diagnostics
+            .iter()
+            .any(|item| item.code == "KG_TYPE_ARGUMENT_TYPE_MISMATCH"),
+        "{diagnostics:?}"
     );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         trace.lock().unwrap().clear();

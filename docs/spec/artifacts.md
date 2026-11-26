@@ -133,8 +133,12 @@ normalizes both declared and emitted types through that closure's proof catalog
 and rejects unequal or unavailable results. Local deferral never grants a complete
 program admission seal.
 
-Callable method policy remains independent of binding identity. Final methods
-cannot be replaced; required and non-trait declarations cannot be final.
+An explicit trait member and an inherited default have different origins even
+when their signatures match. Source-free verification checks the impl placement,
+trait member and substituted signature. If the product claims an installed
+Script default, linking also [authenticates the inherited body](standard-declarations.md#checked-executable-contracts)
+against the independently installed expression. A valid explicit override is not
+required to reproduce the default.
 
 Interface method slots distinguish checked script function references from native
 import references. The native import must match the exact implementation member
@@ -421,9 +425,15 @@ Concrete identities and generic/callable requirements must match the retained
 provider closure. Implementation tables use unique local Impl identities and
 trait-owned member IDs; output contracts, bounds and signatures are rechecked
 against reachable public or private trait contracts. Explicit native impls and
-script impls share selection and overlap rules. Only intrinsic protocol evidence
+script impls share [package orphan and overlap checks](traits.md#coherence-guidance).
+Verification checks named impl headers, not just concrete applications that were
+called: specializing away an uncovered parameter cannot legalize its template. Only intrinsic protocol evidence
 uses a bridge marker; it must forward to the exact checked protocol adapter.
-Runtime linking pins checked callable owners to the loaded generation.
+A portable trait reference records the checked owner's ABI, not proof that an
+installed provider accepts it. Source-free linking checks every mandatory public
+trait pin from the [native installation](host-interop.md#interaction-with-traits),
+including unused pins, before it admits the program. Runtime linking pins
+checked callable owners to the loaded generation.
 
 External TypeDeclarations retain the complete shared schema closure, including
 annotation-only uses and executable semantic types. Ordinary DTO layouts cannot
@@ -586,7 +596,9 @@ read bytes
 
 ## Retained source packages
 
-Ordinary source preparation retains an exact verified source package by default.
+Source preparation can retain an exact verified source package when the complete
+authored manifest is available. A structured registration has no authored source;
+publishing a navigation document does not fill the missing manifest.
 Artifact export uses `ArtifactOptions::retain_source`, default `false`; hosts must
 explicitly opt in to distributing source. Source-free artifacts remain valid.
 `Program::from_artifact` preserves a supplied verified source package even

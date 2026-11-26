@@ -8,7 +8,7 @@ use crate::{
         AnalysisDatabase,
         declarations::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
-        ownership,
+        ownership, registered_fields,
     },
     collections::HashMap,
     declarations::Declarations,
@@ -267,6 +267,13 @@ impl AnalysisDatabase {
         cancel: &CancellationToken,
     ) -> Result<SignatureSnapshot, AnalysisError> {
         let declarations = self.declarations(source, cancel)?;
+        let host_surfaces = registered_fields::collect(
+            self.native_files
+                .get()
+                .expect("prepared registrations")
+                .registrations(),
+            cancel,
+        )?;
         let catalog = TypeCatalog::new(declarations.files.values().map(|file| &file.declared));
         let mut imported_types = HashMap::default();
         for (id, file) in declarations.files.iter() {
@@ -320,7 +327,9 @@ impl AnalysisDatabase {
                 cancel,
             )?;
             let prepared = &file.prepared;
-            if let Some(signatures) = prepared.completed_signatures(&visible, cancel)? {
+            if let Some(signatures) =
+                prepared.completed_signatures(&host_surfaces, &visible, cancel)?
+            {
                 let signatures = ownership::scope(signatures.as_ref(), &self.definitions, cancel)?
                     .into_records();
                 let file = Arc::make_mut(file);

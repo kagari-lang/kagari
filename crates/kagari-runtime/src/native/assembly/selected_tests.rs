@@ -114,6 +114,7 @@ impl NativeAdapter<(), ()> for Adapter {
                     catalog.definitions(),
                     NativeDeclaration {
                         declaration: authored_owner,
+                        path_operation: None,
                         function: authored.clone(),
                         concrete_result: None,
                         callable_requirements: vec![self.authored_requirement.records().clone()],

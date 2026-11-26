@@ -93,7 +93,16 @@ fn bound(
     let mut builder =
         ModuleBuilder::from_declaration(declarations, &Default::default(), BTreeMap::new())?;
     let function = builder.declared_function("echo")?;
-    builder.bind(function, host::callback(callback))?;
+    builder.bind(
+        function,
+        host::callback(
+            HostCallPolicy {
+                passing: vec![HostPassingStyle::Owned],
+                effects: Default::default(),
+            },
+            callback,
+        ),
+    )?;
     builder.finish()
 }
 

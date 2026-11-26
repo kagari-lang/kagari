@@ -4,7 +4,7 @@ use crate::{
     declaration::{
         NativeDeclaration,
         requirement::NativeCallableRequirement,
-        wire::{leaf::NominalTyRecord, signature::FnDeclRecord},
+        wire::{leaf::NominalTyRecord, path::NativePathOperationRecord, signature::FnDeclRecord},
     },
     ty::wire::WireType,
 };
@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 /// File-local NativeDeclaration facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub struct NativeDeclarationRecord {
+    path_operation: Option<NativePathOperationRecord>,
     concrete_result: Option<WireType>,
     declaration: PortableDefinitionRef,
     function: FnDeclRecord,
@@ -37,6 +38,11 @@ impl NativeDeclarationRecord {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Self {
+            path_operation: value
+                .path_operation
+                .as_ref()
+                .map(|op| NativePathOperationRecord::encode(op, encoding, cancel))
+                .transpose()?,
             concrete_result: value
                 .concrete_result
                 .as_ref()
@@ -63,6 +69,10 @@ impl NativeDeclarationRecord {
     ) -> Result<NativeDeclaration, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(NativeDeclaration {
+            path_operation: self
+                .path_operation
+                .map(|op| op.decode(decoding, cancel))
+                .transpose()?,
             concrete_result: self
                 .concrete_result
                 .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))

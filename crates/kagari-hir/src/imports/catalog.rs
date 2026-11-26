@@ -1,24 +1,23 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
 pub(crate) mod definitions;
-use crate::imports::environment::ImportEnvironment;
+use crate::imports::environment::{ImportEnvironment, package_targets};
 
 use crate::{
     collections::{HashMap, HashSet},
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
-        SourceItem, SourceUnit,
+        SourceUnit,
         bindings::LookupOutcome,
         solver::{Observation, PendingGlobs},
     },
-    native::paths::source_package_alias,
     resolver::table::NameTable,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        DefinitionKind, ModuleIdentity, PackageId,
+        ModuleIdentity, PackageId,
         map::DefinitionContext,
-        table::{DefinitionId, DefinitionTable, module::ModuleHandle},
+        table::{DefinitionTable, module::ModuleHandle},
     },
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
@@ -64,8 +63,7 @@ pub struct NamespaceCatalog {
     /// Canonical dependency modules retained by checked native declarations.
     /// These resolve only for that native importer, never as global source aliases.
     pub(crate) module_dependencies: BTreeMap<ModuleHandle, BTreeSet<ModuleHandle>>,
-    /// Exact foreign traits accessible to a registered importer, not package-wide visibility.
-    pub(crate) registered_trait_access: BTreeMap<ModuleHandle, BTreeSet<DefinitionId>>,
+
     pub(crate) environment: ImportEnvironment,
 }
 
@@ -192,7 +190,7 @@ impl NamespaceCatalog {
             modules: BTreeMap::new(),
             namespaces: HashMap::default(),
             module_dependencies: BTreeMap::new(),
-            registered_trait_access: BTreeMap::new(),
+
             environment: Default::default(),
         }
     }
@@ -289,10 +287,7 @@ impl NamespaceCatalog {
         }
         let admitted = candidates
             .iter()
-            .filter(|c| {
-                self.allows(c.visibility, c.owner, *ctx.importer)
-                    || self.allows_registered_trait(ctx, ns, name, c)
-            })
+            .filter(|c| self.allows(c.visibility, c.owner, *ctx.importer))
             .cloned()
             .collect::<Vec<_>>();
         if admitted.is_empty() {
@@ -575,7 +570,19 @@ impl NamespaceCatalog {
         namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Option<LookupHit> {
-        let unit = names.unit.as_ref()?;
+        self.lookup_name(names, name, namespace, cancel).ok()?.hit()
+    }
+
+    pub(crate) fn lookup_name(
+        &self,
+        names: &NameTable,
+        name: &str,
+        namespace: NameNamespace,
+        cancel: &CancellationToken,
+    ) -> Result<LookupResult, Cancelled> {
+        let Some(unit) = &names.unit else {
+            return Ok(LookupResult::Missing);
+        };
         let ctx = LookupContext::new(&unit.module);
         let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
         // Root lookup stays literal; its category uses raw suffix emptiness even
@@ -588,13 +595,13 @@ impl NamespaceCatalog {
                 NameNamespace::Type
             },
         );
-        let result = if matches!(result, LookupResult::Missing) {
+        if matches!(result, LookupResult::Missing) {
             let path = name
                 .split("::")
                 .filter(|component| !component.is_empty())
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
-            self.absolute(&ctx, &path, namespace, cancel).ok()?
+            self.absolute(&ctx, &path, namespace, cancel)
         } else {
             let suffix = suffix
                 .split("::")
@@ -602,9 +609,7 @@ impl NamespaceCatalog {
                 .map(str::to_owned)
                 .collect::<Vec<_>>();
             self.resolve_path(&ctx, result, &suffix, namespace, cancel)
-                .ok()?
-        };
-        result.hit()
+        }
     }
 }
 
@@ -640,38 +645,6 @@ impl NamespaceCatalog {
 }
 
 impl NamespaceCatalog {
-    fn allows_registered_trait(
-        &self,
-        ctx: &LookupContext<'_>,
-        namespace: &NamespaceId,
-        name: &str,
-        candidate: &BindingCandidate,
-    ) -> bool {
-        let Some(references) = self.registered_trait_access.get(ctx.importer) else {
-            return false;
-        };
-        let (NamespaceId::Module(unit), BindingOrigin::Declaration(source)) =
-            (namespace, &candidate.origin)
-        else {
-            return false;
-        };
-        // Only the original trait declaration qualifies, never an import or a sibling.
-        self.modules
-            .get(ctx.importer)
-            .is_some_and(|units| units.len() == 1)
-            && source.unit == *unit
-            && matches!(source.item, SourceItem::Trait(_))
-            && candidate.resolution.target() == Some(&ResolvedTarget::Source(*source))
-            && self
-                .definitions
-                .lookup_root(self.identity(unit.module))
-                .and_then(|root| {
-                    self.definitions
-                        .lookup_child(root, DefinitionKind::Trait, name, 0)
-                })
-                .is_some_and(|id| references.contains(&id))
-    }
-
     fn package_path(
         &self,
         importer: &ModuleHandle,
@@ -707,32 +680,11 @@ impl NamespaceCatalog {
 
     fn package_targets(&self, importer: &ModuleHandle, name: &str) -> BTreeSet<PackageId> {
         let importer_identity = self.identity(*importer);
-        if let Some(target) = self
-            .environment
-            .scope(importer_identity)
-            .and_then(|scope| scope.packages.dependencies.get(name))
-        {
-            return [target.clone()].into();
-        }
-        if name == importer_identity.package.0 {
-            return [importer_identity.package.clone()].into();
-        }
-        if let Some(dependencies) = self.module_dependencies.get(importer) {
-            let targets = dependencies
-                .iter()
-                .filter(|dependency| {
-                    self.identity(**dependency).package.0 == name
-                        || source_package_alias(&self.identity(**dependency).package).as_deref()
-                            == Some(name)
-                })
-                .map(|dependency| self.identity(*dependency).package.clone())
-                .collect::<BTreeSet<_>>();
-            if !targets.is_empty() {
-                return targets;
-            }
-        }
-
-        BTreeSet::new()
+        package_targets(
+            self.environment.scope(importer_identity),
+            importer_identity,
+            name,
+        )
     }
 
     /// Syntactic facade/module edges survive even when a terminal name is missing.

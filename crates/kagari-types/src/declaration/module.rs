@@ -2,15 +2,15 @@
 use crate::declaration::script::ScriptExpr;
 use crate::{
     callable::CallableImplementation,
-    declaration::path::HostPathDeclaration,
+    declaration::path::{HostPathDeclaration, NativePathOperation},
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
         names::{ExportName, NameNamespace},
         ownership::owns_inherent_methods,
         requirement::NativeCallableRequirement,
         verify::{
-            Parameters, function_valid, native_bounds_valid, trait_reference_valid, trait_valid,
-            type_definition_valid, validate_native_declarations,
+            Parameters, function_valid, native_bounds_valid, trait_valid, type_definition_valid,
+            types_in_scope, validate_native_declarations,
         },
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -71,14 +71,13 @@ pub struct ModuleDecl {
     /// Explicit address-free manual path requirements over shared type schemas.
     /// Callback installation binds these contracts; declarations own no Rust data.
     pub paths: Vec<HostPathDeclaration>,
+    /// Explicit operations keyed by callable declaration, not Rust binding identity.
+    pub path_operations: BTreeMap<DefinitionId, NativePathOperation>,
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
     /// Public type/trait/variant aliases retain the identity of their owner.
     pub exports: BTreeMap<ExportName, DefinitionId>,
     pub traits: Vec<TraitDef>,
-    /// Expected contracts of explicitly referenced source traits. These do not
-    /// define or export a trait; the checked program supplies its actual owner.
-    pub trait_references: BTreeMap<DefinitionId, TraitDef>,
     pub implementations: Vec<ImplDecl>,
     pub functions: Vec<FnDecl>,
     /// Complete ordinary expression bodies for structured Script definitions.
@@ -103,10 +102,10 @@ impl ModuleDecl {
             dependencies: BTreeSet::new(),
             types: vec![],
             paths: vec![],
+            path_operations: BTreeMap::new(),
             variant_exports: BTreeSet::new(),
             exports: BTreeMap::new(),
             traits: vec![],
-            trait_references: BTreeMap::new(),
             implementations: vec![],
             functions: vec![],
             script_bodies: BTreeMap::new(),
@@ -119,14 +118,15 @@ impl ModuleDecl {
     }
 
     fn declaration_count_valid(&self) -> bool {
-        self.types
-            .len()
-            .saturating_add(self.traits.len())
-            .saturating_add(self.trait_references.len())
-            .saturating_add(self.functions.len())
-            .saturating_add(self.implementations.len())
-            .saturating_add(self.paths.len())
-            <= 4096
+        self.path_operations.len() <= 4096
+            && self
+                .types
+                .len()
+                .saturating_add(self.traits.len())
+                .saturating_add(self.functions.len())
+                .saturating_add(self.implementations.len())
+                .saturating_add(self.paths.len())
+                <= 4096
     }
 
     /// Checks the receiver's permitted inherent implementation module.
@@ -152,6 +152,7 @@ impl ModuleDecl {
             result.push(NativeDeclaration {
                 declaration: id,
                 function: function.clone(),
+                path_operation: self.path_operations.get(&id).cloned(),
                 concrete_result: self.concrete_results.get(&id).cloned(),
                 callable_requirements: self
                     .callable_requirements
@@ -185,6 +186,7 @@ impl ModuleDecl {
                 result.push(NativeDeclaration {
                     declaration: id,
                     function,
+                    path_operation: self.path_operations.get(&id).cloned(),
                     concrete_result: self.concrete_results.get(&id).cloned(),
                     callable_requirements: self
                         .callable_requirements
@@ -215,6 +217,7 @@ impl ModuleDecl {
                 result.push(NativeDeclaration {
                     declaration: id,
                     function,
+                    path_operation: self.path_operations.get(&id).cloned(),
                     concrete_result: self.concrete_results.get(&id).cloned(),
                     callable_requirements: self
                         .callable_requirements
@@ -410,13 +413,6 @@ impl ModuleDecl {
                 return Err(fail());
             }
         }
-        for (id, contract) in &self.trait_references {
-            if !trait_reference_valid(contract, *id, &self.identity, &cancel, definitions) {
-                return Err(DeclarationError(
-                    "invalid source trait reference contract".into(),
-                ));
-            }
-        }
         for function in &self.functions {
             let owner = self.definition(DefinitionKind::Function, &function.name, definitions)?;
             if !identifier(&function.name) || !names.insert((NameNamespace::Value, &function.name))
@@ -513,6 +509,17 @@ impl ModuleDecl {
             {
                 return Err(fail());
             }
+            let interface = implementation.trait_type.clone().map(Ty::Trait);
+            if !types_in_scope(
+                [&implementation.for_type].into_iter().chain(&interface),
+                &implementation.generic_params,
+                &cancel,
+                definitions,
+            ) {
+                return Err(DeclarationError(
+                    "invalid scoped implementation header".into(),
+                ));
+            }
             let mut method_names = HashSet::new();
             if !native_bounds_valid(
                 &implementation.bounds,
@@ -523,7 +530,24 @@ impl ModuleDecl {
                 return Err(fail());
             }
             for method in &implementation.methods {
-                if !identifier(&method.name)
+                // Both source projection and structured HIR use the impl header
+                // for an implicit receiver; never overwrite a different signature.
+                if method.params.iter().enumerate().any(|(index, param)| {
+                    param.name == "self" && (index != 0 || param.ty != implementation.for_type)
+                }) {
+                    return Err(DeclarationError(
+                        "invalid implementation receiver parameter".into(),
+                    ));
+                }
+                if Self::method_id(owner, &method.name, definitions)
+                    .ok()
+                    .and_then(|id| self.path_operations.get(&id))
+                    .is_some_and(|op| {
+                        implementation.trait_type.is_some()
+                            || implementation.for_type != Ty::Host(op.path.root)
+                            || !implementation.generic_params.is_empty()
+                    })
+                    || !identifier(&method.name)
                     || !matches!(
                         method.implementation,
                         CallableImplementation::Native(_) | CallableImplementation::Script
@@ -582,7 +606,9 @@ impl ModuleDecl {
                 return Err(fail());
             }
         }
-        if self.callable_requirements.len() > 4096
+        if self.path_operations.iter().any(|(id, op)| {
+            !paths.contains(&op.path) || !declarations.iter().any(|decl| decl.declaration == *id)
+        }) || self.callable_requirements.len() > 4096
             || self.concrete_results.len() > 4096
             || self
                 .concrete_results

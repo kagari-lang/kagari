@@ -1,25 +1,19 @@
 //! Candidate-only metadata completion, optimization and independent proof coverage.
 
 use crate::source::{
-    lower::{MirLoweringError, instances::MirLoweringOptions},
+    lower::instances::MirLoweringOptions,
     program::{
-        SourceProgramError,
+        InstallationTraitRequirements, SourceProgramError,
         scheduler::ProgramSnapshot,
+        trait_requirements,
         update_records::{self, SourceInputs},
         update_requests,
     },
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
-        scoped::DefinitionReferences,
-    },
-};
+use kagari_common::identity::{ModuleIdentity, map::DefinitionContext};
 use kagari_contract::{
     exports::ProgramExports,
     source::manifest::SourceManifest,
-    types::PublicItem,
     updates::{
         DemandEnvelope, DemandRequests,
         demands::{
@@ -28,17 +22,10 @@ use kagari_contract::{
         limits::Budget,
     },
 };
-use kagari_mir::{
-    function::MirModule,
-    program::{
-        ProgramError, ProgramErrorKind, VerifiedMirProgram, records::MirProgram, updates,
-        verify_program,
-    },
-};
-use kagari_types::ty::Ty;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use kagari_mir::program::{VerifiedMirProgram, records::MirProgram, updates, verify_program};
 
 pub(super) struct CandidateInputs<'a> {
+    pub installation: &'a InstallationTraitRequirements,
     pub root: &'a ModuleIdentity,
     pub context: &'a DefinitionContext,
     pub options: &'a MirLoweringOptions,
@@ -60,50 +47,14 @@ pub(super) fn build(
     let context = inputs.context;
     let options = inputs.options;
     let source_inputs = inputs.sources;
-    attach_private_trait_requirements(&mut modules, &options.cancel).map_err(|error| {
-        SourceProgramError::Lowering {
-            module: Box::new(root.clone()),
-            error,
-        }
-    })?;
     let definitions = context.snapshot();
-    let owner_of = |id| {
-        definitions
-            .resolve(id)
-            .expect("lowered definition identity")
-            .module()
-    };
-    let source_owners: HashSet<_> = modules
-        .iter()
-        .map(|module| module.identity.clone())
-        .collect();
-    for module in &mut modules {
-        // Concrete generic arguments and selected witnesses can introduce owners
-        // absent from the defining source's imports. Retain every referenced
-        // source declaration; host identities belong to the host contract table.
-        let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
-        module
-            .visit_definition_ids(
-                &mut |definition| {
-                    if owner_of(*definition) != &module.identity
-                        && source_owners.contains(owner_of(*definition))
-                    {
-                        dependencies.insert(owner_of(*definition).clone());
-                    }
-                    Ok(())
-                },
-                &options.cancel,
-            )
-            .map_err(|error| ProgramError {
-                module: Box::new(module.identity.clone()),
-                kind: if matches!(error, DefinitionMappingError::Cancelled) {
-                    ProgramErrorKind::Cancelled
-                } else {
-                    ProgramErrorKind::InvalidGraph
-                },
-            })?;
-        module.dependencies = dependencies.into_iter().collect();
-    }
+    trait_requirements::attach(
+        &mut modules,
+        inputs.installation,
+        &definitions,
+        &options.cancel,
+    )?;
+
     let mut evidence = updates::build(
         &modules,
         updates::EvidenceInputs {
@@ -205,47 +156,4 @@ pub(super) fn expand(
         return Ok(batch);
     }
     Ok(batch)
-}
-
-/// Retain exact checked private trait contracts used by foreign source impls.
-/// Source checking already established lexical access. Portable linking consumes
-/// the copied requirement rather than resolving source privacy or trait syntax.
-fn attach_private_trait_requirements(
-    modules: &mut [MirModule],
-    cancel: &CancellationToken,
-) -> Result<(), MirLoweringError> {
-    let mut private = HashMap::new();
-    for module in modules.iter() {
-        cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-        for contract in &module.abi.trait_contracts {
-            private.insert(
-                contract.declaration,
-                (module.identity.clone(), contract.clone()),
-            );
-        }
-    }
-    for module in modules {
-        let mut retained = module
-            .abi
-            .trait_references
-            .iter()
-            .map(|reference| reference.declaration)
-            .collect::<HashSet<_>>();
-        for item in &module.abi.public_items {
-            cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-            let PublicItem::InterfaceTable(table) = item else {
-                continue;
-            };
-            let Ty::Trait(interface) = &table.trait_type else {
-                continue;
-            };
-            if let Some((owner, contract)) = private.get(&interface.declaration)
-                && owner != &module.identity
-                && retained.insert(contract.declaration)
-            {
-                module.abi.trait_references.push(contract.clone());
-            }
-        }
-    }
-    Ok(())
 }

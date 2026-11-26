@@ -1,75 +1,22 @@
 //! Immutable declaration-only inputs for an independent analysis session.
 
 use crate::imports::environment::ImportEnvironment;
-use crate::{
-    analysis::{AnalysisDatabase, core_source, external::ExternalModule},
-    native::render::DeclarationSource,
-    typeck::const_budget::ConstLimits,
-};
+use crate::{analysis::AnalysisDatabase, typeck::const_budget::ConstLimits};
 use kagari_common::identity::metadata::DefinitionMetadata;
+use kagari_source::source::SourceFile;
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::module::ModuleDecl;
 use std::sync::Arc;
 
-/// One immutable preparation inventory, with bundled owners before caller inputs.
-/// Captures share the allocation; replay does not go through the additive composition step.
-#[derive(Debug, Clone)]
-pub(super) struct LibrarySources {
-    modules: Arc<[ExternalModule]>,
-    core_len: usize,
-}
-
-impl Default for LibrarySources {
-    fn default() -> Self {
-        let modules = core_source::shared_modules();
-        Self {
-            core_len: modules.len(),
-            modules,
-        }
-    }
-}
-
-impl LibrarySources {
-    pub(super) fn all(&self) -> &[ExternalModule] {
-        &self.modules
-    }
-
-    pub(super) fn parse_inputs(
-        &self,
-        caller_limits: ParseLimits,
-    ) -> impl Iterator<Item = (&ExternalModule, ParseLimits)> {
-        self.modules.iter().enumerate().map(move |(slot, input)| {
-            let limits = if slot < self.core_len {
-                ParseLimits::default()
-            } else {
-                caller_limits
-            };
-            (input, limits)
-        })
-    }
-
-    pub(super) fn set_external(&mut self, external: Vec<ExternalModule>) {
-        self.modules = self.modules[..self.core_len]
-            .iter()
-            .cloned()
-            .chain(external)
-            .collect();
-    }
-}
-
-/// Captured providers, their identity scopes, presentation origins and query limits.
-///
-/// This contains no analysis results, mutable identity context or executable callbacks.
-/// Restoring creates a fresh context; ordinary declaration import maps each retained
-/// provider scope into it. Independent offline exports retain real source and
-/// static sidecars, not registration authority; they use ordinary source checking.
+/// Immutable core documents, scoped registrations, import selections and query limits.
+/// Restoring starts with a fresh identity context. User and editor documents are
+/// supplied separately in the request's `SourceSnapshot`, not replayed from here.
 #[derive(Debug, Clone)]
 pub struct AnalysisInputs {
     source_root: String,
     import_environment: ImportEnvironment,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
-    native_sources: Option<Vec<DeclarationSource>>,
-    libraries: LibrarySources,
+    core: Arc<[Arc<SourceFile>]>,
     const_limits: ConstLimits,
     parse_limits: ParseLimits,
     max_semantic_diagnostics: usize,
@@ -78,14 +25,14 @@ pub struct AnalysisInputs {
 impl AnalysisDatabase {
     /// Exercise an altered bundled resource without exposing an alternate core policy.
     #[cfg(test)]
-    pub(crate) fn replace_core_fixture(&mut self, fixture: ExternalModule) {
-        let bundled = &mut Arc::make_mut(&mut self.libraries.modules)[..self.libraries.core_len];
+    pub(crate) fn replace_core_fixture(&mut self, fixture: Arc<SourceFile>) {
+        let bundled = Arc::make_mut(&mut self.core);
         let owner = bundled
             .iter_mut()
-            .find(|m| m.source.module_identity() == fixture.source.module_identity())
+            .find(|m| m.module_identity() == fixture.module_identity())
             .expect("fixture must replace an existing core owner");
         *owner = fixture;
-        self.invalidate_library_queries();
+        self.environment_fingerprint.take();
     }
 
     /// Captures only immutable inputs, independently of any returned results.
@@ -94,8 +41,7 @@ impl AnalysisDatabase {
             source_root: self.source_root.clone(),
             import_environment: self.import_environment.clone(),
             native_modules: self.native_modules.clone(),
-            native_sources: self.native_sources.clone(),
-            libraries: self.libraries.clone(),
+            core: self.core.clone(),
             const_limits: self.const_limits,
             parse_limits: self.parse_limits,
             max_semantic_diagnostics: self.max_semantic_diagnostics,
@@ -109,8 +55,7 @@ impl AnalysisInputs {
         let mut database = AnalysisDatabase::new(&self.source_root)?;
         database.import_environment = self.import_environment.clone();
         database.native_modules = self.native_modules.clone();
-        database.native_sources = self.native_sources.clone();
-        database.libraries = self.libraries.clone();
+        database.core = self.core.clone();
         database.const_limits = self.const_limits;
         database.parse_limits = self.parse_limits;
         database.max_semantic_diagnostics = self.max_semantic_diagnostics;
@@ -130,23 +75,9 @@ impl AnalysisInputs {
         &self.native_modules
     }
 
-    pub fn native_sources(&self) -> Option<&[DeclarationSource]> {
-        self.native_sources.as_deref()
-    }
-
-    /// The bundled authored modules in this snapshot; their file IDs can root a checked seed.
-    pub fn core_modules(&self) -> &[ExternalModule] {
-        &self.libraries.modules[..self.libraries.core_len]
-    }
-
-    /// Caller-supplied offline declarations, excluding the immutable packaged core.
-    pub fn external_modules(&self) -> &[ExternalModule] {
-        &self.libraries.modules[self.libraries.core_len..]
-    }
-
-    /// All authored library inputs, e.g. for rendering Native views with matching aliases.
-    pub fn library_modules(&self) -> &[ExternalModule] {
-        self.libraries.all()
+    /// Bundled authored documents, separate from the physical request snapshot.
+    pub fn core_modules(&self) -> &[Arc<SourceFile>] {
+        &self.core
     }
 
     pub fn const_limits(&self) -> ConstLimits {
@@ -166,10 +97,8 @@ impl AnalysisInputs {
 mod tests {
     use super::*;
     use crate::imports::environment::ModuleScope;
+    use crate::tests::native_fixture::function_module;
     use crate::tests::standard::standard_modules;
-    use crate::{
-        native::render::declaration_source_with_external, tests::native_fixture::function_module,
-    };
     use kagari_common::{
         cancellation::CancellationToken,
         identity::{ModuleIdentity, PackageId},
@@ -195,86 +124,66 @@ mod tests {
         );
         let mut providers = standard_modules();
         providers.push(provider.clone());
-        for rendered in [false, true] {
-            let mut database = AnalysisDatabase::new("/capsule").unwrap();
-            if rendered {
-                let sources = providers
-                    .iter()
-                    .map(|provider| {
-                        declaration_source_with_external(
-                            provider,
-                            &providers,
-                            database.inputs().library_modules(),
-                        )
-                        .unwrap()
-                    })
-                    .collect();
-                database
-                    .set_native_sources(providers.clone(), sources)
-                    .unwrap();
-            } else {
-                database.set_native_modules(providers.clone());
-            }
-            let const_limits = ConstLimits {
-                max_steps: 1234,
-                max_depth: 31,
-            };
-            let parse_limits = ParseLimits {
-                max_nesting: 50,
-                ..Default::default()
-            };
-            database.set_const_limits(const_limits);
-            database.set_parse_limits(parse_limits);
-            database.set_max_semantic_diagnostics(23);
-            let source = Arc::new(SourceFile::new(
-                "main.kgr",
-                "fn main() -> i32 { host::number() }",
-            ));
-            let import_environment = ImportEnvironment {
-                modules: [(
-                    source.module_identity().clone(),
-                    ModuleScope {
-                        packages: PackageScope {
-                            dependencies: [("host".into(), PackageId("host".into()))].into(),
-                            selection: "explicit-test".into(),
-                        },
-                        dependencies: providers
-                            .iter()
-                            .map(|provider| provider.records().identity.clone())
-                            .collect(),
-                        preludes: Default::default(),
+        let mut database = AnalysisDatabase::new("/capsule").unwrap();
+        database.set_native_modules(providers.clone());
+        let const_limits = ConstLimits {
+            max_steps: 1234,
+            max_depth: 31,
+        };
+        let parse_limits = ParseLimits {
+            max_nesting: 50,
+            ..Default::default()
+        };
+        database.set_const_limits(const_limits);
+        database.set_parse_limits(parse_limits);
+        database.set_max_semantic_diagnostics(23);
+        let source = Arc::new(SourceFile::new(
+            "main.kgr",
+            "fn main() -> i32 { host::number() }",
+        ));
+        let import_environment = ImportEnvironment {
+            modules: [(
+                source.module_identity().clone(),
+                ModuleScope {
+                    packages: PackageScope {
+                        dependencies: [("host".into(), PackageId("host".into()))].into(),
+                        selection: "explicit-test".into(),
                     },
-                )]
-                .into(),
-            };
-            database.set_import_environment(import_environment.clone());
+                    dependencies: providers
+                        .iter()
+                        .map(|provider| provider.records().identity.clone())
+                        .collect(),
+                    preludes: Default::default(),
+                },
+            )]
+            .into(),
+        };
+        database.set_import_environment(import_environment.clone());
 
-            let sources = SourceSnapshot::single_file(source.clone());
-            let snapshot = database.snapshot(sources.clone(), &cancel).unwrap();
-            snapshot.check_program(source.id(), &cancel).unwrap();
-            let inputs = snapshot.inputs().clone();
-            let fingerprint = database.environment_fingerprint(&cancel).unwrap();
-            database.set_native_modules(vec![]);
-            database.set_const_limits(Default::default());
-            database.set_parse_limits(Default::default());
-            database.set_max_semantic_diagnostics(1);
-            drop(database);
-            assert_eq!(inputs.import_environment(), &import_environment);
-            assert_eq!(inputs.const_limits(), const_limits);
-            assert_eq!(inputs.parse_limits(), parse_limits);
-            assert_eq!(inputs.max_semantic_diagnostics(), 23);
-            assert_eq!(inputs.source_root(), "/capsule");
+        let sources = SourceSnapshot::single_file(source.clone());
+        let snapshot = database.snapshot(sources.clone(), &cancel).unwrap();
+        snapshot.check_program(source.id(), &cancel).unwrap();
+        let inputs = snapshot.inputs().clone();
+        let fingerprint = database.environment_fingerprint(&cancel).unwrap();
+        database.set_native_modules(vec![]);
+        database.set_const_limits(Default::default());
+        database.set_parse_limits(Default::default());
+        database.set_max_semantic_diagnostics(1);
+        drop(database);
+        assert_eq!(inputs.import_environment(), &import_environment);
+        assert_eq!(inputs.const_limits(), const_limits);
+        assert_eq!(inputs.parse_limits(), parse_limits);
+        assert_eq!(inputs.max_semantic_diagnostics(), 23);
+        assert_eq!(inputs.source_root(), "/capsule");
 
-            assert!(Arc::ptr_eq(
-                inputs.native_modules().last().unwrap(),
-                &provider
-            ));
-            assert_eq!(inputs.native_sources().is_some(), rendered);
-            let mut fresh = inputs.database().unwrap();
-            assert_eq!(fresh.environment_fingerprint(&cancel).unwrap(), fingerprint);
-            let rebuilt = fresh.snapshot(sources, &cancel).unwrap();
-            rebuilt.check_program(source.id(), &cancel).unwrap();
-            assert_eq!(rebuilt.physical_sources().files().count(), 1);
-        }
+        assert!(Arc::ptr_eq(
+            inputs.native_modules().last().unwrap(),
+            &provider
+        ));
+        let mut fresh = inputs.database().unwrap();
+        assert_eq!(fresh.environment_fingerprint(&cancel).unwrap(), fingerprint);
+        let rebuilt = fresh.snapshot(sources, &cancel).unwrap();
+        rebuilt.check_program(source.id(), &cancel).unwrap();
+        assert_eq!(rebuilt.physical_sources().files().count(), 1);
     }
 }

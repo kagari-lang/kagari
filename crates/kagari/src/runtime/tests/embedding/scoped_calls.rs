@@ -200,26 +200,27 @@ fn scoped_host_entries_use_explicit_context_and_release_argument_loans() {
         .unwrap();
     let counter = counter.finish().unwrap().apply([]).unwrap();
     let state = Arc::new(Mutex::new((40, 25)));
+    let heal_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::UniqueBorrow; 2],
+        effects: HostFunctionEffects {
+            may_mutate_host_state: true,
+            ..Default::default()
+        },
+    };
     let heal = module
         .define_function(
             FunctionDecl::new("heal")
                 .parameter("hp", counter.clone())
                 .parameter("gold", counter.clone())
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::UniqueBorrow; 2],
-                    effects: HostFunctionEffects {
-                        may_mutate_host_state: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(heal_policy.clone()),
         )
         .unwrap();
     let write = state.clone();
     module
         .bind(
             heal,
-            host::callback(move |cx, _| {
+            host::callback(heal_policy, move |cx, _| {
                 for id in [HP, GOLD] {
                     let root = cx.runtime().host().root(id).unwrap();
                     assert_eq!(
@@ -237,22 +238,23 @@ fn scoped_host_entries_use_explicit_context_and_release_argument_loans() {
             }),
         )
         .unwrap();
+    let read_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: Default::default(),
+    };
     let read = module
         .define_function(
             FunctionDecl::new("read")
                 .parameter("hp", counter)
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: Default::default(),
-                }),
+                .host_policy(read_policy.clone()),
         )
         .unwrap();
     let inspect = state.clone();
     module
         .bind(
             read,
-            host::callback(move |cx, _| {
+            host::callback(read_policy, move |cx, _| {
                 let root = cx.runtime().host().root(HP).unwrap();
                 assert_eq!(
                     cx.borrows()

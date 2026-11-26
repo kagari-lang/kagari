@@ -515,16 +515,32 @@ execution. No script execution, host callback, conversion or mutation separates 
 successful proof from commit. The parked state is established before readiness
 notification; successful slice exit does not prove the same graph again.
 
-Each transition checks Runtime/session identity, scope shape, outstanding mutation,
-Host/Native borrows and native-entry state. A bounded source with only its admitted
-revision prefix, actual inline cells and valid frame ranges contains no retained
-data requiring payload access. Managed cells or additional dependencies instead
-use fresh physical inspection under the paired GC/source scope. One operation-local
-traversal shares visited object identities across frames, while retaining frame-order error precedence and checking
-every root and traced value before deduplication. Aliased tags, foreign/stale handles,
-erased receivers and native traced edges still require validation. Trace-hook faults
-retain their error/quarantine behavior. Neither a safety permit nor traversal
-scratch survives the operation; aliases must be rechecked at the next transition.
+At `await`, the interpreter protects the awaitable before clearing dead managed
+slots in the awaiting frame using verified liveness. Parking checks the actual
+managed slots of **all** frames, including suspended callers, not just the
+await instruction's operands. Nested frame/Host scopes and running Native entries
+cannot park. A bounded, all-inline source with only its revision dependency needs
+no payload walk. Otherwise the check visits frame ranges, local, queued and pending
+value banks, execution dependencies and separately rooted queued callables or
+Futures. It follows captured data, including shared cells, erased receivers and
+private traced Native edges, but not a selected revision's statics. Visitation
+is shared only within this check: a mutable alias can change what the next
+parking attempt will find. A pending poll is not itself permission to park.
+One current limit is the outstanding Native wait: submission drops its decoded
+capture slots, but the wait keeps a separate cold-source root for result
+conversion. The parking walk does not revisit receiver data reachable only
+through that root's executable dependencies.
+
+Retention is not ordinary heap storage. For example, `(player, 1)` with a
+registry root can be captured, but is not an ordinary storable tuple. Replacing
+`player` with a typed path view makes the tuple ineligible for capture or parking.
+A Host type annotation alone cannot distinguish these values. Closure/Future
+publication and capture-cell creation or replacement inspect the actual data:
+a reachable path view, root with an active shared or unique loan, or Native
+object under an operation guard fails admission. An unrelated outer loan does
+not by itself forbid constructing a cold Future during synchronous reentry.
+Retaining a root does not keep its registry entry live; subsequent access obeys
+the [Host handle contract](host-interop.md#external-host-access-and-scope).
 
 Native and script Future waits use this same driver. Source `async`/`.await` is
 implemented through checked cold factories and resume bodies. Host Task scopes

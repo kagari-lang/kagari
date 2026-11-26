@@ -10,10 +10,14 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
+    language::binding,
     ty::{Ty, substitution::TypeSubstitution},
     visibility::Visibility,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    slice,
+};
 mod applications;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -151,6 +155,20 @@ fn public_templates<'a>(
     Ok(templates)
 }
 
+// A layout may be an imported or private instance with no public template here.
+fn result_payloads_valid(layout: &EnumLayout, definitions: &DefinitionTable) -> bool {
+    let ([ok, err], [success, failure]) = (layout.variants.as_slice(), layout.arguments.as_slice())
+    else {
+        return false;
+    };
+    definitions.lookup_child(layout.declaration, DefinitionKind::Variant, "Ok", 0)
+        == Some(ok.declaration)
+        && definitions.lookup_child(layout.declaration, DefinitionKind::Variant, "Err", 0)
+            == Some(err.declaration)
+        && ok.payload.as_slice() == slice::from_ref(success)
+        && err.payload.as_slice() == slice::from_ref(failure)
+}
+
 pub fn validate_enum_layouts(
     layouts: &[EnumLayout],
     structures: &[StructLayout],
@@ -212,6 +230,7 @@ pub fn validate_enum_layouts(
         .chain(layouts.iter().flat_map(|e| &e.arguments))
         .collect::<Vec<_>>();
     let mut identities = HashSet::new();
+    let result = definitions.lookup(&binding::result_declaration());
     for layout in layouts {
         cancel
             .check()
@@ -222,6 +241,10 @@ pub fn validate_enum_layouts(
         {
             return Err(LayoutValidationError::Invalid);
         }
+        let is_result = Some(*id) == result;
+        if is_result && !result_payloads_valid(layout, definitions) {
+            return Err(LayoutValidationError::Invalid);
+        }
         let mut names = HashSet::new();
         if layout.variants.len() > u32::MAX as usize || layouts.len() > u32::MAX as usize {
             return Err(LayoutValidationError::Limit {
@@ -229,12 +252,13 @@ pub fn validate_enum_layouts(
                 limit: u32::MAX as usize,
             });
         }
-        for variant in &layout.variants {
+        for (slot, variant) in layout.variants.iter().enumerate() {
             cancel
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
             let child = &variant.declaration;
-            if definitions.parent(*child) != Ok(Some(*id))
+            if variant.reports_failure != (is_result && slot == 1)
+                || definitions.parent(*child) != Ok(Some(*id))
                 || !definitions
                     .resolve(*child)
                     .ok()

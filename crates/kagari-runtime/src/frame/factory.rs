@@ -4,7 +4,6 @@ use crate::{
     error::RuntimeError,
     error_trace::asynchronous::CallableOrigin,
     execution::roots::{ExecutionRoots, pending::PendingSlots, queued::QueuedArguments},
-    execution_metadata::managed::sources::MetadataSource,
     frame::{
         FrameStack, transfer::ReturnValue, types::arguments::TypeArgument, waiting::QueuedFuture,
     },
@@ -46,6 +45,14 @@ pub(crate) enum FactoryEntry {
 }
 
 impl QueuedFactory {
+    pub(super) fn retained_value(&self) -> Option<&RootedValue> {
+        match &self.entry {
+            FactoryEntry::Closure { value, .. } => Some(value),
+            FactoryEntry::Pinned { function, .. } => function.closure_root(),
+            FactoryEntry::Interface { method, .. } => Some(&method._root),
+        }
+    }
+
     pub(crate) fn body_origin(&self) -> NativeResult<RevisionSource<'_>> {
         match &self.entry {
             FactoryEntry::Closure { value, .. } => Ok(RevisionSource::RootedClosure(value)),
@@ -136,43 +143,28 @@ impl Runtime {
 
 impl FrameStack {
     pub(super) fn start_queued_factory(&self, runtime: &mut Runtime) -> NativeResult<()> {
-        let queued = self
+        if self
             .session_state(runtime)
             .queued_factory
-            .borrow_mut()
-            .take();
-        let Some(queued) = queued else {
+            .borrow()
+            .is_none()
+        {
             return Ok(());
-        };
+        }
         if !self.can_park(runtime)? || !self.frames(runtime)?.is_empty() {
             return Err(RuntimeError::module_validation(
                 "invalid factory activation",
             ));
         }
+        let queued = self
+            .session_state(runtime)
+            .queued_factory
+            .borrow_mut()
+            .take()
+            .expect("validated queued factory");
         match queued.entry {
             FactoryEntry::Closure { value, .. } => {
-                let pending = PendingSlots::new(self.session);
-                runtime
-                    .memory
-                    .scope(&runtime.resources, |cx, roots| {
-                        ExecutionRoots::with(roots, cx, |slots| {
-                            let value = value.get(slots.scope())?;
-                            slots.set(pending.awaitable(), value)
-                        })
-                    })
-                    .map_err(|error| runtime.managed_memory_error(error))?;
-                let view = runtime
-                    .memory
-                    .inspect_value(pending.awaitable())
-                    .map_err(|error| runtime.managed_memory_error(error))?;
-                async_protected(runtime, slice::from_ref(&view))?;
                 self.push_rooted_closure(runtime, &value, ArgumentValues::scalars(&[]))?;
-                runtime
-                    .memory
-                    .scope(&runtime.resources, |cx, roots| {
-                        ExecutionRoots::with(roots, cx, |slots| pending.release_awaitable(slots))
-                    })
-                    .map_err(|error| runtime.managed_memory_error(error))?;
             }
             FactoryEntry::Pinned {
                 function,
@@ -187,23 +179,6 @@ impl FrameStack {
                 result?;
             }
             FactoryEntry::Interface { method, arguments } => {
-                // Aliases may mutate parked data after queue admission. Check
-                // receiver and explicit arguments again before frame publication.
-                {
-                    let selected = method.implementation(runtime)?;
-                    let mut conversion = ConversionContext::for_selected(
-                        runtime,
-                        &selected,
-                        self.session,
-                        method.body_origin()?,
-                        method
-                            .computation_root
-                            .as_ref()
-                            .map(MetadataSource::HostApplication),
-                    )?;
-                    let receiver = conversion.import(&method._root)?;
-                    async_protected(conversion.runtime_mut(), slice::from_ref(&receiver))?;
-                }
                 let result = self.push_interface_method(
                     runtime,
                     &method,

@@ -48,7 +48,12 @@ impl ClaimedFuture {
         let resources = &runtime.resources;
         let result = runtime.memory.scope(&runtime.resources, |cx, _| {
             let cold = cx.get(&self.source)?;
-            Ok(async_object(cx, cold.erase(), resources))
+            Ok(async_object(
+                cx,
+                cold.erase(),
+                resources,
+                &runtime.host_borrows,
+            ))
         });
         let valid = result
             .map_err(|error| runtime.managed_memory_error(error))?
@@ -105,13 +110,16 @@ impl Runtime {
         values: &[ValueView<'_>; 2],
     ) -> NativeResult<[FutureContract; 2]> {
         let Runtime {
-            memory, resources, ..
+            memory,
+            resources,
+            host_borrows,
+            ..
         } = self;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 Ok((|| -> Result<_, CheckError> {
                     let values = [values[0].get(slots)?, values[1].get(slots)?];
-                    if !async_scoped(slots.scope(), &values, resources)? {
+                    if !async_scoped(slots.scope(), &values, resources, host_borrows)? {
                         return Err(RuntimeError::from(
                             TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
                         )
@@ -144,14 +152,22 @@ impl Runtime {
     pub(crate) fn claim_future(&mut self, value: &ValueView<'_>) -> NativeResult<ClaimedFuture> {
         self.resources.poll_execution()?;
         let Runtime {
-            memory, resources, ..
+            memory,
+            resources,
+            host_borrows,
+            ..
         } = self;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
                 Ok((|| -> Result<ClaimedFuture, CheckError> {
                     let value = value.get(slots)?;
                     let object = payload(slots.scope(), value)?;
-                    if !async_scoped(slots.scope(), slice::from_ref(&value), resources)? {
+                    if !async_scoped(
+                        slots.scope(),
+                        slice::from_ref(&value),
+                        resources,
+                        host_borrows,
+                    )? {
                         return Err(RuntimeError::from(
                             TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
                         )
@@ -182,7 +198,10 @@ impl Runtime {
     ) -> NativeResult<[ClaimedFuture; 2]> {
         self.resources.poll_execution()?;
         let Runtime {
-            memory, resources, ..
+            memory,
+            resources,
+            host_borrows,
+            ..
         } = self;
         let result = memory.scope(resources, |cx, roots| {
             ExecutionRoots::with(roots, cx, |slots| {
@@ -192,7 +211,7 @@ impl Runtime {
                         payload(slots.scope(), values[0])?,
                         payload(slots.scope(), values[1])?,
                     ];
-                    if !async_scoped(slots.scope(), &values, resources)? {
+                    if !async_scoped(slots.scope(), &values, resources, host_borrows)? {
                         return Err(RuntimeError::from(
                             TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
                         )

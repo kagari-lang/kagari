@@ -45,7 +45,7 @@ use kagari_types::{
     },
 };
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashSet};
 
 fn contract<'a>(
     id: &DefinitionId,
@@ -152,6 +152,7 @@ pub(super) fn verify_trait_bounds(
 }
 
 enum LinkedValidationError {
+    Path,
     InterfaceTable,
     Contract,
     Cancelled,
@@ -161,6 +162,7 @@ impl LinkedValidationError {
     fn into_verification(self) -> BytecodeVerificationError {
         match self {
             Self::Cancelled => BytecodeVerificationError::Cancelled,
+            Self::Path => BytecodeVerificationError::InvalidPathLayout,
             Self::InterfaceTable => BytecodeVerificationError::InvalidInterfaceTable,
             Self::Contract => BytecodeVerificationError::InvalidHostInterface(
                 "trait output or host bound has no unique valid implementation".into(),
@@ -422,6 +424,7 @@ fn linked_bounds_match(
     }) {
         return Ok(false);
     }
+    let required_paths: HashSet<_> = module.path_declarations.iter().collect();
     for import in &module.native_imports {
         if !FoundationNative::import_allowed(import, &module.identity, definitions) {
             return Ok(false);
@@ -440,6 +443,13 @@ fn linked_bounds_match(
         else {
             return Ok(false);
         };
+        if declaration
+            .path_operation
+            .as_ref()
+            .is_some_and(|operation| !required_paths.contains(&operation.path))
+        {
+            return Err(LinkedValidationError::Path);
+        }
         if !import.matches_declaration(declaration, catalog, cancel)?
             || !views::native_result_valid(import, closure, definitions, cancel)
         {

@@ -1,18 +1,18 @@
 use crate::{
     Runtime,
-    error::{RuntimeError, RuntimeErrorKind, trap::TrapReason},
-    execution::roots::ExecutionRoots,
+    closure::ClosureMode,
+    error::{RuntimeError, trap::TrapReason},
     frame::ExecutionStack,
-    host::{HostObjectId, HostSchemaEpoch},
+    host::{HostBorrowKind, HostCallGuard, HostObjectId, HostSchemaEpoch},
     module::VerifiedProgram,
-    native::builder::ModuleBuilder,
+    native::{builder::ModuleBuilder, conversion::context::ConversionContext},
     resource::candidate::CandidateOrigin,
-    test_support::update_programs::load_empty,
+    test_support::{layouts, update_programs::load_empty},
     value::{
         aggregates::tuples::TupleObject, carriers::ScopedValue, cells::CellObject,
         host_values::HostRootObject, strings::StringObject,
     },
-    value_check::data::{AsyncDataWalk, DataWalk, async_scoped},
+    value_check::data::{DataWalk, async_scoped},
 };
 use kagari_abi::representation::ValueType;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
@@ -81,24 +81,12 @@ unsafe impl GcObject for PrivateLink {
 #[test]
 fn async_data_walk_rechecks_mutable_private_cycles_and_hidden_capabilities() {
     let mut runtime = Runtime::default();
-    let mut module = ModuleBuilder::new("graph", &Default::default()).unwrap();
-    let mut external = module.define_type("External").unwrap();
-    external
-        .external(HostTypePolicy {
-            ownership: HostTypeOwnership::HostRoot,
-            reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::ReadOnly,
-        })
-        .unwrap();
-    external.finish().unwrap();
-    module.finish().unwrap().install(&mut runtime).unwrap();
-    let ty = runtime.types().get_by_name("graph::External").unwrap().id;
-    let handle = runtime
-        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
-        .unwrap();
-    let roots = runtime.gc_stats().root_registrations;
+    let (host, path) = layouts::host_values(&mut runtime, 7);
     let Runtime {
-        memory, resources, ..
+        memory,
+        resources,
+        host_borrows,
+        ..
     } = &mut runtime;
     memory
         .scope(resources, |cx, _| {
@@ -108,41 +96,42 @@ fn async_data_walk_rechecks_mutable_private_cycles_and_hidden_capabilities() {
             PrivateLink::NEXT.set(cx, payload, Some(alias.erase()));
             PrivateLink::NEXT.set(cx, alias, Some(text.erase()));
             assert!(
-                DataWalk::default()
+                DataWalk::retention(host_borrows)
                     .object(cx, payload.erase(), resources)
                     .unwrap()
             );
             PrivateLink::NEXT.set(cx, alias, Some(alias.erase()));
             assert!(
-                DataWalk::default()
+                DataWalk::retention(host_borrows)
                     .object(cx, payload.erase(), resources)
                     .unwrap()
             );
-            let host = HostRootObject::alloc(cx, handle)?;
-            PrivateLink::NEXT.set(cx, alias, Some(host.erase()));
+            let host = host.get(cx)?;
+            let tuple = TupleObject::alloc(cx, &[host])?;
             assert!(
-                !DataWalk::default()
-                    .object(cx, payload.erase(), resources)
-                    .unwrap()
+                async_scoped(cx, &[ScopedValue::managed(tuple)], resources, host_borrows).unwrap()
             );
-            let tuple = TupleObject::alloc(cx, &[ScopedValue::managed(host)])?;
-            assert!(!async_scoped(cx, &[ScopedValue::managed(tuple)], resources).unwrap());
+            let path = path.get(cx)?;
+            let tuple = TupleObject::alloc(cx, &[ScopedValue::managed(tuple), path])?;
+            assert!(
+                !async_scoped(cx, &[ScopedValue::managed(tuple)], resources, host_borrows).unwrap()
+            );
             PrivateLink::NEXT.set(cx, alias, Some(tuple.erase()));
             assert!(
-                !DataWalk::default()
+                !DataWalk::retention(host_borrows)
                     .object(cx, payload.erase(), resources)
                     .unwrap()
             );
             PrivateLink::NEXT.set(cx, alias, Some(text.erase()));
             assert!(
-                DataWalk::default()
+                DataWalk::retention(host_borrows)
                     .object(cx, payload.erase(), resources)
                     .unwrap()
             );
             Ok(())
         })
         .unwrap();
-    assert_eq!(runtime.gc_stats().root_registrations, roots);
+    drop((host, path));
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc_stats().objects, 0);
 }
@@ -201,6 +190,39 @@ fn async_execution_checks_receiver_data_owned_only_by_an_admitted_computation() 
             ScopedValue::managed(object).retain(cx)
         })
         .unwrap();
+    // A normal function prefix supplies a checked Host parameter without relying
+    // on HIR to admit a Host capture in source.
+    let target = owner
+        .bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "wrap")
+        .unwrap()
+        .id;
+    let capture = |runtime: &mut Runtime| {
+        let mut cx = ConversionContext::new(runtime, &owner)?;
+        let value = cx.import(&value)?;
+        let closure = cx.allocate_script_closure(target, &[value], None, ClosureMode::Retained)?;
+        cx.retain(&closure)
+    };
+    let unrelated = runtime
+        .register_host_root(HostObjectId(8), ty, handle.schema_epoch())
+        .unwrap();
+    let mut outer = runtime.host_scope(&[]).unwrap();
+    outer
+        .borrows()
+        .borrow_unique(unrelated.object_id(), ty)
+        .unwrap();
+    drop(capture(outer.runtime_mut()).unwrap());
+    outer
+        .borrows()
+        .borrow_shared(handle.object_id(), ty)
+        .unwrap();
+    assert_eq!(
+        capture(outer.runtime_mut()).unwrap_err(),
+        RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue)
+    );
+    drop(outer);
     // Normal boxing and admission establish the installed nominal relationship;
     // this negative input reaches data policy without corrupting a provider.
     let interface = runtime.make_interface(&owner, 0, &value).unwrap();
@@ -230,30 +252,32 @@ fn async_execution_checks_receiver_data_owned_only_by_an_admitted_computation() 
     drop((method, interface, value));
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc_stats().root_registrations, roots);
-    let Runtime {
-        memory, resources, ..
-    } = &mut runtime;
-    let error = memory
-        .scope(resources, |cx, roots| {
-            ExecutionRoots::with(roots, cx, |slots| {
-                Ok(AsyncDataWalk::default().remaining(slots, execution, resources))
-            })
-        })
-        .unwrap()
-        .unwrap_err()
-        .into_runtime(&runtime);
+    // An outer host frame owns a real loan. The computation-only receiver is
+    // admissible before that loan, but cannot escape while it is borrowed.
+    let mut activation = Some(runtime.resume_owned_execution(&execution_owner).unwrap());
+    assert!(ExecutionStack::try_park_ready(&mut activation).unwrap());
+    drop(activation);
+    let guard = runtime.host_borrows.enter_frame().unwrap();
+    let token = guard.borrow_unique(handle.object_id(), ty).unwrap();
+    let mark = guard.into_mark();
+    let mut activation = Some(runtime.resume_owned_execution(&execution_owner).unwrap());
+    let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
     assert_eq!(
         error,
         RuntimeError::from(TrapReason::AsyncStateRetainsAnInvalidOrScopedValue)
     );
-    // A scalar frame alone cannot authorize data-free parking: its additional
-    // application dependency is the only remaining owner of the Host receiver.
-    let mut activation = Some(runtime.resume_owned_execution(&execution_owner).unwrap());
-    let error = ExecutionStack::try_park_ready(&mut activation).unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap);
-    assert!(error.to_string().contains("async state retains"));
     assert!(activation.is_some());
     drop(activation);
+    drop(HostCallGuard::from_mark(
+        &runtime.host_borrows,
+        &runtime.resources,
+        mark,
+    ));
+    assert!(
+        runtime
+            .validate_host_borrow(token, HostBorrowKind::Unique)
+            .is_err()
+    );
     runtime.finish_owned_execution(&execution_owner).unwrap();
     runtime.collect_garbage().unwrap();
     assert_eq!(runtime.gc_stats().root_registrations, roots);
@@ -270,7 +294,10 @@ fn candidate_walk_checks_birth_identity_and_rechecks_private_mutable_aliases() {
     let origin = CandidateOrigin::new(owner.program_identity());
     let roots = runtime.gc_stats().root_registrations;
     let Runtime {
-        memory, resources, ..
+        memory,
+        resources,
+        host_borrows,
+        ..
     } = &mut runtime;
     memory
         .scope(resources, |cx, _| {
@@ -305,7 +332,7 @@ fn candidate_walk_checks_birth_identity_and_rechecks_private_mutable_aliases() {
                     .unwrap()
             );
             assert!(
-                DataWalk::default()
+                DataWalk::retention(host_borrows)
                     .object(cx, alias.erase(), resources)
                     .unwrap()
             );

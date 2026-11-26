@@ -21,13 +21,14 @@ use kagari_types::{
     declaration::{
         FieldDef, FnDecl, Param, TypeDeclaration, TypeDef, TypeDefKind,
         host::{
-            HostCallPolicy, HostFieldPolicy, HostPassingStyle, HostReflectionPolicy,
-            HostTypeOwnership, HostTypePolicy, PathAccess,
+            HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostPassingStyle,
+            HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
         },
         module::{ImplDecl, ModuleDecl},
         path::{
             HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-            HostVirtualSegmentDeclaration,
+            HostVirtualSegmentDeclaration, NativePathOperation,
+            NativePathOperationKind::{Add, Read, Set},
         },
     },
     scalar::BuiltinType,
@@ -122,32 +123,7 @@ fn declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>> {
             effects: Default::default(),
         }),
     });
-    let implementation = definitions.intern_child(root, DefinitionKind::Impl, "", 0)?;
-    let method =
-        definitions.intern_child(implementation, DefinitionKind::Method, "read_score", 0)?;
-    module.implementations.push(ImplDecl {
-        generic_params: vec![],
-        bounds: vec![],
-        trait_type: None,
-        for_type: Ty::Host(player),
-        methods: vec![FnDecl {
-            name: "read_score".into(),
-            implementation: CallableImplementation::Native(method),
-            method_policy: MethodPolicy::default(),
-            generic_params: vec![],
-            bounds: vec![],
-            params: vec![Param {
-                name: "self".into(),
-                ty: Ty::Host(player),
-                mutable: false,
-            }],
-            return_type: Ty::Builtin(BuiltinType::I32),
-            host_policy: Some(HostCallPolicy {
-                passing: vec![HostPassingStyle::SharedBorrow],
-                effects: Default::default(),
-            }),
-        }],
-    });
+
     let path_declaration = HostPathDeclaration {
         root: player,
         segments: vec![HostPathSegmentDeclaration::Field(score)],
@@ -210,6 +186,73 @@ fn declarations() -> Result<DefinitionMetadata<ModuleDecl>, Box<dyn Error>> {
         access: PathAccess::ReadOnly,
         schema_epoch: 0,
     };
+    let implementation = definitions.intern_child(root, DefinitionKind::Impl, "", 0)?;
+    let mut methods = Vec::new();
+    for (name, arguments, kind, path) in [
+        ("read_score", &[][..], Read, &path_declaration),
+        ("set_score", &["next"][..], Set, &path_declaration),
+        ("add_score", &["amount"][..], Add, &path_declaration),
+        ("read_index", &["index"][..], Read, &index_declaration),
+        (
+            "read_scores_at",
+            &["index"][..],
+            Read,
+            &field_index_declaration,
+        ),
+        (
+            "read_nested_score",
+            &["first", "second"][..],
+            Read,
+            &nested_declaration,
+        ),
+    ] {
+        let method = definitions.intern_child(implementation, DefinitionKind::Method, name, 0)?;
+        let mut params = vec![Param {
+            name: "self".into(),
+            ty: Ty::Host(player),
+            mutable: false,
+        }];
+        params.extend(arguments.iter().map(|&name| Param {
+            name: name.into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            mutable: false,
+        }));
+        methods.push(FnDecl {
+            name: name.into(),
+            implementation: CallableImplementation::Native(method),
+            method_policy: MethodPolicy::default(),
+            generic_params: vec![],
+            bounds: vec![],
+            return_type: Ty::Builtin(if kind == Set {
+                BuiltinType::Unit
+            } else {
+                BuiltinType::I32
+            }),
+            host_policy: Some(HostCallPolicy {
+                passing: vec![HostPassingStyle::Owned; params.len()],
+                effects: HostFunctionEffects {
+                    may_mutate_host_state: kind != Read,
+                    may_trap: true,
+                    ..Default::default()
+                },
+            }),
+            params,
+        });
+        module.path_operations.insert(
+            method,
+            NativePathOperation {
+                path: path.clone(),
+                kind,
+            },
+        );
+    }
+    module.implementations.push(ImplDecl {
+        generic_params: vec![],
+        bounds: vec![],
+        trait_type: None,
+        for_type: Ty::Host(player),
+        methods,
+    });
     module.paths = vec![
         path_declaration,
         index_declaration,
@@ -233,6 +276,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let definitions = DefinitionContext::new()?;
     let offline = offline.import_into(&definitions, &Default::default())?;
     let module = offline.records();
+    let player = module.definition(DefinitionKind::Struct, "Player", offline.definitions())?;
+    let expected_player = offline.definitions().resolve(player)?.to_path();
     let schemas = module
         .types
         .iter()
@@ -247,7 +292,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             definition: definition.clone(),
         })
         .collect::<Vec<_>>();
-    let path = module.paths[0].contract(&schemas, offline.definitions())?;
+    for declaration in module.native_declarations(offline.definitions())? {
+        declaration.validate_path_operation(&schemas, offline.definitions())?;
+    }
+    let expected_paths = module.paths.clone();
+    let path = expected_paths[0].contract(&schemas, offline.definitions())?;
     println!(
         "offline field path fingerprint: {:016x}",
         path.fingerprint(offline.definitions())?
@@ -263,10 +312,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "api",
             "pub use demo::echo; pub use demo::Player; pub use demo as service;",
         ),
-        (
-            "main",
-            "use build::api::echo; use build::api; pub fn direct_set(value: api::Player, next: i32) { value.score = next; } pub fn add_score(value: api::Player, amount: i32) { value.score += amount; } pub fn direct_score(value: api::Player) -> i32 { value.score } pub fn indexed_score(value: api::Player, index: i32) -> i32 { value[index] } pub fn indexed_scores(value: api::Player, index: i32) -> i32 { value.scores[index] } pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 { value[first][second].selected.score } pub fn score(value: api::Player) -> i32 { value.read_score() } pub fn pass(value: api::Player) -> api::service::Player { value } fn main() -> [i32] { echo(api::service::echo([42])) }",
-        ),
+        ("main", include_str!("offline_compile/main.kgr")),
     ] {
         let path = format!("mem://{name}");
         sources
@@ -297,8 +343,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         panic!("external type identity")
     };
     assert_eq!(
-        signature.declarations().external_type(player).unwrap().name,
-        "Player"
+        signature.definitions().resolve(player)?.to_path(),
+        expected_player
     );
     assert!(signature.queries().definition_at(annotation - 2).is_none());
     println!("offline type navigation is available before body analysis");
@@ -307,7 +353,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .expect("cold analysis");
     let source = query.file(root).unwrap();
     let text = source.source().text();
-    let field = text.find("value.score = next").unwrap();
+    let field = text.find("value.score").unwrap();
     assert!(source.queries().field_at(field).is_none());
     assert!(source.queries().field_at(field + "value".len()).is_none());
     let score = source.queries().field_at(field + "value.".len()).unwrap();
@@ -321,17 +367,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>(),
         ["Player", "score"]
     );
-    let indexed = text.find("value.scores[index]").unwrap();
-    let scores = source.queries().field_at(indexed + "value.".len()).unwrap();
-    assert_eq!(
-        source.definitions().resolve(scores)?.last().unwrap().name,
-        "scores"
-    );
-    let method = text.find(".read_score()").unwrap();
+    let method = text.find(".read_nested_score(").unwrap();
     assert!(source.queries().definition_at(method).is_none());
     assert_eq!(
         source.queries().definition_at(method + 1).unwrap().name,
-        "read_score"
+        "read_nested_score"
     );
     println!("offline field and method navigation select their terminal names");
     let checked = query
@@ -392,13 +432,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         artifact.records().tables.sections
     );
     let root = &decoded.records().program.modules[decoded.records().program.root.index()];
-    assert_eq!(root.path_declarations.len(), 4);
-    assert_eq!(root.external_types.len(), 2);
-    assert!(
-        root.external_types
-            .iter()
-            .any(|schema| schema.definition.name == "Player")
-    );
+    assert_eq!(root.path_declarations.len(), expected_paths.len());
+    for path in expected_paths {
+        assert!(root.path_declarations.contains(&path));
+    }
+    assert_eq!(root.external_types.len(), schemas.len());
+    for schema in schemas {
+        assert!(root.external_types.contains(&schema));
+    }
     let imports: usize = decoded
         .records()
         .program

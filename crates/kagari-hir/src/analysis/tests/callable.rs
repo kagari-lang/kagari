@@ -70,7 +70,6 @@ fn main() -> i32 { sum([20, 22].iter()) }
 /* Temporarily paused: stdlib restoration (NC01-NC06).
 #[test]
 fn async_callable_typing_contract() {
-    let context = DefinitionContext::new().unwrap();
     let text = r#"
 async fn identity<T>(value: T) -> T { return value; }
 async fn nested() -> Future<i32> { identity(1) }
@@ -261,57 +260,7 @@ async fn block_boundaries() -> i32 {
             analysis.result().diagnostics()
         );
     }
-    let mut host = ModuleDecl::new(ModuleIdentity {
-        package: PackageId("host".into()),
-        path: vec![],
-    });
-    host.types.push(TypeDef {
-        name: "State".into(),
-        kind: TypeDefKind::Host(HostTypePolicy {
-            ownership: HostTypeOwnership::HostRoot,
-            reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::None,
-        }),
-        generic_params: vec![],
-        bounds: vec![],
-        fields: vec![],
-        variants: vec![],
-    });
-    host.collect_definitions(&context).unwrap();
-    let mut modules = standard_modules();
-    modules.push(Arc::new(
-        DefinitionMetadata::checked(context.snapshot(), host, &Default::default()).unwrap(),
-    ));
-    database.set_native_modules(modules);
-    for text in [
-        "async fn bad(value:host::State) {}",
-        "async fn bad(value:(i32,host::State)) {}",
-        "fn bad() { val f=async |value:host::State| {}; }",
-        "fn bad() { val f:fn(host::State)->Future<()> = async |value| {}; }",
-        "fn bad(value:host::State) { val f=async { value; }; }",
-    ] {
-        sources
-            .set("async-types.kgr", text.into(), SourceLayer::Base)
-            .unwrap();
-        let snapshot = database
-            .snapshot(sources.snapshot(), &Default::default())
-            .unwrap();
-        let analysis = snapshot.file(root).unwrap();
-        assert!(
-            analysis.result().diagnostics().iter().any(|diagnostic| {
-                if text.starts_with("fn bad(value:") {
-                    matches!(
-                        diagnostic.kind,
-                        DiagnosticKind::InvalidClosureCapture { .. }
-                    )
-                } else {
-                    matches!(diagnostic.kind, DiagnosticKind::InvalidAsyncCapture { .. })
-                }
-            }),
-            "{text}: {:?}",
-            analysis.result().diagnostics()
-        );
-    }
+
 }
 */
 

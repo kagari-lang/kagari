@@ -284,46 +284,25 @@ impl Builder<'_, '_> {
             "missing mutation facts",
         )?;
         if !self.place_completes(id)? {
-            let (base, values) = if let Some(host) = facts.host_path {
-                if host.root == id {
-                    return Err(self.error(Some(span), "recursive host mutation root"));
-                }
-                (
-                    Some(host.root),
-                    host.dynamic_arguments
-                        .iter()
-                        .map(|(_, id)| *id)
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                match &self
-                    .require(self.input.place(id), Some(span), "foreign mutation target")?
-                    .kind
-                {
-                    PlaceKind::Expr(value) => (None, vec![*value]),
-                    PlaceKind::Field { base, .. } => (Some(*base), Vec::new()),
-                    PlaceKind::Index { base, index } => (Some(*base), vec![*index]),
-                    PlaceKind::Name(_) => {
-                        return Err(
-                            self.error(Some(span), "named place cannot terminate preparation")
-                        );
-                    }
+            let (base, mut value) = match &self
+                .require(self.input.place(id), Some(span), "foreign mutation target")?
+                .kind
+            {
+                PlaceKind::Expr(value) => (None, Some(*value)),
+                PlaceKind::Field { base, .. } => (Some(*base), None),
+                PlaceKind::Index { base, index } => (Some(*base), Some(*index)),
+                PlaceKind::Name(_) => {
+                    return Err(self.error(Some(span), "named place cannot terminate preparation"));
                 }
             };
-            let mut evaluated = Vec::new();
-            let mut normal = true;
             if let Some(base) = base {
                 self.place(base)?;
-                normal = self.place_completes(base)?;
-            }
-            if normal {
-                for value in values {
-                    self.expression(value)?;
-                    evaluated.push(value);
-                    if !self.completes(value)? {
-                        break;
-                    }
+                if !self.place_completes(base)? {
+                    value = None;
                 }
+            }
+            if let Some(value) = value {
+                self.expression(value)?;
             }
             self.body.places.insert(
                 id,
@@ -331,9 +310,8 @@ impl Builder<'_, '_> {
                     ty: TypeId::Builtin(BuiltinType::Never),
                     kind: CheckedPlaceKind::Diverging {
                         base,
-                        read_base: facts.host_path.is_some()
-                            || (facts.index_read.is_some() && facts.index_write.is_none()),
-                        values: evaluated,
+                        read_base: facts.index_read.is_some() && facts.index_write.is_none(),
+                        value,
                     },
                 },
             );
@@ -343,15 +321,9 @@ impl Builder<'_, '_> {
             self.require(facts.ty, Some(span), "missing place type")?,
             Some(span),
         )?;
-        let kind = if let Some(host) = facts.host_path {
-            if host.root == id {
-                return Err(self.error(Some(span), "recursive host mutation root"));
-            }
+        let kind = if let Some(host) = self.host_place(id, span)? {
             self.place(host.root)?;
-            for (_, expr) in &host.dynamic_arguments {
-                self.expression(*expr)?;
-            }
-            CheckedPlaceKind::Host(host.clone())
+            CheckedPlaceKind::Host(host)
         } else {
             let node = self
                 .require(self.input.place(id), Some(span), "missing mutation target")?

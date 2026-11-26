@@ -3,7 +3,7 @@ use crate::tests::standard::standard_modules;
 use crate::{
     analysis::{AnalysisSnapshot, eligibility::BodyEligibility},
     declarations::DeclarationId,
-    native::render::declaration_source_with_external,
+    hir::item::function::FunctionImplementation,
     resolver::resolved::ResolvedName,
     tests::test_analysis,
 };
@@ -12,8 +12,7 @@ use kagari_source::{
     diagnostic::{DiagnosticKind, Severity},
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_syntax::parser;
-use kagari_types::declaration::names::NameNamespace;
+use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {
     db.declarations(sources.snapshot(), &Default::default())
@@ -21,21 +20,12 @@ fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnap
 }
 
 #[test]
-fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
+fn registrations_retain_metadata_but_not_hir_across_requests() {
     let mut sources = SourceDatabase::default();
     sources
         .set("main.kgr", "fn main() {}".into(), SourceLayer::Base)
         .unwrap();
     let mut db = test_analysis();
-    let modules = db.native_modules.clone();
-    let views = modules
-        .iter()
-        .map(|module| {
-            declaration_source_with_external(module, &modules, db.inputs().library_modules())
-                .unwrap()
-        })
-        .collect();
-    db.set_native_sources(modules, views).unwrap();
     let first = query(&mut db, &sources);
     let file = first
         .files()
@@ -44,10 +34,15 @@ fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
                 == &kagari_stdlib::namespaces::module("std", "collections")
         })
         .unwrap();
-    assert!(file.declarations().iter().any(|item| item.name == "List"));
     let id = file.source().id();
-    let source = file.declared.lowered.source.clone();
-    let location = file.syntax().unwrap().location();
+    let owner = file.source().module_identity().clone();
+    assert!(file.syntax().is_none());
+    let list = file
+        .declarations()
+        .iter()
+        .find(|item| item.name == "List")
+        .unwrap();
+    assert!(list.source_location().is_none());
     let arena = file.declared.lowered.module.nodes.arena();
     let method_count = file
         .declared
@@ -70,12 +65,15 @@ fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
         .unwrap();
     let second = query(&mut db, &sources);
     let file = second.file(id).unwrap();
-    let mut fork = db.clone();
-    assert!(db.native_files.get().is_some());
-
-    // The validated input owns the locator; each request owns its own lowering.
-    assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
-    assert!(Arc::ptr_eq(&source, &file.declared.lowered.source));
+    assert!(file.syntax().is_none());
+    assert_eq!(
+        file.declarations()
+            .iter()
+            .find(|item| item.name == "List")
+            .unwrap()
+            .id,
+        list.id
+    );
     let lowered = &file.declared.lowered;
     assert_ne!(lowered.module.nodes.arena(), arena);
     assert_eq!(
@@ -95,10 +93,6 @@ fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
     }
     assert_ne!(lowered.module.functions[0].params[0].ty, old_type);
     assert!(std::panic::catch_unwind(|| lowered.module.parameter(old_parameter)).is_err());
-    assert!(
-        std::panic::catch_unwind(|| lowered.module.parameter(old_parameter).binding_span())
-            .is_err()
-    );
     for function in &lowered.module.functions {
         for (index, parameter) in function.params.iter().enumerate() {
             assert_eq!(parameter.id.index(), index);
@@ -106,8 +100,6 @@ fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
                 lowered.module.parameter(parameter.id),
                 parameter
             ));
-            let span = lowered.module.parameter(parameter.id).binding_span();
-            assert_eq!(&lowered.source.text()[span.start..span.end], parameter.name);
         }
     }
 
@@ -141,37 +133,20 @@ fn validated_native_inputs_keep_source_locators_but_not_hir_across_requests() {
     for method in lowered.module.impls.iter().flat_map(|item| &item.methods) {
         assert!(matches!(
             lowered.module.functions[method.function.index()].implementation,
-            crate::hir::item::function::FunctionImplementation::Native(_)
+            FunctionImplementation::Native(_)
         ));
     }
 
-    fork.set_parse_limits(parser::ParseLimits {
-        max_diagnostics: 0,
-        ..Default::default()
-    });
-    assert!(fork.native_files.get().is_none());
-    let limited = query(&mut fork, &sources);
-    let replacement = limited
-        .files()
-        .find(|file| file.source().module_identity() == source.module_identity())
-        .unwrap();
-    assert!(
-        location
-            .resolve(replacement.parsed.physical().unwrap())
-            .is_none()
-    );
-    assert!(location.resolve(file.parsed.physical().unwrap()).is_some());
-    assert!(
-        location
-            .resolve(first.file(id).unwrap().parsed.physical().unwrap())
-            .is_some()
-    );
     drop(first);
     assert!(old_lowering.upgrade().is_none());
+    db.set_native_modules(vec![]);
     drop(db);
-    drop(fork);
-    assert_eq!(file.source().text(), source.text());
-    assert!(file.declarations().iter().any(|item| item.name == "List"));
+    assert!(
+        second
+            .native_modules()
+            .iter()
+            .any(|module| module.records().identity == owner)
+    );
 }
 
 #[test]
@@ -184,54 +159,34 @@ fn cancelled_or_invalid_native_inputs_are_not_retained() {
         db.declarations(sources.snapshot(), &cancelled),
         Err(AnalysisError::Cancelled)
     ));
-    assert!(db.native_files.get().is_none());
-    let modules = db.native_modules.clone();
-    let views = modules
-        .iter()
-        .map(|module| {
-            declaration_source_with_external(module, &modules, db.inputs().library_modules())
-                .unwrap()
-        })
-        .collect();
-    db.set_native_sources(modules, views).unwrap();
-    db.set_parse_limits(parser::ParseLimits {
-        max_tree_depth: 1,
-        ..Default::default()
-    });
-    assert!(matches!(
-        db.declarations(sources.snapshot(), &Default::default()),
-        Err(AnalysisError::NativeApi(_))
-    ));
-    assert!(db.native_files.get().is_none());
-    db.set_parse_limits(Default::default());
-    let modules = db.native_modules.clone();
-    assert!(modules.len() > 1);
-    let mut views = modules
-        .iter()
-        .map(|module| {
-            declaration_source_with_external(module, &modules, db.inputs().library_modules())
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    // Fail the last source after earlier providers have prepared successfully.
-    views
-        .last_mut()
-        .unwrap()
-        .text
-        .push_str("\npub trait Broken {");
-    db.set_native_sources(modules.clone(), views).unwrap();
-    let error = db
-        .declarations(sources.snapshot(), &Default::default())
-        .unwrap_err();
-    assert!(
-        matches!(error, AnalysisError::NativeApi(error) if error.0.contains("invalid native declaration syntax"))
+    let providers = standard_modules();
+    let last = providers.last().unwrap();
+    let mut invalid = last.records().clone();
+    // The extra key has a valid scoped ID, but does not identify a Native callable.
+    invalid.concrete_results.insert(
+        last.definitions().lookup_root(&invalid.identity).unwrap(),
+        Ty::Builtin(BuiltinType::I32),
     );
-    assert!(db.native_files.get().is_none());
-    db.set_native_modules(modules);
+    let mut batch = providers.clone();
+    *batch.last_mut().unwrap() = Arc::new(
+        DefinitionMetadata::checked(last.definitions().clone(), invalid, &Default::default())
+            .unwrap(),
+    );
+    db.set_native_modules(batch);
+    for _ in 0..2 {
+        assert!(
+            matches!(db.declarations(sources.snapshot(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0 == "invalid or unsupported native declaration")
+        );
+    }
+    db.set_native_modules(providers.clone());
     let complete = query(&mut db, &sources);
+    for provider in &providers {
+        assert!(complete.files().any(|file| file.syntax().is_none()
+            && file.source().module_identity() == &provider.records().identity));
+    }
     assert_eq!(
-        complete.files.len(),
-        db.native_files.get().unwrap().len() + db.inputs().core_modules().len()
+        complete.files().count(),
+        providers.len() + db.inputs().core_modules().len()
     );
 }
 

@@ -1,0 +1,13 @@
+use core::cmp::PartialEq;
+
+use game::api::Player;
+
+impl PartialEq for Player {
+    fn eq(self, other: Self) -> bool {
+        true
+    }
+}
+
+fn identical(a: Player, b: Player) -> bool {
+    a === b
+}

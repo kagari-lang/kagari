@@ -16,7 +16,6 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{host::HostCallPolicy, requirement::NativeCallableRequirement},
-    reference::ReferenceAccess,
     ty::Ty,
     visibility::Visibility,
 };
@@ -116,15 +115,13 @@ impl FunctionImplementation {
 ///
 /// These reuse the existing scoped declaration vocabulary: definition identities
 /// and generic binders belong to the enclosing analysis's retained definition
-/// table. External sidecars import that scope before attachment, without acquiring
-/// registration authority. Requirements are ordered slots; repeated operations remain distinct.
-/// Parameter/result syntax stays on `Function`; receiver access is caller-visible.
+/// table. Structured registrations supply these facts; a parsed `native fn` has
+/// no registration evidence. Requirements are ordered slots; repeated operations remain distinct.
+/// Parameter/result syntax stays on `Function`.
 /// Rust adapters and internal payload loans remain outside this declaration.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct NativeContract {
     pub host_policy: Option<HostCallPolicy>,
-    /// Caller-visible scoped receiver access required by this operation.
-    pub receiver_access: Option<ReferenceAccess>,
     /// Operations required by the native algorithm, including applied trait/member arguments.
     pub callable_requirements: Vec<NativeCallableRequirement>,
     /// Concrete result before the existing checked interface-result adaptation.
@@ -153,7 +150,6 @@ impl RemapDefinitions for NativeContract {
     ) -> Result<Self, DefinitionMappingError> {
         Ok(Self {
             host_policy: self.host_policy.clone(),
-            receiver_access: self.receiver_access,
             callable_requirements: self.callable_requirements.remap_definitions(mapper)?,
             concrete_result: self
                 .concrete_result

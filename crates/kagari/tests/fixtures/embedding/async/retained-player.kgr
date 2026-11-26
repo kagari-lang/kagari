@@ -1,0 +1,20 @@
+use core::convert::From;
+
+use game::Player;
+
+use test::async_sdk::request;
+
+struct HealthSnapshot {
+    val hp: i32
+}
+
+impl From<Player> for HealthSnapshot {
+    fn from(player: Player) -> Self {
+        HealthSnapshot { hp: player.hp }
+    }
+}
+
+pub async fn cold(player: Player) -> i32 {
+    val response = request(13).await;
+    HealthSnapshot::from(player).hp + response
+}

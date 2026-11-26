@@ -23,8 +23,8 @@ use crate::{
         TypedParameterBuffer,
     },
     typeck::{
-        BodyInputs, BodyTypeEnv, ModuleSignatures, TopLevelTypeIndex, TypeIndexes, aliases,
-        applications, associated, associated_consts, asynchronous,
+        BodyInputs, BodyTypeEnv, GenericBounds, ModuleSignatures, TopLevelTypeIndex, TypeIndexes,
+        aliases, applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -286,14 +286,7 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.module.type_ref(param.ty).origin.diagnostic_span()),
                 );
             }
-            if function.is_async && param_type.contains_host_value() {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
-                        type_name: display_type_id(declarations.definitions(), &param_type),
-                    })
-                    .with_span(lowered.module.type_ref(param.ty).origin.diagnostic_span()),
-                );
-            }
+
             params.push(TypedParameter {
                 id: param.id,
                 writeability: Writeability::Val,
@@ -954,6 +947,8 @@ pub(super) struct MethodComparison<'a> {
     pub definitions: &'a DefinitionTable,
     pub trait_name: &'a str,
     pub method_name: &'a str,
+    pub trait_bounds: &'a GenericBounds,
+    pub impl_bounds: &'a GenericBounds,
     pub trait_generic_count: usize,
     pub impl_generic_count: usize,
     pub receiver: &'a TypeId,
@@ -1014,42 +1009,42 @@ pub(super) fn compare_method_contract(
             .catalog
             .normalize_type(comparison.definitions, &ty)
     };
-    for (expected_param, actual_param) in expected
-        .generic_params()
-        .iter()
-        .skip(comparison.trait_generic_count)
-        .zip(
-            actual
-                .generic_params
-                .iter()
-                .skip(comparison.impl_generic_count),
+    // Method contracts exclude the enclosing trait/impl's applicability bounds.
+    // Substitute both halves of each remaining predicate, including constraints
+    // on Self or on an applied type rather than just method-owned binders.
+    let method_bounds =
+        |bounds: &GenericBounds, inherited: &GenericBounds, subst: &TypeSubstitution| {
+            let mut predicates = HashSet::default();
+            for (subject, constraints) in bounds {
+                for constraint in constraints {
+                    if !inherited
+                        .get(subject)
+                        .is_some_and(|outer| outer.contains(constraint))
+                    {
+                        predicates.insert((
+                            normalize(subject.instantiate(subst)),
+                            normalize(TypeId::Trait(constraint.instantiate(subst))),
+                        ));
+                    }
+                }
+            }
+            predicates
+        };
+    if method_bounds(expected.bounds(), comparison.trait_bounds, &substitution)
+        != method_bounds(
+            &actual.bounds,
+            comparison.impl_bounds,
+            &TypeSubstitution::default(),
         )
     {
-        let required = expected
-            .bounds()
-            .get(&TypeId::Generic(expected_param.clone()))
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let provided = actual
-            .bounds
-            .get(&TypeId::Generic(actual_param.clone()))
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        let substituted = required
-            .iter()
-            .map(|instance| instance.instantiate(&substitution))
-            .collect::<Vec<_>>();
-        if substituted.len() != provided.len()
-            || !substituted
-                .iter()
-                .all(|constraint| provided.contains(constraint))
-        {
-            diagnostics.push(mismatch("generic bound differs".into()));
-            return;
-        }
+        diagnostics.push(mismatch("generic bound differs".into()));
+        return;
     }
     for (index, actual_param) in actual.params.iter().enumerate() {
         let (name, writeability, ty) = expected.param(index);
+        if index == 0 && (name == "self") != (actual_param.name == "self") {
+            diagnostics.push(mismatch("receiver parameter differs".into()));
+        }
         if writeability != actual_param.writeability {
             diagnostics.push(mismatch(format!("parameter `{name}` mutability differs")));
         }
@@ -1065,34 +1060,7 @@ pub(super) fn compare_method_contract(
             )));
         }
     }
-    let projected_required = expected
-        .bounds()
-        .iter()
-        .filter(|(ty, _)| matches!(ty, TypeId::Projection { .. }))
-        .map(|(ty, constraints)| {
-            (
-                normalize(
-                    ty.with_self(comparison.trait_owner, comparison.receiver)
-                        .instantiate(&substitution),
-                ),
-                constraints
-                    .iter()
-                    .map(|instance| instance.instantiate(&substitution))
-                    .collect::<Vec<_>>(),
-            )
-        })
-        .collect::<HashMap<_, _>>();
-    let projected_actual = actual
-        .bounds
-        .iter()
-        .filter(|(ty, _)| {
-            matches!(ty, TypeId::Projection { .. }) || projected_required.contains_key(*ty)
-        })
-        .map(|(ty, constraints)| (normalize(ty.clone()), constraints.clone()))
-        .collect::<HashMap<_, _>>();
-    if projected_required != projected_actual {
-        diagnostics.push(mismatch("associated type bound differs".into()));
-    }
+
     let expected_return = normalize(
         expected
             .return_type()

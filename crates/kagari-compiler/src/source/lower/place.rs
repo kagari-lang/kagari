@@ -10,15 +10,15 @@ use kagari_hir::{
 };
 use kagari_mir::{
     ids::{LocalId, ModuleSlotId},
-    instruction::{AggregateFieldRef, Instruction, MirValue, PathRef, ValueBuffer},
+    instruction::{AggregateFieldRef, Instruction, MirValue, PathRef},
 };
 use kagari_types::{language::Protocol, ty::Ty};
-use std::ops::ControlFlow;
+
 use std::slice;
 
 pub(super) struct PreparedPlace {
     host_path: Option<PathRef>,
-    dynamic_args: ValueBuffer,
+
     root: Root,
     projections: Vec<Projection>,
 }
@@ -54,34 +54,6 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         id: PlaceId,
     ) -> Result<Option<PreparedPlace>, MirLoweringError> {
-        if let CheckedPlaceKind::Host(checked) = self.source_body().places[&id].kind.clone() {
-            let Some(prepared) = self.prepare_place_inner(checked.root, true)? else {
-                return Ok(None);
-            };
-
-            let value = self.read_prepared_place(&prepared)?;
-            let dynamic_args = match self.lower_host_path_arguments(&checked.dynamic_arguments)? {
-                ControlFlow::Break(_) => return Ok(None),
-                ControlFlow::Continue(values) => values,
-            };
-            let path = PathRef {
-                declaration: Some(checked.declaration),
-                contract_fingerprint: checked
-                    .contract
-                    .fingerprint(&self.planner.definitions())
-                    .map_err(|_| MirLoweringError::MissingBinding("checked host write contract"))?,
-                root_ty: value.ty,
-                result_ty: self.place_type(id)?,
-                read_only: false,
-                debug_name: "host path write".into(),
-            };
-            return Ok(Some(PreparedPlace {
-                host_path: Some(path),
-                dynamic_args,
-                root: Root::Value(value),
-                projections: Vec::new(),
-            }));
-        }
         self.prepare_place_inner(id, false)
     }
 
@@ -100,7 +72,6 @@ impl FunctionLowerer<'_, '_> {
                         let value = self.load_static(slot);
                         return Ok(Some(PreparedPlace {
                             host_path: None,
-                            dynamic_args: Default::default(),
                             root: Root::Static { slot, value },
                             projections: Vec::new(),
                         }));
@@ -117,7 +88,11 @@ impl FunctionLowerer<'_, '_> {
                 let root = if projected
                     && matches!(
                         self.semantic_type(&root_type)?,
-                        Ty::Trait(_) | Ty::NativeObject(_) | Ty::Struct(_) | Ty::Array(_)
+                        Ty::Trait(_)
+                            | Ty::NativeObject(_)
+                            | Ty::Struct(_)
+                            | Ty::Array(_)
+                            | Ty::Host(_)
                     ) {
                     let dst = self.alloc_temp(ty);
                     if is_cell {
@@ -135,7 +110,6 @@ impl FunctionLowerer<'_, '_> {
                 };
                 Ok(Some(PreparedPlace {
                     host_path: None,
-                    dynamic_args: Default::default(),
                     root,
                     projections: Vec::new(),
                 }))
@@ -147,13 +121,12 @@ impl FunctionLowerer<'_, '_> {
                 }
                 Ok(Some(PreparedPlace {
                     host_path: None,
-                    dynamic_args: Default::default(),
                     root: Root::Value(value),
                     projections: Vec::new(),
                 }))
             }
             CheckedPlaceKind::Field { base, field } => {
-                let Some(mut place) = self.prepare_place_inner(base, true)? else {
+                let Some(mut place) = self.prepare_projection_base(base)? else {
                     return Ok(None);
                 };
                 let receiver_ty = self.source_body().places[&base].ty.clone();
@@ -169,7 +142,7 @@ impl FunctionLowerer<'_, '_> {
                 index,
                 operation,
             } => {
-                let Some(mut place) = self.prepare_place_inner(base, true)? else {
+                let Some(mut place) = self.prepare_projection_base(base)? else {
                     return Ok(None);
                 };
                 let receiver_type = self.source_body().places[&base].ty.clone();
@@ -219,7 +192,6 @@ impl FunctionLowerer<'_, '_> {
                     )?;
                     return Ok(Some(PreparedPlace {
                         host_path: None,
-                        dynamic_args: Default::default(),
                         root: Root::Value(value),
                         projections: vec![],
                     }));
@@ -235,11 +207,27 @@ impl FunctionLowerer<'_, '_> {
                 });
                 Ok(Some(place))
             }
-            CheckedPlaceKind::Host(_) => self.prepare_place(id),
+            CheckedPlaceKind::Host(checked) => {
+                let Some(mut prepared) = self.prepare_projection_base(checked.root)? else {
+                    return Ok(None);
+                };
+                let (declaration, contract_fingerprint) =
+                    self.planner
+                        .bind_host_fields(checked.owner, &checked.fields, true)?;
+                prepared.host_path = Some(PathRef {
+                    declaration: Some(declaration),
+                    contract_fingerprint,
+                    root_ty: self.place_type(checked.root)?,
+                    result_ty: self.place_type(id)?,
+                    read_only: false,
+                    debug_name: "host path write".into(),
+                });
+                Ok(Some(prepared))
+            }
             CheckedPlaceKind::Diverging {
                 base,
                 read_base,
-                values,
+                value,
             } => {
                 if let Some(base) = base {
                     let Some(prepared) = self.prepare_place_inner(base, true)? else {
@@ -249,7 +237,7 @@ impl FunctionLowerer<'_, '_> {
                         self.read_prepared_place(&prepared)?;
                     }
                 }
-                for value in values {
+                if let Some(value) = value {
                     self.lower_expr(value)?;
                     if self.current_block_terminated() {
                         return Ok(None);
@@ -262,8 +250,24 @@ impl FunctionLowerer<'_, '_> {
         }
     }
 
-    /// Read an already prepared receiver before a host/index getter's operands.
-    /// Deferred writable projections are left untouched until their normal commit path.
+    fn prepare_projection_base(
+        &mut self,
+        base: PlaceId,
+    ) -> Result<Option<PreparedPlace>, MirLoweringError> {
+        // A Host place commits through its whole adapter. Appending an aggregate
+        // projection would silently commit to the prefix instead of the target.
+        if matches!(
+            self.source_body().places[&base].kind,
+            CheckedPlaceKind::Host(_)
+        ) {
+            return Err(MirLoweringError::MissingBinding(
+                "additional projection requires a complete checked Host mutation path",
+            ));
+        }
+        self.prepare_place_inner(base, true)
+    }
+
+    /// Resolve the current value of a captured location without recomputing root or indexes.
     fn read_prepared_place(&mut self, place: &PreparedPlace) -> Result<MirValue, MirLoweringError> {
         let mut value = match place.root {
             Root::Static { value, .. } | Root::Value(value) => value,
@@ -290,7 +294,7 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::ReadPath {
                 dst,
                 root_or_view: value,
-                dynamic_args: place.dynamic_args.clone(),
+                dynamic_args: Default::default(),
                 path,
             });
             value = dst;
@@ -300,21 +304,21 @@ impl FunctionLowerer<'_, '_> {
 
     pub(super) fn commit_place(
         &mut self,
-        place: PreparedPlace,
+        mut place: PreparedPlace,
         op: Option<HirBinaryOp>,
         numeric: Option<NumericOperation>,
         rhs: MirValue,
     ) -> Result<(), MirLoweringError> {
-        if let Some(path) = place.host_path {
-            let Root::Value(root_or_view) = place.root else {
-                return Err(MirLoweringError::MissingBinding("prepared host root"));
-            };
+        if let Some(path) = place.host_path.take() {
+            // Resolve just the prefix here: RHS effects may have replaced an
+            // intermediate element. The adapter itself reads/modifies the leaf.
+            let root_or_view = self.read_prepared_place(&place)?;
             if let Some(op) = op {
                 self.emit(Instruction::ModifyPath {
                     dst: None,
                     root_or_view,
                     path,
-                    dynamic_args: place.dynamic_args,
+                    dynamic_args: Default::default(),
                     op: numeric
                         .map(BinaryOp::Numeric)
                         .unwrap_or_else(|| Self::lower_binary_op(op)),
@@ -324,7 +328,7 @@ impl FunctionLowerer<'_, '_> {
                 self.emit(Instruction::SetPath {
                     root_or_view,
                     path,
-                    dynamic_args: place.dynamic_args,
+                    dynamic_args: Default::default(),
                     value: rhs,
                 });
             }

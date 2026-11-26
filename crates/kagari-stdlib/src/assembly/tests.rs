@@ -20,7 +20,7 @@ use kagari_runtime::{
     value::view::ValueView,
 };
 use kagari_types::{
-    declaration::{TypeDefKind, VariantDef, native::NativeTypeConstructor},
+    declaration::{TypeDefKind, VariantDef},
     scalar::BuiltinType,
 };
 use std::{
@@ -119,17 +119,12 @@ fn representative(
                 ))
             }),
         ))?;
-        module.define_constructor("String", NativeTypeConstructor::String)?;
-        module.inherent(Type::scalar(BuiltinType::String), |methods| {
-            methods.define(
-                MethodDecl::instance("len")
-                    .returns(Type::u64())
-                    .implementation_send(NativeBinding::primitive(
-                        NativePrimitive::StringByteLength,
-                    )),
-            )?;
-            Ok(())
-        })?;
+        module.define_function(
+            FunctionDecl::new("len")
+                .parameter("text", Type::scalar(BuiltinType::String))
+                .returns(Type::u64())
+                .implementation_send(NativeBinding::primitive(NativePrimitive::StringByteLength)),
+        )?;
         let interface = module.define_trait("Answer", 0, |_, _| Ok(()))?;
         module.define_trait_default(
             &interface,

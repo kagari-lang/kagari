@@ -49,6 +49,11 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
     ['function', 'run'], ['variable.parameter', 'n:']]) {
     assert.equal(effectiveCapture(found, text.indexOf(value)), name, `${name}: ${value}`);
   }
+  const handles = 'pub native host type Player { pub val host: i32 } native type host;';
+  const handleCaptures = captures(handles);
+  for (const [needle, scope] of [['host type', 'keyword'], ['host:', 'property'], ['host;', 'type']]) {
+    assert.equal(effectiveCapture(handleCaptures, handles.indexOf(needle)), scope);
+  }
   const names = 'fn main() { val isize = 1i64; val usize = 1u64; isize + usize }';
   const nameCaptures = captures(names);
   for (const name of ['isize', 'usize']) {

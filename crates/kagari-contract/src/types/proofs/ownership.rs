@@ -7,24 +7,19 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::{
         conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
-        ownership::ReceiverOwners,
+        ownership::trait_impl_orphan_error,
     },
     language::Protocol,
     ty::{Ty, substitution::TypeTransformError},
 };
-use std::iter;
 
 impl ProofCatalog<'_> {
-    pub fn overrides_valid(
-        &self,
-        owners: &ReceiverOwners,
-        cancel: &CancellationToken,
-    ) -> Result<bool, TypeTransformError> {
+    pub fn overrides_valid(&self, cancel: &CancellationToken) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);
 
         for table in self.implementations.iter() {
             budget.step(0)?;
-            if !self.table_override_valid(table, owners, &budget)? {
+            if !self.table_override_valid(table, &budget)? {
                 return Ok(false);
             }
         }
@@ -58,12 +53,22 @@ impl ProofCatalog<'_> {
     fn table_override_valid(
         &self,
         table: &Implementation<'_>,
-        owners: &ReceiverOwners,
         budget: &Budget<'_>,
     ) -> Result<bool, TypeTransformError> {
         let Some(interface) = table.interface() else {
             return Ok(false);
         };
+        if trait_impl_orphan_error(
+            self.module(*table.declaration())?,
+            &self.definitions,
+            interface.declaration,
+            table.receiver(),
+            &interface.arguments,
+        )
+        .is_some()
+        {
+            return Ok(false);
+        }
         if is_library_forwarding_trait(&self.definitions, interface.declaration) {
             let [method] = table.methods() else {
                 return Ok(false);
@@ -99,39 +104,17 @@ impl ProofCatalog<'_> {
         {
             return Ok(false);
         }
-        if kind == Some(Protocol::From)
-            || self
-                .trait_contract(&interface.declaration)
-                .is_some_and(|contract| contract.conversion_adapter.is_some())
-        {
-            if iter::once(table.receiver())
-                .chain(&interface.arguments)
-                .any(|ty| matches!(ty, Ty::Host(_)))
-            {
-                return Ok(false);
-            }
-            let owner = self.module(*table.declaration())?;
-            if self.module(interface.declaration)? == owner {
-                return Ok(true);
-            }
-            for ty in iter::once(table.receiver()).chain(&interface.arguments) {
-                if owners.owner(ty, &self.definitions).as_ref() == Some(owner) {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
+
         let Some(kind) = kind else {
             return Ok(true);
         };
         if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
             return Ok(false);
         }
-        if kind.host_implementable() {
-            return Ok(true);
-        }
-        if owners.owner(table.receiver(), &self.definitions).as_ref()
-            != Some(self.module(*table.declaration())?)
+        if !kind.host_implementable() && matches!(table.receiver(), Ty::Host(_))
+            || kind != Protocol::From && matches!(table.receiver(), Ty::Parameter { .. })
+            || matches!(kind, Protocol::Debug | Protocol::Display)
+                && matches!(table.receiver(), Ty::Builtin(_))
         {
             return Ok(false);
         }

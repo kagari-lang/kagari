@@ -16,15 +16,19 @@ pub native type Native<T>;
 
 pub trait Read {
     type Item;
+
     fn read(self) -> i32;
+
     fn bounded<U: Marker>(self, value: U) -> U;
 }
 
 impl<T> Read for Box<T> {
     type Item = Good;
+
     fn read(self) -> i32 {
         1
     }
+
     fn bounded<U: Marker>(self, value: U) -> U {
         value
     }
@@ -32,12 +36,15 @@ impl<T> Read for Box<T> {
 
 impl<T> Read for Native<T> {
     type Item = Good;
+
     native fn read(self) -> i32;
+
     native fn bounded<U: Marker>(self, value: U) -> U;
 }
 
 pub trait Family<K: Marker> {
     type Output<T: Marker>;
+
     fn read(self) -> i32;
 }
 
@@ -47,12 +54,15 @@ pub trait Other {
 
 pub trait NativeRead<T: Marker> {
     fn read(self) -> i32;
+
     native fn defaulted(self) -> i32;
+
     native fn produce(self) -> Other;
 }
 
 pub trait DerivedRead<T: Marker>: NativeRead<T> + Other {
     native fn defaulted(self) -> i32;
+
     native fn produce(self) -> Other;
 }
 
@@ -67,11 +77,3 @@ pub native fn projected<T: Producer<Good>>();
 pub native fn check<T: Marker + Family<Good>>();
 
 pub native fn produce<T: Marker>() -> Read<Item = Good>;
-
-pub native fn plain(value: i32) -> i32;
-
-pub native fn scalar<T>(value: i32) -> i32;
-
-impl<T> Native<T> {
-    pub native fn scalar(value: i32) -> i32;
-}

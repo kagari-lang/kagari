@@ -6,7 +6,7 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         payload::Opaque,
-        rust_type::check_mapping,
+        rust_type::mapped_storage,
         schema::TypeRegistration,
         storage::NativePayload,
         types::Type,
@@ -30,7 +30,7 @@ impl<T: NativePayload> KagariType for Opaque<T> {
                 "native object requires an opaque storage type",
             ));
         }
-        check_mapping::<T>(cx.runtime(), cx.owner(), expected)
+        mapped_storage::<T>(cx.runtime(), cx.owner(), expected).map(|_| ())
     }
 }
 
@@ -65,7 +65,7 @@ impl<T: Send + 'static> Opaque<T> {
         expected: &TypeArgument,
         value: &ValueView<'_>,
     ) -> NativeResult<Self> {
-        check_mapping::<T>(cx.runtime(), cx.owner(), expected)?;
+        mapped_storage::<T>(cx.runtime(), cx.owner(), expected)?;
         cx.check_value(expected, value)?;
         let owner = cx.owner();
         let origin = cx.owner_origin();

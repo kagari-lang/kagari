@@ -1,0 +1,7 @@
+use example::roots::{Player, inspect};
+
+native fn bounce(p: Player) -> Player;
+
+fn forward(player: Player) -> i32 {
+    inspect(bounce(player))
+}

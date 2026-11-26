@@ -9,9 +9,10 @@ use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     metadata::DefinitionMetadata, table::DefinitionId,
 };
+use kagari_common::span::Span;
 use kagari_hir::{
     analysis::{AnalysisDatabase, FileAnalysis},
-    types::TypeId,
+    types::{TypeId, semantic::raise_type},
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -26,13 +27,13 @@ use kagari_types::{
             HostTypeOwnership, HostTypePolicy, PathAccess,
         },
         module::{ImplDecl, ModuleDecl},
-        path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,
 };
 
+#[derive(Clone)]
 struct Hosts {
     context: DefinitionContext,
     modules: [ModuleDecl; 2],
@@ -140,7 +141,7 @@ impl Hosts {
         id
     }
 
-    fn method(&mut self, name: &str, result: Ty) -> DefinitionId {
+    fn method(&mut self, name: &str, result: Ty, receiver: HostPassingStyle) -> DefinitionId {
         let root = self
             .context
             .snapshot()
@@ -184,7 +185,7 @@ impl Hosts {
                 ],
                 return_type: result,
                 host_policy: Some(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                    passing: vec![receiver, HostPassingStyle::Owned],
                     effects: Default::default(),
                 }),
             }],
@@ -192,18 +193,22 @@ impl Hosts {
         method
     }
 
-    fn install(&self, database: &mut AnalysisDatabase) {
+    fn providers(&self) -> [Arc<DefinitionMetadata<ModuleDecl>>; 2] {
         for module in &self.modules {
             module.collect_definitions(&self.context).unwrap();
         }
         let definitions = self.context.snapshot();
-        let mut providers = standard_modules();
-        providers.extend(self.modules.iter().cloned().map(|module| {
+        self.modules.clone().map(|module| {
             Arc::new(
                 DefinitionMetadata::checked(definitions.clone(), module, &Default::default())
                     .unwrap(),
             )
-        }));
+        })
+    }
+
+    fn install(&self, database: &mut AnalysisDatabase) {
+        let mut providers = standard_modules();
+        providers.extend(self.providers());
         database.set_native_modules(providers);
     }
 }
@@ -217,18 +222,9 @@ fn imported_field_at(
     let definitions = file.definitions();
     let owner = definitions.parent(field).unwrap().unwrap();
     let name = definitions.resolve(field).unwrap().last().unwrap().name;
-    let schema = file
-        .result()
-        .facts()
-        .declarations
-        .external_type(owner)
-        .unwrap();
-    let actual = schema
-        .fields
-        .iter()
-        .find(|candidate| candidate.name == name)
-        .unwrap();
-    let actual = import_facts(actual, definitions, &declarations.context).into_records();
+    let actual = file.result().facts().aggregates.field(&field).unwrap();
+    assert_eq!(actual.owner, owner);
+    assert_eq!(actual.name, name);
     let mapping = declarations
         .context
         .import(definitions, [field, owner])
@@ -243,12 +239,17 @@ fn imported_field_at(
         .iter()
         .find(|candidate| candidate.name == name)
         .unwrap();
-    assert_eq!(&actual, expected);
+    assert_eq!(actual.visibility, expected.visibility);
+    assert_eq!(actual.writeability.is_var(), expected.mutable);
+    assert_eq!(
+        import_facts(&actual.ty, definitions, &declarations.context).into_records(),
+        raise_type(&expected.ty)
+    );
     Some(mapping.map(field).unwrap())
 }
 
 #[test]
-fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
+fn field_reads_keep_offline_field_identity_after_neighbor_edits() {
     let mut declarations = Hosts::new();
     let context = declarations.context.clone();
     declarations.root(PathAccess::ReadOnly);
@@ -261,13 +262,7 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     declarations.modules[0]
         .documentation
         .insert(field, "Offline score documentation".into());
-    let path = HostPathDeclaration {
-        root: declarations.owners[0],
-        segments: vec![HostPathSegmentDeclaration::Field(field)],
-        access: PathAccess::ReadOnly,
-        schema_epoch: 2,
-    };
-    declarations.modules[0].paths.push(path.clone());
+
     let mut sources = SourceDatabase::default();
     let text = "fn neighbor() -> i32 { 1 } fn read() -> i32 { left::make().score }";
     let root = sources
@@ -281,10 +276,6 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .unwrap();
     let old_file = old.file(root).unwrap();
     assert!(old_file.result().diagnostics().is_empty());
-    assert_eq!(
-        imported_field_at(old_file, text.find("score").unwrap(), &declarations).unwrap(),
-        field
-    );
     let changed = text.replace("{ 1 }", "{ 10 + 20 }");
     sources
         .set("mem://field", changed.clone(), SourceLayer::Base)
@@ -293,53 +284,13 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let new_file = new.file(root).unwrap();
-    let path_fact = |file: &FileAnalysis| {
-        let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-        let facts = authoring_facts.records().facts();
-        facts
-            .lowered
-            .module
-            .nodes
-            .expressions()
-            .find_map(|(id, _)| facts.typed.type_table().host_path(id).cloned())
-            .unwrap()
-    };
-    let old_path = path_fact(old_file);
-    let new_path = path_fact(new_file);
-    assert_ne!(old_path.root, new_path.root);
-    assert_eq!(old_path.declaration, new_path.declaration);
-    new.check_program(root, &Default::default()).unwrap();
-    for ambiguous in [false, true] {
-        let mut invalid = Hosts {
-            context: context.clone(),
-            modules: declarations.modules.clone(),
-            owners: declarations.owners,
-        };
-        if ambiguous {
-            let mut other = path.clone();
-            other.schema_epoch = 3;
-            invalid.modules[0].paths.push(other);
-        } else {
-            invalid.modules[0].paths.clear();
-        }
-        invalid.install(&mut db);
-        let snapshot = db
-            .snapshot(sources.snapshot(), &Default::default())
-            .unwrap();
-        let file = snapshot.file(root).unwrap();
-        assert!(
-            file.result()
-                .diagnostics()
-                .iter()
-                .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. }))
-        );
-        assert_eq!(
-            imported_field_at(file, changed.find("score").unwrap(), &declarations).unwrap(),
-            field
-        );
-        assert!(snapshot.check_program(root, &Default::default()).is_err());
+    for (file, source) in [(old_file, text), (new_file, changed.as_str())] {
+        let start = source.find("score").unwrap();
+        assert_eq!(imported_field_at(file, start, &declarations), Some(field));
+        assert_eq!(file.queries().field_at(start - 1), None);
+        assert_eq!(file.queries().field_at(start + "score".len()), None);
     }
-    declarations.install(&mut db);
+    new.check_program(root, &Default::default()).unwrap();
     let incomplete = "fn bad() { left::make(). } fn good() -> i32 { 7 }";
     sources
         .set("mem://field", incomplete.into(), SourceLayer::Base)
@@ -354,7 +305,13 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
             .type_at(incomplete.find("left::make()").unwrap()),
         Some(TypeId::Host(
             file.definitions()
-                .lookup(&context.snapshot().resolve(path.root).unwrap().to_path())
+                .lookup(
+                    &context
+                        .snapshot()
+                        .resolve(declarations.owners[0])
+                        .unwrap()
+                        .to_path()
+                )
                 .unwrap()
         ))
     );
@@ -364,24 +321,20 @@ fn field_reads_keep_offline_facts_and_remap_root_ids_after_neighbor_edits() {
     );
 }
 
+mod explicit_method;
 mod queries;
 
 #[test]
-fn field_write_facts_survive_neighbor_edits_and_readonly_paths_are_diagnostics() {
+fn field_write_navigation_survives_neighbor_edits_and_immutable_field_diagnostics() {
     let mut declarations = Hosts::new();
     declarations.root(PathAccess::ReadWrite);
     let field = declarations.field(
         0,
         "score",
         Ty::Builtin(BuiltinType::I32),
-        PathAccess::ReadWrite,
+        PathAccess::ReadOnly,
     );
-    declarations.modules[0].paths.push(HostPathDeclaration {
-        root: declarations.owners[0],
-        segments: vec![HostPathSegmentDeclaration::Field(field)],
-        access: PathAccess::ReadWrite,
-        schema_epoch: 0,
-    });
+    declarations.modules[0].types[0].fields[0].mutable = true;
     let mut sources = SourceDatabase::default();
     let text = "fn neighbor() -> i32 { 1 } fn update(target: left::Item) { target.score += 2; }";
     let root = sources
@@ -394,14 +347,6 @@ fn field_write_facts_survive_neighbor_edits_and_readonly_paths_are_diagnostics()
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     old.check_program(root, &Default::default()).unwrap();
-    assert_eq!(
-        imported_field_at(
-            old.file(root).unwrap(),
-            text.find("score").unwrap(),
-            &declarations
-        ),
-        Some(field)
-    );
     let write_start = text.find("target.score").unwrap();
     let old_file = old.file(root).unwrap();
     assert_eq!(
@@ -416,50 +361,15 @@ fn field_write_facts_survive_neighbor_edits_and_readonly_paths_are_diagnostics()
         imported_field_at(old_file, write_start + "target.".len(), &declarations),
         Some(field)
     );
-    let authoring_old_table = old
-        .file(root)
-        .unwrap()
-        .to_unverified(&Default::default())
-        .unwrap();
-    let old_table = &authoring_old_table.records().facts().typed.type_table();
-    let old_place = old_file
-        .result()
-        .facts()
-        .lowered
-        .module
-        .nodes
-        .places()
-        .map(|(id, _)| id)
-        .find(|id| old_table.host_place_path(*id).is_some())
-        .unwrap();
-    let old_path = old_table.host_place_path(old_place).unwrap().clone();
+    let changed = text.replace("{ 1 }", "{ 10 + 20 }");
     sources
-        .set(
-            "mem://write",
-            text.replace("{ 1 }", "{ 10 + 20 }"),
-            SourceLayer::Base,
-        )
+        .set("mem://write", changed.clone(), SourceLayer::Base)
         .unwrap();
     let new = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let file = new.file(root).unwrap();
-    let authoring_table = file.to_unverified(&Default::default()).unwrap();
-    let table = &authoring_table.records().facts().typed.type_table();
-    let place = file
-        .result()
-        .facts()
-        .lowered
-        .module
-        .nodes
-        .places()
-        .map(|(id, _)| id)
-        .find(|id| table.host_place_path(*id).is_some())
-        .unwrap();
-    let path = table.host_place_path(place).unwrap();
-    assert_ne!(old_path.root, path.root);
-    assert_eq!(old_path.declaration, path.declaration);
-    let changed = text.replace("{ 1 }", "{ 10 + 20 }");
+
     assert_eq!(
         imported_field_at(file, changed.find("score").unwrap(), &declarations),
         Some(field)
@@ -469,43 +379,42 @@ fn field_write_facts_survive_neighbor_edits_and_readonly_paths_are_diagnostics()
         None
     );
     new.check_program(root, &Default::default()).unwrap();
-    declarations.modules[0].paths[0].access = PathAccess::ReadOnly;
-    declarations.install(&mut db);
+    let mut immutable = declarations.clone();
+    immutable.modules[0].types[0].fields[0].mutable = false;
+    immutable.install(&mut db);
     let readonly = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
-    assert!(
-        readonly
-            .file(root)
-            .unwrap()
-            .result()
-            .diagnostics()
-            .iter()
-            .any(|d| matches!(d.kind, DiagnosticKind::InvalidHostPath { .. }))
+    let diagnostics = readonly.file(root).unwrap().result().diagnostics();
+    let [diagnostic] = diagnostics else {
+        panic!("expected one immutable field diagnostic, got {diagnostics:?}");
+    };
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::InvalidAssignmentTarget {
+            reason: "`val` field `score` cannot be assigned".into(),
+        }
     );
+    let span = diagnostic.span.unwrap();
+    assert_eq!(&changed[span.start..span.end], "target.score");
     assert!(readonly.check_program(root, &Default::default()).is_err());
     assert_eq!(
         imported_field_at(
             readonly.file(root).unwrap(),
             changed.find("score").unwrap(),
-            &declarations
+            &immutable
         ),
         Some(field)
     );
     assert_eq!(
-        imported_field_at(
-            old.file(root).unwrap(),
-            text.find("score").unwrap(),
-            &declarations
-        ),
+        imported_field_at(old_file, text.find("score").unwrap(), &declarations),
         Some(field)
     );
 }
 
 #[test]
-fn mixed_field_chains_resolve_the_complete_host_suffix() {
+fn source_and_host_field_chains_navigate_each_declared_member() {
     let mut declarations = Hosts::new();
-    let context = declarations.context.clone();
     declarations.root(PathAccess::ReadWrite);
     let related = declarations.field(
         0,
@@ -519,16 +428,7 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         Ty::Builtin(BuiltinType::I32),
         PathAccess::ReadWrite,
     );
-    let path = HostPathDeclaration {
-        root: declarations.owners[0],
-        segments: vec![
-            HostPathSegmentDeclaration::Field(related),
-            HostPathSegmentDeclaration::Field(count),
-        ],
-        access: PathAccess::ReadWrite,
-        schema_epoch: 0,
-    };
-    declarations.modules[0].paths.push(path.clone());
+
     // Query abstract signatures without constructing a script heap object that
     // contains a host handle (which execution deliberately rejects).
     let text = "struct Box { val host: left::Item } struct Outer { val inner: Box } fn read(value: Outer) -> i32 { value.inner.host.related.count } fn write(value: Outer) { value.inner.host.related.count += 1; }";
@@ -547,61 +447,28 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
         "{:?}",
         file.result().diagnostics()
     );
-    let authoring_facts = file.to_unverified(&Default::default()).unwrap();
-    let facts = authoring_facts.records().facts();
-    let reads: Vec<_> = facts
-        .lowered
-        .module
-        .nodes
-        .expressions()
-        .filter_map(|(id, _)| facts.typed.type_table().host_path(id))
-        .collect();
-    let writes: Vec<_> = facts
-        .lowered
-        .module
-        .nodes
-        .places()
-        .filter_map(|(id, _)| facts.typed.type_table().host_place_path(id))
-        .collect();
-    assert_eq!(reads.len(), 1);
-    assert_eq!(writes.len(), 1);
-    assert_eq!(
-        import_facts(&reads[0].declaration, file.definitions(), &context).into_records(),
-        path
-    );
-    assert_eq!(
-        import_facts(&writes[0].declaration, file.definitions(), &context).into_records(),
-        path
-    );
-    assert_eq!(
-        imported_field_at(file, text.find("value.inner.host").unwrap(), &declarations),
-        None
-    );
-    assert_eq!(
-        imported_field_at(file, text.find(".related").unwrap(), &declarations),
-        None
-    );
-    assert_eq!(
-        imported_field_at(file, text.find("related").unwrap(), &declarations),
-        Some(related)
-    );
-    assert_eq!(
-        imported_field_at(file, text.find("count").unwrap(), &declarations),
-        Some(count)
-    );
-
-    let read_span = facts
-        .lowered
-        .module
-        .expr(reads[0].root)
-        .origin
-        .diagnostic_span();
-    let write_span = facts
-        .lowered
-        .module
-        .place(writes[0].root)
-        .origin
-        .diagnostic_span();
-    assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
-    assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
+    let chain = "value.inner.host.related.count";
+    for start in [text.find(chain).unwrap(), text.rfind(chain).unwrap()] {
+        let queries = file.queries();
+        assert_eq!(queries.field_at(start), None);
+        for name in ["inner", "host"] {
+            let offset = start + chain.find(name).unwrap();
+            let target = queries.definition_at(offset).unwrap();
+            let location = target.source_location().unwrap();
+            let declaration = text.find(&format!("{name}: ")).unwrap();
+            assert_eq!(
+                location,
+                file.source()
+                    .span(Span::new(declaration, declaration + name.len()))
+                    .unwrap()
+            );
+            assert_eq!(queries.field_at(offset - 1), None);
+        }
+        for (name, field) in [("related", related), ("count", count)] {
+            let offset = start + chain.find(name).unwrap();
+            assert_eq!(imported_field_at(file, offset, &declarations), Some(field));
+            assert_eq!(queries.field_at(offset - 1), None);
+            assert_eq!(queries.field_at(offset + name.len()), None);
+        }
+    }
 }

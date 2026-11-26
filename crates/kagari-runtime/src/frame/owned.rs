@@ -1,16 +1,25 @@
 //! Parking retains live values, never transient native borrows.
 use crate::{
     Runtime,
-    error::{RuntimeError, fault::EngineFault},
+    error::{RuntimeError, fault::EngineFault, trap::TrapReason},
     execution::roots::ExecutionRoots,
-    frame::{FrameStack, NativeEntryState},
+    frame::{
+        FrameStack, NativeEntryState,
+        waiting::{PendingWait, QueuedFuture},
+    },
     module::linked_execution::LinkedFunction,
+    session::SessionState,
     value_check::{data::AsyncDataWalk, scoped::CheckError},
 };
 #[cfg(test)]
 pub(super) mod tests;
 
 use kagari_bytecode::module::CallableTarget;
+use kagari_gc::{
+    access::Scope,
+    error::GcError,
+    object::{AnyObject, Gc},
+};
 use std::sync::Arc;
 
 impl FrameStack {
@@ -82,7 +91,7 @@ impl FrameStack {
         if runtime.static_initialization_active() {
             return Ok(false);
         }
-        let body = {
+        let (body, has_control_roots) = {
             if state.owner.borrow().is_none()
                 || state.scopes.get() != 1
                 || state.frame_scopes.borrow().len() != 1
@@ -90,14 +99,27 @@ impl FrameStack {
             {
                 return Ok(false);
             }
-            state.body
+            (
+                state.body,
+                state.queued_future.borrow().is_some()
+                    || state.queued_factory.borrow().is_some()
+                    || state
+                        .pending
+                        .borrow()
+                        .as_ref()
+                        .and_then(PendingWait::conversion_source)
+                        .is_some(),
+            )
         };
         drop(state);
         // Shared frame control and physical sources overlap only in this closed
         // provider walk. No executing Runtime service runs; both loans end before
         // error admission or trace capture. Payload loans require exclusive access.
         let Runtime {
-            memory, resources, ..
+            memory,
+            resources,
+            host_borrows,
+            ..
         } = &mut *runtime;
         let frames = resources
             .sessions
@@ -105,7 +127,8 @@ impl FrameStack {
             .ok_or_else(|| resources.quarantine(EngineFault::ParkedFrameStackBorrowed))?;
         // A revision-only prefix and actual inline cells need no payload access.
         // Any additional computation or managed data retains the full walk below.
-        if frames.len() <= 1024
+        if !has_control_roots
+            && frames.len() <= 1024
             && !frames
                 .iter()
                 .any(|frame| matches!(frame.native_entry, NativeEntryState::Running))
@@ -130,7 +153,7 @@ impl FrameStack {
                     return Ok(Ok(false));
                 }
                 Ok((|| -> Result<bool, CheckError> {
-                    let mut walk = AsyncDataWalk::default();
+                    let mut walk = AsyncDataWalk::new(host_borrows);
                     for (index, frame) in frames.iter().enumerate() {
                         if index != 0 && index.is_multiple_of(1024) {
                             resources.ensure_execution_allowed()?;
@@ -142,7 +165,25 @@ impl FrameStack {
                             return Ok(false);
                         }
                     }
-                    walk.remaining(slots, self.session, resources)
+                    if !walk.remaining(slots, self.session, resources)? {
+                        return Ok(false);
+                    }
+                    if has_control_roots {
+                        let state = resources
+                            .sessions
+                            .get(self.session)
+                            .expect("validated session");
+                        let cx = slots.scope();
+                        for root in control_roots(cx, &state)?.into_iter().flatten() {
+                            if !walk.object(cx, root, resources)? {
+                                return Err(RuntimeError::from(
+                                    TrapReason::AsyncStateRetainsAnInvalidOrScopedValue,
+                                )
+                                .into());
+                            }
+                        }
+                    }
+                    Ok(true)
                 })())
             })
         });
@@ -187,4 +228,33 @@ impl FrameStack {
         stack.retire(runtime);
         Ok(true)
     }
+}
+
+/// Session control owns these roots outside the parked value banks. Open them
+/// in the same closed walk; do not copy them into new Host leases or source cells.
+fn control_roots<'gc>(
+    cx: &Scope<'gc>,
+    state: &SessionState,
+) -> Result<[Option<Gc<'gc, AnyObject>>; 3], GcError> {
+    let future = match state.queued_future.borrow().as_ref() {
+        Some(QueuedFuture::Unclaimed { value, .. }) => value.get(cx)?.object(),
+        Some(QueuedFuture::Claimed { claim, .. }) => Some(cx.get(claim.source())?.erase()),
+        Some(QueuedFuture::Reserved { .. } | QueuedFuture::Source { .. }) | None => None,
+    };
+    let callable = state
+        .queued_factory
+        .borrow()
+        .as_ref()
+        .and_then(|factory| factory.retained_value())
+        .map(|root| root.get(cx))
+        .transpose()?
+        .and_then(|value| value.object());
+    let pending = state
+        .pending
+        .borrow()
+        .as_ref()
+        .and_then(PendingWait::conversion_source)
+        .map(|source| cx.get(source).map(|cold| cold.erase()))
+        .transpose()?;
+    Ok([future, callable, pending])
 }

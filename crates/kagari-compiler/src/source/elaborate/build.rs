@@ -2,6 +2,7 @@
 
 mod completion;
 mod expr;
+mod host;
 mod structure;
 
 use crate::source::elaborate::{

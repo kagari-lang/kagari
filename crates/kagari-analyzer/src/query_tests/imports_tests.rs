@@ -41,7 +41,7 @@ fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     expected.extend(
         packaged_modules()
             .iter()
-            .map(|module| module.source.module_identity().clone()),
+            .map(|module| module.module_identity().clone()),
     );
     expected.sort();
     expected

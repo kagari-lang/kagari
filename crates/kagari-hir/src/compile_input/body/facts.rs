@@ -11,9 +11,9 @@ use crate::{
     typeck::{
         scalar::ScalarValue,
         table::{
-            ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
-            ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedIteration,
-            ResolvedStructInit, propagation::ResolvedPropagation,
+            ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
+            ResolvedInterfaceCoercion, ResolvedIteration, ResolvedStructInit,
+            propagation::ResolvedPropagation,
         },
     },
     types::{NominalType, TypeId},
@@ -44,8 +44,6 @@ pub struct ExpressionFacts<'a> {
     pub enumeration: Option<&'a ResolvedEnumConstructor>,
     /// Associated member and proved interface; instantiated implementation selection remains downstream.
     pub associated_constant: Option<&'a ResolvedAssociatedConst>,
-    /// Declared host read path, including root and ordered dynamic arguments.
-    pub host_path: Option<&'a ResolvedHostPath>,
     /// Selected branch/residual contracts for `?`.
     pub propagation: Option<&'a ResolvedPropagation>,
     /// Iterable/Iterator contracts recorded on the `for` iterable expression.
@@ -58,7 +56,7 @@ pub struct ExpressionFacts<'a> {
     pub interface_conversion: Option<&'a ResolvedInterfaceCoercion>,
 }
 
-/// Recorded root, field/index and declared-host access facts for a mutation target.
+/// Recorded root and field/index facts for a mutation target.
 pub struct PlaceFacts<'a> {
     /// Checked stored value type, distinct from whether computing the address completes.
     pub ty: Option<TypeId>,
@@ -70,8 +68,6 @@ pub struct PlaceFacts<'a> {
     pub index_read: Option<&'a NominalType>,
     /// Applied write interface and its selected setter member.
     pub index_write: Option<(&'a NominalType, &'a DefinitionId)>,
-    /// Declared host mutation path; preparing it must evaluate each dynamic argument once.
-    pub host_path: Option<&'a ResolvedHostPlacePath>,
 }
 
 /// Checked scalar, constructor and field selections for a pattern.
@@ -105,7 +101,6 @@ impl<'a> CheckedBodyInput<'a> {
             structure: self.types.struct_init(id),
             enumeration: self.types.enum_constructor(id),
             associated_constant: self.types.associated_const(id),
-            host_path: self.types.host_path(id),
             propagation: self.types.propagation(id),
             iteration: self.types.iteration(id),
             protocol_receiver: self.types.protocol_receiver(id),
@@ -123,7 +118,6 @@ impl<'a> CheckedBodyInput<'a> {
             field: self.types.place_field(id),
             index_read: self.types.place_index(id),
             index_write: self.types.place_index_write(id),
-            host_path: self.types.host_place_path(id),
         })
     }
 

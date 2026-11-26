@@ -1,14 +1,18 @@
 #![cfg(feature = "source")]
-use crate::test_support::standard::standard_library;
+use crate::test_support::{declaration_cache::Cache, standard::standard_library};
 use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, builder::KagariEngineBuilder},
     error::EmbeddingError,
     program::Program,
 };
-use kagari_analyzer::AnalyzerQueries;
+use kagari_analyzer::{AnalyzerQueries, workspace::EditorWorkspace};
 use kagari_common::identity::{ModuleIdentity, PackageId};
-use kagari_hir::declarations::DeclarationId;
+use kagari_hir::{
+    analysis::{AnalysisDatabase, AnalysisSnapshot},
+    declarations::DeclarationId,
+    imports::environment::{ImportEnvironment, ModuleScope},
+};
 
 use kagari_runtime::{
     module::entry::ProgramEntry,
@@ -25,7 +29,11 @@ use kagari_runtime::{
         types::Type,
     },
 };
-use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_source::{
+    identity::FileId,
+    source::SourceFile,
+    source_database::{CapturedSource, SourceDatabase, SourceLayer, SourceSnapshot},
+};
 use kagari_stdlib::namespaces;
 use kagari_types::{
     declaration::{
@@ -35,22 +43,57 @@ use kagari_types::{
     language::{self, Protocol},
     ty::Ty,
 };
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use rstest::rstest;
+use std::{collections::BTreeMap, fs, path::PathBuf};
 
 const DOC: &str = "# Registered API\n\nParagraph with [a link](https://example.com).\n\n- First item\n- Second item\n\n```kgr\nfn sample() -> i32 { 42 }\n```\n\n中文 😀";
-static NEXT: AtomicU64 = AtomicU64::new(0);
 
-#[test]
-fn typed_registration_preserves_parameter_and_return_docs_in_materialized_navigation() {
-    let cache = Cache::new();
+// Fresh editor acquisition, not an update of a live workspace with user overlays.
+fn editor(engine: &KagariEngine) -> (AnalysisDatabase, SourceSnapshot) {
+    let project = engine.source_snapshot();
+    let export = engine
+        .native_declaration_sources(project.clone(), &Default::default())
+        .unwrap();
+    let mut documents = export.documents;
+    documents.extend(project.files().map(|file| CapturedSource {
+        key: file.name().to_owned(),
+        display_name: file.name().to_owned(),
+        module: file.module_identity().clone(),
+        text: file.text().to_owned(),
+    }));
+    let mut database = AnalysisDatabase::default();
+    database.set_import_environment(export.imports);
+    let sources = SourceDatabase::default()
+        .replace_captured(documents, project.packages().clone(), &Default::default())
+        .unwrap();
+    (database, sources)
+}
+
+fn editor_client(engine: &KagariEngine, name: &str, text: &str) -> (AnalysisSnapshot, FileId) {
+    let cancel = Default::default();
+    let mut sources = SourceDatabase::default();
+    let file = sources.set(name, text.into(), SourceLayer::Base).unwrap();
+    let export = engine
+        .native_declaration_sources(sources.snapshot(), &cancel)
+        .unwrap();
+    let mut workspace = EditorWorkspace::new(sources).unwrap();
+    workspace
+        .replace_generated(export.documents, export.imports, &cancel)
+        .unwrap();
+    (workspace.analyze(&cancel).unwrap(), file)
+}
+
+#[rstest]
+#[case::memory(false)]
+#[case::published(true)]
+fn typed_registration_keeps_compiler_calls_and_editor_docs_across_cache_modes(
+    #[case] publish: bool,
+) {
+    let cache = publish.then(Cache::new);
     let mut builder = KagariEngine::builder().unwrap();
-    let mut module = ModuleBuilder::new("application::typed", builder.declarations()).unwrap();
-    module.documentation("# Text tools\n\nOwned Unicode text conversions.");
-    {
+    for owner in ["application::typed", "application::twin"] {
+        let mut module = ModuleBuilder::new(owner, builder.declarations()).unwrap();
+        module.documentation("# Text tools\n\nOwned Unicode text conversions.");
         let registered_function = module
             .define_function(
                 FunctionDecl::new("duplicate")
@@ -72,24 +115,20 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
             .unwrap();
         module
             .bind(
-                registered_function.clone(),
+                registered_function,
                 |_: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<(String, String)> {
                     Ok((text.clone(), text))
                 },
             )
-            .map(|()| registered_function)
+            .unwrap();
+        builder.install(module.finish().unwrap()).unwrap();
     }
-    .unwrap();
-    builder.install(module.finish().unwrap()).unwrap();
-    builder.declaration_cache(&cache.0);
+    if let Some(cache) = &cache {
+        builder.declaration_cache(&cache.0);
+    }
     let engine = builder.build().unwrap();
-    let text = "use alloc::string::String; use application::typed::duplicate; fn main() -> (String, String) { duplicate(\"雪\") }";
-    let file = engine
-        .set_source("memory://typed.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let snapshot = engine
-        .analyze(engine.source_snapshot(), &Default::default())
-        .unwrap();
+    let text = "use alloc::string::String; use application::{typed, twin}; fn main() -> (String, String) { twin::duplicate(\"雪\"); typed::duplicate(\"雪\") }";
+    let (snapshot, file) = editor_client(&engine, "memory://typed.kgr", text);
     snapshot.check_program(file, &Default::default()).unwrap();
     let doc = snapshot
         .queries()
@@ -107,10 +146,42 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
     let target = snapshot
         .source(doc.declaration.source_location().unwrap().file)
         .unwrap();
+    let twin = snapshot
+        .queries()
+        .definition_at(file, text.find("duplicate(").unwrap())
+        .unwrap();
+    let twin = snapshot
+        .source(twin.source_location().unwrap().file)
+        .unwrap();
     assert_eq!(
-        fs::read_to_string(physical_path(target.name())).unwrap(),
-        target.text()
+        target.module_identity(),
+        &namespaces::module("application", "typed")
     );
+    assert_eq!(
+        twin.module_identity(),
+        &namespaces::module("application", "twin")
+    );
+    assert_eq!(target.text(), twin.text());
+    assert_ne!(target.id(), twin.id());
+    assert_ne!(target.name(), twin.name());
+    if publish {
+        for source in [target, twin] {
+            assert_eq!(
+                fs::read_to_string(physical_path(source.name())).unwrap(),
+                source.text()
+            );
+        }
+    } else {
+        assert_eq!(target.name(), "kagari://native/application/typed.kgr");
+    }
+    let compiler = engine
+        .declarations(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let owner = compiler
+        .files()
+        .find(|file| file.source().module_identity() == target.module_identity())
+        .unwrap();
+    assert!(owner.lowered().source_surface().is_none());
     let range = target
         .local_range(doc.declaration.source_location().unwrap())
         .unwrap();
@@ -147,10 +218,11 @@ fn materialized_native_reexport_navigates_to_authored_core() {
         .unwrap();
     let mut set = ModuleSetBuilder::new(builder.declarations()).unwrap();
     let facade = ModuleIdentity {
-        package: PackageId("application".into()),
+        package: PackageId("host/application".into()),
         path: vec!["cmp".into()],
     };
-    set.add(ModuleDefinition::new(facade, |module| {
+    set.add(ModuleDefinition::new(facade.clone(), |module| {
+        module.package_alias("application");
         module.export_path(
             ExportName::new(NameNamespace::Type, "Comparable"),
             language::identity(Protocol::PartialEq),
@@ -166,23 +238,55 @@ fn materialized_native_reexport_navigates_to_authored_core() {
     );
     let cache = Cache::new();
     builder.declaration_cache(&cache.0);
+    let mut scope = ModuleScope::default();
+    scope
+        .packages
+        .dependencies
+        .insert("foundation".into(), target.module.package.clone());
+    scope.dependencies.insert(target.module.clone());
+    let client = ModuleIdentity::single_file("client");
+    let rules = ModuleIdentity::single_file("rules");
+    let mut client_scope = ModuleScope::default();
+    client_scope
+        .packages
+        .dependencies
+        .insert("sdk".into(), facade.package.clone());
+    client_scope
+        .dependencies
+        .extend([rules.clone(), facade.clone()]);
+    builder.import_environment(ImportEnvironment {
+        modules: [(facade, scope), (client.clone(), client_scope)].into(),
+    });
     let engine = builder.build().unwrap();
-    let [view] = engine.native_declaration_sources() else {
+    let name = "memory://facade-client.kgr";
+    let text = "use sdk::cmp::Comparable; fn same<T: Comparable>(a: T, b: T) -> bool { a == b }";
+    engine.bind_module(name, client.clone()).unwrap();
+    engine
+        .set_source(name, text.into(), SourceLayer::Base)
+        .unwrap();
+    assert!(
+        matches!(engine.declarations(engine.source_snapshot(), &Default::default()),
+        Err(EmbeddingError::Source { message }) if message.contains(&format!("missing dependency {rules} of {client}")))
+    );
+    engine.bind_module("rules.kgr", rules).unwrap();
+    engine
+        .set_source("rules.kgr", String::new(), SourceLayer::Base)
+        .unwrap();
+    let export = engine
+        .native_declaration_sources(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let [view] = export.documents.as_slice() else {
         panic!("only the facade is Native")
     };
-    let rendered = fs::read_to_string(physical_path(&view.uri)).unwrap();
+    assert_eq!(view.key, "kagari://native/host%2Fapplication/cmp.kgr");
+    let rendered = fs::read_to_string(physical_path(&view.display_name)).unwrap();
     assert!(
-        rendered.contains("pub use core::cmp::PartialEq as Comparable;"),
+        rendered.contains("pub use foundation::cmp::PartialEq as Comparable;"),
         "{rendered}"
     );
-    let text =
-        "use application::cmp::Comparable; fn same<T: Comparable>(a: T, b: T) -> bool { a == b }";
-    let file = engine
-        .set_source("memory://facade-client.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let snapshot = engine
-        .analyze(engine.source_snapshot(), &Default::default())
-        .unwrap();
+    let (mut database, sources) = editor(&engine);
+    let file = sources.module(&client).unwrap().id();
+    let snapshot = database.snapshot(sources, &Default::default()).unwrap();
     snapshot.check_program(file, &Default::default()).unwrap();
     let declaration = snapshot
         .queries()
@@ -197,25 +301,74 @@ fn materialized_native_reexport_navigates_to_authored_core() {
     );
 }
 
-struct Cache(PathBuf);
-
-impl Cache {
-    fn new() -> Self {
-        Self(
-            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../target/lr02-cache-tests/中文 cache")
-                .join(format!(
-                    "{}-{}",
-                    std::process::id(),
-                    NEXT.fetch_add(1, Ordering::Relaxed)
-                )),
-        )
-    }
+#[test]
+fn construction_rejects_invalid_bindings_of_present_importers() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let owner = language::identity(Protocol::PartialEq).module;
+    let mut invalid = ModuleScope::default();
+    invalid
+        .packages
+        .dependencies
+        .insert("self".into(), owner.package.clone());
+    let pending = ModuleScope {
+        dependencies: [ModuleIdentity::single_file("rules")].into(),
+        ..Default::default()
+    };
+    builder.import_environment(ImportEnvironment {
+        modules: [
+            (ModuleIdentity::single_file("client"), pending),
+            (owner, invalid),
+        ]
+        .into(),
+    });
+    assert!(
+        matches!(builder.build(), Err(EmbeddingError::Source { message }) if message.contains("invalid package binding self"))
+    );
 }
 
-impl Drop for Cache {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+#[test]
+fn registered_importers_wait_for_project_preludes_and_deferred_packages() {
+    let mut builder = KagariEngine::builder().unwrap();
+    let support = ModuleBuilder::new("support::api", builder.declarations())
+        .unwrap()
+        .finish()
+        .unwrap();
+    let app = application(&builder, DOC);
+    let support_id = support.declaration().identity.clone();
+    let app_id = app.declaration().identity.clone();
+    let rules = ModuleIdentity::single_file("rules");
+    let mut app_scope = ModuleScope::default();
+    app_scope
+        .packages
+        .dependencies
+        .insert("selected".into(), support_id.package.clone());
+    let support_scope = ModuleScope {
+        preludes: [rules.clone()].into(),
+        ..Default::default()
+    };
+    let imports = ImportEnvironment {
+        modules: [(app_id, app_scope), (support_id.clone(), support_scope)].into(),
+    };
+    builder.install_all([app, support]).unwrap();
+    builder.import_environment(imports.clone());
+    let engine = builder.build().unwrap().new_session(Default::default());
+    assert!(
+        matches!(engine.declarations(engine.source_snapshot(), &Default::default()),
+        Err(EmbeddingError::Source { message }) if message.contains(&format!("missing dependency {rules} of {support_id}")))
+    );
+    engine.bind_module("rules.kgr", rules).unwrap();
+    engine
+        .set_source("rules.kgr", String::new(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = engine
+        .declarations(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    assert_eq!(snapshot.native_modules().len(), 2);
+    for (owner, scope) in imports.modules {
+        assert_eq!(
+            snapshot.import_environment().modules.get(&owner),
+            Some(&scope)
+        );
     }
 }
 
@@ -276,15 +429,9 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
     let cache = Cache::new();
     let engine = engine(Some(&cache.0), DOC);
     let text = "use application::api; use application::api::{Opaque, Describe}; fn main() -> i32 { api::answer() }";
-    let file = engine
-        .set_source("memory://registration.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    let snapshot = engine
-        .analyze(engine.source_snapshot(), &Default::default())
-        .unwrap();
-    let collections = engine
-        .native_declaration_sources()
-        .iter()
+    let (snapshot, file) = editor_client(&engine, "memory://registration.kgr", text);
+    let export = engine.native_declaration_sources(engine.source_snapshot(), &Default::default()).unwrap();
+    let collections = export.documents.iter()
         .find(|source| source.text.contains("pub trait List<"))
         .unwrap();
     let declarations = standard_library().declarations().declarations();
@@ -325,7 +472,7 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
             .contains(&format!("\nfn {name}<T1, T2, T3>"))
     );
     assert_eq!(
-        fs::read_to_string(physical_path(&collections.uri)).unwrap(),
+        fs::read_to_string(physical_path(&collections.display_name)).unwrap(),
         collections.text
     );
     let doc = snapshot
@@ -348,15 +495,9 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
             .unwrap();
         assert_eq!(item.documentation, DOC);
     }
-    let source = engine
-        .native_declaration_sources()
-        .iter()
-        .find(|source| source.uri == target.name())
-        .unwrap();
-    for site in source.sites.values() {
-        assert!(site.name_span.end <= source.text.len());
-        assert!(site.span.start <= site.name_span.start);
-    }
+    let source = export.documents.iter().find(|source| &source.module == target.module_identity()).unwrap();
+    assert_eq!(source.display_name, target.name());
+    assert_eq!(source.text, target.text());
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new("memory://run.kgr", text),
@@ -513,28 +654,27 @@ fn content_paths_reuse_unchanged_docs_and_keep_old_snapshot_targets() {
     let cache = Cache::new();
     let old = engine(Some(&cache.0), DOC);
     let again = engine(Some(&cache.0), DOC);
-    assert_eq!(
-        old.native_declaration_sources()
-            .iter()
-            .map(|s| &s.uri)
-            .collect::<Vec<_>>(),
-        again
-            .native_declaration_sources()
-            .iter()
-            .map(|s| &s.uri)
-            .collect::<Vec<_>>()
-    );
+    let paths = |engine: &KagariEngine| {
+        engine
+            .native_declaration_sources(Default::default(), &Default::default())
+            .unwrap()
+            .documents
+            .into_iter()
+            .map(|d| (d.module, (d.key, d.display_name)))
+            .collect::<BTreeMap<_, _>>()
+    };
+    let old_paths = paths(&old);
+    assert_eq!(old_paths, paths(&again));
     let changed = engine(Some(&cache.0), "# Changed\n\nNew documentation.");
     let module = ModuleIdentity {
         package: PackageId("application".into()),
         path: vec!["api".into()],
     };
-    let old_snapshot = old
-        .declarations(old.source_snapshot(), &Default::default())
-        .unwrap();
-    let new_snapshot = changed
-        .declarations(changed.source_snapshot(), &Default::default())
-        .unwrap();
+    assert_eq!(old_paths[&module].0, paths(&changed)[&module].0);
+    let (mut db, sources) = editor(&old);
+    let old_snapshot = db.declarations(sources, &Default::default()).unwrap();
+    let (mut db, sources) = editor(&changed);
+    let new_snapshot = db.declarations(sources, &Default::default()).unwrap();
     let old_doc = old_snapshot
         .queries()
         .module_documentation(&module)
@@ -598,9 +738,11 @@ fn failed_registration_is_atomic_and_default_embedding_uses_memory() {
     let engine = builder.build().unwrap();
     assert!(
         engine
-            .native_declaration_sources()
+            .native_declaration_sources(Default::default(), &Default::default())
+            .unwrap()
+            .documents
             .iter()
-            .all(|source| source.uri.starts_with("kagari://"))
+            .all(|source| source.key == source.display_name && source.key.starts_with("kagari://"))
     );
     assert!(
         engine
@@ -636,9 +778,8 @@ fn cache_failure_preserves_io_error_and_rejects_engine_publication() {
 fn modified_cache_content_is_rejected_without_replacing_an_active_target() {
     let cache = Cache::new();
     let old = engine(Some(&cache.0), DOC);
-    let snapshot = old
-        .declarations(old.source_snapshot(), &Default::default())
-        .unwrap();
+    let (mut db, sources) = editor(&old);
+    let snapshot = db.declarations(sources, &Default::default()).unwrap();
     let module = ModuleIdentity {
         package: PackageId("application".into()),
         path: vec!["api".into()],

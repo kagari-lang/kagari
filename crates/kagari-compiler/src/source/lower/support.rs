@@ -17,14 +17,14 @@ use kagari_hir::{
 };
 use kagari_mir::{
     ids::{LocalId, ModuleSlotId},
-    instruction::{AggregateFieldRef, Constant, Instruction, MirValue, ValueBuffer},
+    instruction::{AggregateFieldRef, Constant, Instruction, MirValue},
 };
 use kagari_types::{
     language::Protocol,
     scalar::IntegerType,
     ty::{NominalTy, Ty},
 };
-use std::{ops::ControlFlow, slice};
+use std::slice;
 
 pub(crate) fn lower_scalar(value: ScalarValue) -> Constant {
     match value {
@@ -62,36 +62,6 @@ impl FunctionLowerer<'_, '_> {
             .and_then(|contract| contract.methods.get(slot))
             .map(|method| method.id)
             .ok_or(MirLoweringError::MissingBinding("checked protocol method"))
-    }
-
-    pub(super) fn lower_host_path_arguments(
-        &mut self,
-        arguments: &[(u32, ExprId)],
-    ) -> Result<ControlFlow<MirValue, ValueBuffer>, MirLoweringError> {
-        let mut ordered = vec![None; arguments.len()];
-        for (slot, argument) in arguments {
-            let value = self.lower_expr(*argument)?;
-            if self.current_block_terminated() {
-                return Ok(ControlFlow::Break(value));
-            }
-            let Some(target) = ordered.get_mut(*slot as usize) else {
-                return Err(MirLoweringError::MissingBinding("host path argument slot"));
-            };
-            if target.replace(value).is_some() {
-                return Err(MirLoweringError::MissingBinding(
-                    "repeated source path argument",
-                ));
-            }
-        }
-        let values = ordered
-            .into_iter()
-            .map(|value| {
-                value.ok_or(MirLoweringError::MissingBinding(
-                    "missing host path argument",
-                ))
-            })
-            .collect::<Result<ValueBuffer, _>>()?;
-        Ok(ControlFlow::Continue(values))
     }
 
     pub(crate) fn bind_local(

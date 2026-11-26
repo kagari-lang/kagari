@@ -1,0 +1,35 @@
+use core::convert::{From, TryFrom};
+
+use core::result::Result;
+
+use host::Player;
+
+struct HealthSnapshot {
+    val hp: i32
+}
+
+impl TryFrom<Player> for HealthSnapshot {
+    type Error = bool;
+
+    fn try_from(player: Player) -> Result<Self, bool> {
+        Result::Ok(HealthSnapshot { hp: player.baseline.hp })
+    }
+}
+
+struct Lookup {}
+
+native fn lookup(value: Lookup) -> Player;
+
+impl From<Lookup> for Player {
+    fn from(value: Lookup) -> Self {
+        lookup(value)
+    }
+}
+
+fn read(player: Player) -> Result<HealthSnapshot, bool> {
+    HealthSnapshot::try_from(player)
+}
+
+fn resolve(value: Lookup) -> Player {
+    Player::from(value)
+}

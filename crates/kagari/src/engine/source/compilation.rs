@@ -17,7 +17,7 @@ use kagari_compiler::{
     bytecode::lower_program_to_bytecode,
     source::{
         lower::instances::MirLoweringOptions,
-        program::{SourceProgramError, lower_program_to_mir, lower_program_to_mir_with_demands},
+        program::{SourceProgramError, lower_program_with_installation},
         source_package::build_source_package,
     },
 };
@@ -68,39 +68,37 @@ impl Compilation {
         ));
         let options = inputs.lowering(options.cancel.clone());
         let compilation = checked.compilation_input(&options.cancel)?;
-        let mir = match retained {
-            Some((demands, headers)) => {
-                lower_program_to_mir_with_demands(&compilation, &options, demands, headers)
-            }
-            None => lower_program_to_mir(&compilation, &options),
-        }
-        .map_err(|error| match error {
-            SourceProgramError::Lowering { module, error } => {
-                let source = &checked
-                    .program()
-                    .modules()
-                    .iter()
-                    .find(|item| item.lowered.source.module_identity() == module.as_ref())
-                    .expect("lowered program source")
-                    .lowered
-                    .source;
-                EmbeddingError::ir_lowering(error, source)
-            }
-            SourceProgramError::Update { stage, error } => match error {
-                UpdateError::Cancelled => EmbeddingError::Cancelled,
-                error => EmbeddingError::Compilation {
-                    phase: CompilationPhase::MirLowering,
-                    message: format!("{stage}: {error}"),
+        let pins = &checked.inputs().pins;
+        let requirements = pins.requirements(&compilation);
+        let mir = lower_program_with_installation(&compilation, &options, &requirements, retained)
+            .map_err(|error| match error {
+                SourceProgramError::Lowering { module, error } => {
+                    let source = &checked
+                        .program()
+                        .modules()
+                        .iter()
+                        .find(|item| item.lowered.source.module_identity() == module.as_ref())
+                        .expect("lowered program source")
+                        .lowered
+                        .source;
+                    EmbeddingError::ir_lowering(error, source)
+                }
+                SourceProgramError::Update { stage, error } => match error {
+                    UpdateError::Cancelled => EmbeddingError::Cancelled,
+                    error => EmbeddingError::Compilation {
+                        phase: CompilationPhase::MirLowering,
+                        message: format!("{stage}: {error}"),
+                    },
                 },
-            },
-            SourceProgramError::Verification(error) => match error.kind {
-                ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
-                kind => EmbeddingError::Compilation {
-                    phase: CompilationPhase::MirLowering,
-                    message: format!("{}: {kind:?}", error.module),
+                SourceProgramError::Verification(error) => match error.kind {
+                    ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
+                    kind => EmbeddingError::Compilation {
+                        phase: CompilationPhase::MirLowering,
+                        message: format!("{}: {kind:?}", error.module),
+                    },
                 },
-            },
-        })?;
+            })?;
+        pins.validate(&mir, &options.cancel)?;
         let bytecode = lower_program_to_bytecode(&mir, &options.cancel).map_err(|error| {
             if options.cancel.check().is_err() {
                 EmbeddingError::Cancelled

@@ -1,17 +1,17 @@
 //! Real Native providers expose private alias mutation and scan containment.
 use crate::{
     Runtime,
-    host::{HostObjectId, HostSchemaEpoch},
-    metadata::TypeId,
+    interpreter_tests::common::compile_with_provider,
     module::{ExecutableModule, InstalledProgram},
     native::{
         builder::ModuleBuilder,
+        module::NativeModule,
         payload::NativeType,
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
     },
-    test_support::update_programs::load_empty,
-    value::{carriers::RootedValue, host_values::HostRootObject, native::NativeObject},
+    test_support::{bytecode::load_bytecode, update_programs::load_empty},
+    value::{carriers::RootedValue, native::NativeObject},
 };
 use kagari_gc::{
     access::EdgeField,
@@ -19,19 +19,16 @@ use kagari_gc::{
     object::{AnyObject, Edge, GcObject, ObjectCharge},
     scan::{EdgeVisitor, ScanBudget, ScanKind, ScanStatus},
 };
-use kagari_types::declaration::host::{
-    HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
-};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 #[derive(Debug, Default)]
-pub(super) struct Probe {
-    pub(super) scans: AtomicUsize,
-    pub(super) drops: AtomicUsize,
-    pub(super) fail: AtomicBool,
+pub(crate) struct Probe {
+    pub(crate) scans: AtomicUsize,
+    pub(crate) drops: AtomicUsize,
+    pub(crate) fail: AtomicBool,
 }
 
 #[derive(Debug)]
@@ -99,49 +96,36 @@ unsafe impl GcObject for Link {
     }
 }
 
-pub(super) struct Graphs {
+pub(crate) struct Graphs {
     _program: InstalledProgram,
+    provider: NativeModule,
     owner: ExecutableModule,
     ty: NativeType<Link>,
-    external: TypeId,
 }
 
 impl Graphs {
-    pub(super) fn install(runtime: &mut Runtime) -> Self {
-        let mut builder = ModuleBuilder::new("parking_graph", &Default::default()).unwrap();
-        let mut link = builder.define_type("Link").unwrap();
+    pub(crate) fn install(runtime: &mut Runtime) -> Self {
+        let mut builder = ModuleBuilder::new("graph", &Default::default()).unwrap();
+        let mut link = builder.define_type("External").unwrap();
         link.native_storage(NativeStorage::payload::<Link>())
             .unwrap();
         let link = link.finish().unwrap();
-        let mut external = builder.define_type("External").unwrap();
-        external
-            .external(HostTypePolicy {
-                ownership: HostTypeOwnership::HostRoot,
-                reflection: HostReflectionPolicy::Hidden,
-                path_access: PathAccess::ReadOnly,
-            })
-            .unwrap();
-        external.finish().unwrap();
-        builder.finish().unwrap().install(runtime).unwrap();
+        let provider = builder.finish().unwrap();
+        provider.install(runtime).unwrap();
         let program = load_empty(runtime, "parking-graph");
         let owner = runtime.select_program(&program).unwrap();
         let ty = runtime
             .bind_native_type::<Link>(&program.root(), &link, &[])
             .unwrap();
-        let external = runtime
-            .types()
-            .get_by_name("parking_graph::External")
-            .unwrap()
-            .id;
         Self {
             _program: program,
+            provider,
             owner,
             ty,
-            external,
         }
     }
 
-    pub(super) fn allocate(
+    pub(crate) fn allocate(
         &self,
         runtime: &mut Runtime,
         size: usize,
@@ -183,12 +167,23 @@ impl Graphs {
         context.conversion.retain(&value).unwrap()
     }
 
+    pub(crate) fn interface(&self, runtime: &mut Runtime, receiver: &RootedValue) -> RootedValue {
+        let code = compile_with_provider(
+            include_str!("../../tests/fixtures/metadata/host-interface-receiver.kgr"),
+            Some(&self.provider),
+        );
+        let program = load_bytecode(runtime, "parking-receiver", code).unwrap();
+        let owner = runtime.select_program(&program).unwrap();
+        runtime.make_interface(&owner, 0, receiver).unwrap()
+    }
+
     /// Mutate the actual private provider edge through a second genuine root.
-    /// The Host object is valid in this Runtime but cannot enter parked data.
-    pub(super) fn hide_host_root(&self, runtime: &mut Runtime, value: &RootedValue) {
-        let host = runtime
-            .register_host_root(HostObjectId(7), self.external, HostSchemaEpoch::new(0))
-            .unwrap();
+    pub(crate) fn set_child(
+        &self,
+        runtime: &mut Runtime,
+        value: &RootedValue,
+        child: &RootedValue,
+    ) {
         runtime
             .memory
             .scope(&runtime.resources, |cx, _| {
@@ -196,8 +191,8 @@ impl Graphs {
                 let header = cx.downcast::<NativeObject>(value.object().unwrap())?;
                 let payload = NativeObject::payload(cx, header);
                 let link = cx.downcast::<Link>(payload)?;
-                let host = HostRootObject::alloc(cx, host)?;
-                Link::NEXT.set(cx, link, Some(host.erase()));
+                let child = child.get(cx)?.object();
+                Link::NEXT.set(cx, link, child);
                 Ok(())
             })
             .unwrap();

@@ -90,7 +90,7 @@ module.exports = grammar({
       field('name', $.type_identifier), optional($.generic_parameters),
       choice(seq($.where_clause, '=', field('type', $._type)),
         seq('=', field('type', $._type), optional($.where_clause))), ';'),
-    native_type_item: $ => seq(repeat($.attribute), optional($.visibility), 'native', 'type',
+    native_type_item: $ => seq(repeat($.attribute), optional($.visibility), 'native', optional('host'), 'type',
       field('name', $.type_identifier), optional($.generic_parameters), optional($.type_bounds),
       optional($.where_clause), choice(';', field('body', $.field_declarations))),
     struct_item: $ => seq(repeat($.attribute), optional($.visibility), 'struct',

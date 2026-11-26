@@ -185,9 +185,18 @@ fn main() -> Result<(), Box<dyn Error>> {
     let immutable_limit = 42;
     builder.bind(
         function,
-        callback(move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
-            Ok(ValueView::from(immutable_limit))
-        }),
+        callback(
+            HostCallPolicy {
+                passing: vec![],
+                effects: HostFunctionEffects {
+                    may_read_immutable_configuration: true,
+                    ..Default::default()
+                },
+            },
+            move |_: &mut HostCallContext<'_>, _: &[ValueView<'_>]| {
+                Ok(ValueView::from(immutable_limit))
+            },
+        ),
     )?;
     let installed = builder.finish()?;
     let mut runtime = Runtime::default();

@@ -7,6 +7,7 @@
 (method_item name: (identifier) @function)
 (struct_item name: (type_identifier) @type)
 (native_type_item name: (type_identifier) @type)
+(native_type_item "host" @keyword)
 (enum_item name: (type_identifier) @enum)
 (trait_item name: (type_identifier) @type)
 (module_item name: (identifier) @label)

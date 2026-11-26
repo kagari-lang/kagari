@@ -4,6 +4,7 @@ use crate::{
     CompileResult,
     engine::{
         packages::PackageBuildInput,
+        pins::InstallationPins,
         source::{CheckedModule, PreparationOptions, analysis::SourceAnalysis, analysis_error},
     },
     error::EmbeddingError,
@@ -27,6 +28,7 @@ use std::{borrow::Cow, collections::BTreeSet, iter, sync::Arc};
 pub(crate) struct CheckedInputs {
     sources: SourceSnapshot,
     environment: Arc<AnalysisInputs>,
+    pub(super) pins: Arc<InstallationPins>,
     root: ModuleIdentity,
     provenance: Option<PackageBuildInput>,
     edited: bool,
@@ -64,6 +66,7 @@ impl CheckedInputs {
         snapshot: &AnalysisSnapshot,
         root: FileId,
         provenance: Option<PackageBuildInput>,
+        pins: Arc<InstallationPins>,
     ) -> CompileResult<Arc<Self>> {
         let root = snapshot
             .file(root)
@@ -71,6 +74,7 @@ impl CheckedInputs {
         Ok(Arc::new(Self {
             sources: snapshot.physical_sources().clone(),
             environment: snapshot.inputs().clone(),
+            pins,
             root: root.source().module_identity().clone(),
             provenance,
             edited: false,
@@ -238,6 +242,7 @@ impl CheckedInputs {
         Ok(Arc::new(Self {
             sources,
             environment: self.environment.clone(),
+            pins: self.pins.clone(),
             root: self.root.clone(),
             provenance: self.provenance.clone(),
             edited: self.edited || !edits.is_empty(),

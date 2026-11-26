@@ -1,7 +1,6 @@
 //! Lifetime-aware callbacks use the ordinary declaration and conversion boundary.
 use crate::{
     error::RuntimeError,
-    frame::types::arguments::TypeArgument,
     native::{
         adapter::NativeAdapter,
         binding::{NativeBinding, NativeResult},
@@ -11,7 +10,7 @@ use crate::{
     },
     resource::ResourceState,
 };
-use kagari_types::{declaration::FnDecl, reference::ReferenceAccess, ty::Ty};
+use kagari_types::{declaration::FnDecl, reference::ReferenceAccess};
 use std::marker::PhantomData;
 
 /// Services available while Rust payload references are alive. A callback may
@@ -71,38 +70,6 @@ fn check_receiver(declaration: &FnDecl, access: ReferenceAccess, arity: usize) -
     Ok(())
 }
 
-pub(super) fn check_receiver_storage(
-    cx: &NativeContext<'_>,
-    access: Option<ReferenceAccess>,
-    types: &[TypeArgument],
-) -> NativeResult<()> {
-    let Some(access) = access else {
-        return Ok(());
-    };
-    let ty = types
-        .first()
-        .ok_or_else(|| RuntimeError::module_validation("missing receiver type"))?;
-    if access == ReferenceAccess::Mutable {
-        let Ty::NativeObject(nominal) = ty.ty() else {
-            return Err(RuntimeError::module_validation(
-                "unsupported mutable receiver storage",
-            ));
-        };
-        if cx
-            .runtime()
-            .native_entries
-            .storage
-            .get_id(nominal.declaration)
-            .is_none_or(|storage| !storage.is_editable_data())
-        {
-            return Err(RuntimeError::module_validation(
-                "storage does not permit direct data editing",
-            ));
-        }
-    }
-    Ok(())
-}
-
 macro_rules! receiver_adapters {
     ($count:expr; $($argument:ident:$value:ident),*) => {
         impl<F, T, R, $($argument,)*> NativeAdapter<Shared<T, ($($argument,)*)>, R> for F
@@ -117,7 +84,7 @@ macro_rules! receiver_adapters {
                 check_receiver(declaration, ReferenceAccess::Shared, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*)>| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), false>| {
                         let ($($value,)*) = arguments;
                         cx.conversion.borrow_native_argument(
                                 receiver.request(ReferenceAccess::Shared),
@@ -141,7 +108,7 @@ macro_rules! receiver_adapters {
                 check_receiver(declaration, ReferenceAccess::Mutable, 1 + $count)?;
                 let mut binding = NativeBinding::contextual(
                     declaration.params.len(),
-                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*)>| {
+                    move |cx: &mut NativeContext<'_>, LoanArguments(receiver, arguments): LoanArguments<T, ($($argument,)*), true>| {
                         let ($($value,)*) = arguments;
                         cx.conversion.borrow_native_argument(
                                 receiver.request(ReferenceAccess::Mutable),

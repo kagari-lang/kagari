@@ -426,17 +426,18 @@ fn candidate_effect_limits_survive_nested_entries_and_release_with_the_session()
             },
         ),
     ] {
+        let function_policy = HostCallPolicy {
+            passing: vec![],
+            effects,
+        };
         let function = builder
-            .define_function(FunctionDecl::new(symbol).host_policy(HostCallPolicy {
-                passing: vec![],
-                effects,
-            }))
+            .define_function(FunctionDecl::new(symbol).host_policy(function_policy.clone()))
             .unwrap();
         let calls = calls.clone();
         builder
             .bind(
                 function,
-                callback(move |_: &mut HostCallContext<'_>, _| {
+                callback(function_policy, move |_: &mut HostCallContext<'_>, _| {
                     calls.fetch_add(1, Ordering::SeqCst);
                     Ok(ValueView::unit())
                 }),
@@ -543,23 +544,25 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
             &DefinitionContext::new().unwrap().snapshot(),
         )
         .unwrap();
-        let function =
-            builder
-                .define_function(FunctionDecl::new(symbol).returns(array).host_policy(
-                    HostCallPolicy {
-                        passing: vec![],
-                        effects: HostFunctionEffects {
-                            may_allocate: true,
-                            ..Default::default()
-                        },
-                    },
-                ))
-                .unwrap();
+        let function_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
+        let function = builder
+            .define_function(
+                FunctionDecl::new(symbol)
+                    .returns(array)
+                    .host_policy(function_policy.clone()),
+            )
+            .unwrap();
         let retained = retained.clone();
         builder
             .bind(
                 function,
-                callback(move |context, _| {
+                callback(function_policy, move |context, _| {
                     if symbol == "old" {
                         let retained = retained.lock().unwrap();
                         return Ok(context.import(retained.as_ref().unwrap()).unwrap());

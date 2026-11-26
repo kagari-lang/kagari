@@ -15,10 +15,7 @@ use crate::{
     types::semantic::{lower_nominal_type, lower_type},
     update_source::{BodyBuilder, FactKind, SourceBudget, definition},
 };
-use kagari_common::{
-    identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences},
-    span::Span,
-};
+use kagari_common::{identity::mapping::DefinitionMappingError, span::Span};
 use kagari_types::ty::{GenericParam, Ty};
 
 impl BodyBuilder {
@@ -298,24 +295,6 @@ impl BodyBuilder {
             };
             self.fact(span, kind, targets, types, budget)?;
         }
-        if let Some(path) = table.host_path(id) {
-            let mut targets = vec![];
-            path.declaration.visit_definition_ids(
-                &mut |id| {
-                    targets.push(*id);
-                    Ok(())
-                },
-                budget.cancel,
-            )?;
-            path.contract.visit_definition_ids(
-                &mut |id| {
-                    targets.push(*id);
-                    Ok(())
-                },
-                budget.cancel,
-            )?;
-            self.fact(span, FactKind::HostAccess, targets, vec![], budget)?;
-        }
         match kind {
             ExprKind::Await { expr } => {
                 let types = table
@@ -396,24 +375,6 @@ pub(super) fn collect(
                 vec![Ty::Trait(lower_nominal_type(interface))],
                 budget,
             )?;
-        }
-        if let Some(path) = table.host_place_path(id) {
-            let mut targets = vec![];
-            path.declaration.visit_definition_ids(
-                &mut |id| {
-                    targets.push(*id);
-                    Ok(())
-                },
-                budget.cancel,
-            )?;
-            path.contract.visit_definition_ids(
-                &mut |id| {
-                    targets.push(*id);
-                    Ok(())
-                },
-                budget.cancel,
-            )?;
-            body.fact(span, FactKind::HostAccess, targets, vec![], budget)?;
         }
     }
     for (id, node) in hir.types() {

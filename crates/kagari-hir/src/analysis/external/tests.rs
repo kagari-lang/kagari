@@ -1,29 +1,36 @@
-use super::*;
+use super::foundation::publish;
 use crate::tests::standard::standard_modules;
 use crate::{
-    analysis::{AnalysisSnapshot, FileAnalysis, core_source::packaged_modules},
+    analysis::{
+        AnalysisDatabase, AnalysisSnapshot, FileAnalysis,
+        core_source::{change_core, packaged_modules},
+        error::AnalysisError,
+    },
     compile_input::program::{AdmissionError, CheckedCompilation},
     hir::{item::function::FunctionImplementation, writeability::Writeability},
+    imports::environment::{ImportEnvironment, ModuleScope},
     semantic::signatures::FunctionImplementation as CheckedImplementation,
     types::TypeId,
 };
 use kagari_common::identity::{
-    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_source::{
     diagnostic::{DiagnosticKind, Severity},
-    source_database::{SourceDatabase, SourceLayer},
+    identity::FileId,
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
 use kagari_types::{
     declaration::{
         FieldDef, TypeDef, TypeDefKind, module::ModuleDecl, native::NativeStorageLayout,
     },
     range::RangeKind,
-    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::GenericParam,
     visibility::Visibility,
 };
+use std::sync::Arc;
 
 const LIBRARY: &str = include_str!("../../../tests/fixtures/analysis/external/library.kgr");
 const CLIENT: &str = include_str!("../../../tests/fixtures/analysis/external/client.kgr");
@@ -32,38 +39,33 @@ const INVALID_CLIENT: &str =
 const CONSTRUCTORS: &str =
     include_str!("../../../tests/fixtures/analysis/external/constructors.kgr");
 
-fn input(text: &str) -> ExternalModule {
-    let mut sources = SourceDatabase::new("/exports").unwrap();
-    sources
-        .bind_module(
-            "api.kgr",
-            ModuleIdentity {
-                package: PackageId("api".into()),
-                path: vec![],
-            },
-        )
-        .unwrap();
-    let id = sources
-        .set("api.kgr", text.into(), SourceLayer::Base)
-        .unwrap();
-    ExternalModule::new(sources.snapshot().file(id).unwrap().clone())
-}
-
-fn analyze(input: ExternalModule, text: &str) -> (AnalysisDatabase, AnalysisSnapshot, FileId) {
-    let mut db = AnalysisDatabase::new("/project").unwrap();
-    let mut inputs = if input.dependencies.is_empty() {
-        Vec::new()
-    } else {
-        super::foundation::exported(&standard_modules())
+fn analyze(library: &str, text: &str) -> (AnalysisDatabase, AnalysisSnapshot, FileId, FileId) {
+    let mut sources = SourceDatabase::new("/project").unwrap();
+    let api = ModuleIdentity {
+        package: PackageId("api".into()),
+        path: vec![],
     };
-    inputs.push(input);
-    db.set_external_modules(inputs);
-    let source = Arc::new(SourceFile::new("/project/main.kgr", text));
-    let id = source.id();
-    let snapshot = db
-        .snapshot(SourceSnapshot::single_file(source), &Default::default())
+    sources.bind_module("api.kgr", api.clone()).unwrap();
+    let lib = sources
+        .set("api.kgr", library.into(), SourceLayer::Base)
         .unwrap();
-    (db, snapshot, id)
+    let root = sources
+        .set("main.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let files = sources.snapshot();
+    let mut db = AnalysisDatabase::new("/project").unwrap();
+    db.set_import_environment(ImportEnvironment {
+        modules: [(
+            files.file(root).unwrap().module_identity().clone(),
+            ModuleScope {
+                dependencies: [api].into(),
+                ..Default::default()
+            },
+        )]
+        .into(),
+    });
+    let snapshot = db.snapshot(files, &Default::default()).unwrap();
+    (db, snapshot, root, lib)
 }
 
 pub(super) fn assert_clean(snapshot: &AnalysisSnapshot) {
@@ -82,9 +84,8 @@ pub(super) fn assert_clean(snapshot: &AnalysisSnapshot) {
 
 #[test]
 fn external_source_preserves_fields_members_and_complete_script_definitions_without_registration() {
-    let library = input(LIBRARY);
-    let library_source = library.source.clone();
-    let (db, snapshot, root) = analyze(library, CLIENT);
+    let (db, snapshot, root, lib) = analyze(LIBRARY, CLIENT);
+    let library_source = snapshot.physical_sources().file(lib).unwrap();
     assert_clean(&snapshot);
     assert!(snapshot.inputs().native_modules().is_empty());
     let file = snapshot.file(library_source.id()).unwrap();
@@ -151,7 +152,7 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
         ))
     ));
 
-    // Capturing/restoring keeps offline source and static metadata, not a provider.
+    // Replay the actual documents with the captured import configuration.
     let captured = db.inputs();
     let mut restored = captured.database().unwrap();
     assert_eq!(
@@ -165,8 +166,8 @@ fn external_source_preserves_fields_members_and_complete_script_definitions_with
         .unwrap();
     assert_clean(&rebuilt);
     assert!(Arc::ptr_eq(
-        &captured.external_modules()[0].source,
-        &library_source
+        rebuilt.physical_sources().file(lib).unwrap(),
+        library_source
     ));
 }
 
@@ -211,18 +212,7 @@ fn ordinary_native_syntax_is_checked_without_installed_bindings() {
 
 #[test]
 fn external_native_fields_and_calls_enforce_mutability_visibility_bounds_and_arity() {
-    let mut library = input(LIBRARY);
-    library.methods.insert(
-        ExternalFunction::TraitMethod {
-            owner: "Read".into(),
-            name: "defaulted".into(),
-        },
-        MethodPolicy {
-            override_allowed: false,
-            ..Default::default()
-        },
-    );
-    let (_, snapshot, root) = analyze(library, INVALID_CLIENT);
+    let (_, snapshot, root, _) = analyze(LIBRARY, INVALID_CLIENT);
     let file = snapshot.file(root).unwrap();
     let diagnostics = file.result().diagnostics();
     assert!(
@@ -259,48 +249,26 @@ fn external_native_fields_and_calls_enforce_mutability_visibility_bounds_and_ari
             "{witness}: {diagnostics:?}"
         );
     }
-    assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::TraitMethodMismatch { method_name, reason, .. } if method_name == "defaulted" && reason == "this method declaration forbids overriding")), "{diagnostics:?}");
     assert!(snapshot.check_program(root, &Default::default()).is_err());
 }
 
-fn constructors() -> ExternalModule {
-    let mut module = input(CONSTRUCTORS);
-    module.dependencies.extend([
-        kagari_stdlib::namespaces::module("core", "ops"),
-        kagari_stdlib::namespaces::module("alloc", "string"),
-    ]);
-    for (name, access) in [
-        ("shared", ReferenceAccess::Shared),
-        ("mutable", ReferenceAccess::Mutable),
-    ] {
-        module.methods.insert(
-            ExternalFunction::ImplMethod {
-                owner: 0,
-                name: name.into(),
-            },
-            MethodPolicy {
-                receiver_access: Some(access),
-                ..Default::default()
-            },
-        );
-    }
-    module
-}
-
 #[test]
-fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime_authority() {
-    let library = constructors();
-    let id = library.source.id();
+fn both_routes_recognize_reserved_constructors_without_spelling_or_runtime_authority() {
     let client = include_str!("../../../tests/fixtures/analysis/external/constructor_client.kgr");
-    let (_, snapshot, root) = analyze(library, client);
+    let (_, snapshot, root, id) = analyze(CONSTRUCTORS, client);
     assert_clean(&snapshot);
     let mut direct = AnalysisDatabase::new("/project").unwrap();
     let mut providers = standard_modules();
     providers.push(super::equivalence::constructor_registration());
     direct.set_native_modules(providers);
     let direct_snapshot = direct
-        .snapshot(snapshot.physical_sources().clone(), &Default::default())
+        .snapshot(
+            SourceSnapshot::single_file(snapshot.physical_sources().file(root).unwrap().clone()),
+            &Default::default(),
+        )
         .unwrap();
+    // Target is an ordinary GC struct. Only the structured provider advertises
+    // Rust loans; both routes select its declared methods without storage authority.
     assert_clean(&direct_snapshot);
     let context = DefinitionContext::new().unwrap();
     let canonical_types = |file: &FileAnalysis| {
@@ -356,10 +324,11 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
         )
     );
     assert_eq!(range.params[0].ty, range.return_type);
-    let (_, nominal, _) = analyze(
-        input("pub native type String; pub native fn text(value: String) -> String;"),
+    let (_, nominal, _, _) = analyze(
+        "pub native type String; pub native fn text(value: String) -> String;",
         "",
     );
+    assert_clean(&nominal);
     let nominal = nominal
         .files()
         .find(|file| file.source().module_identity().package.0 == "api")
@@ -371,30 +340,95 @@ fn external_constructor_metadata_recognizes_identity_without_spelling_or_runtime
         .iter()
         .find(|function| function.name == "text")
         .unwrap();
-    assert!(
-        matches!(text.return_type, TypeId::NativeObject(_)),
-        "name alone must not create builtin identity"
+    let TypeId::NativeObject(returned) = &text.return_type else {
+        panic!("name alone must not create builtin identity");
+    };
+    let definitions = nominal.definitions();
+    let root = definitions
+        .lookup_root(nominal.source().module_identity())
+        .unwrap();
+    assert_eq!(
+        Some(returned.declaration),
+        definitions.lookup_child(root, DefinitionKind::AssociatedType, "String", 0)
     );
 }
 
 #[test]
-fn foundation_reference_names_are_absent_in_both_declaration_routes() {
-    let providers = standard_modules();
-    for structured in [true, false] {
-        let mut db = AnalysisDatabase::new("/project").unwrap();
-        if structured {
-            db.set_native_modules(providers.clone());
-        } else {
-            db.set_external_modules(super::foundation::exported(&providers));
-        }
-        let source = Arc::new(SourceFile::new(
-            "/project/main.kgr",
-            "fn former_shared(value: Ref<i32>) {} fn former_mutable(value: RefMut<i32>) {}",
-        ));
-        let root = source.id();
-        let snapshot = db
-            .snapshot(SourceSnapshot::single_file(source), &Default::default())
+fn reserved_constructors_require_the_declared_shape() {
+    // Change only the declaration in the actual canonical module.
+    for (package, module, valid, invalid) in [
+        (
+            "alloc",
+            "string",
+            "pub native type String;",
+            &[
+                "pub native type String<T>;",
+                "pub native type String { pub val value: i32 }",
+                "native type String;",
+            ][..],
+        ),
+        (
+            "core",
+            "ops",
+            "pub native type Range<T>;",
+            &[
+                "pub native type Range;",
+                "pub native type Range<T> { pub val value: i32 }",
+                "pub native type Range<T: RangeBounds<T>>;",
+            ][..],
+        ),
+        (
+            "core",
+            "ops",
+            "pub native type RangeFull;",
+            &[
+                "pub native type RangeFull<T>;",
+                "pub native type RangeFull { pub val value: i32 }",
+            ][..],
+        ),
+    ] {
+        let mut shapes = AnalysisDatabase::new("/constructor-shapes").unwrap();
+        let owner = kagari_stdlib::namespaces::module(package, module);
+        let bundled = packaged_modules()
+            .iter()
+            .find(|input| input.module_identity() == &owner)
             .unwrap();
+        for text in invalid {
+            let mut declaration = bundled.clone();
+            change_core(&mut declaration, |source| {
+                assert!(source.contains(valid));
+                source.replace(valid, text)
+            });
+            shapes.replace_core_fixture(declaration);
+            let result = shapes.declarations(SourceSnapshot::default(), &Default::default());
+            assert!(
+                matches!(result, Err(AnalysisError::NativeApi(ref error)) if error.0.contains("invalid language constructor declaration shape")),
+                "{text}: {result:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn foundation_reference_names_are_absent_in_both_declaration_routes() {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(
+            "main.kgr",
+            "fn former_shared(value: Ref<i32>) {} fn former_mutable(value: RefMut<i32>) {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut direct = AnalysisDatabase::default();
+    direct.set_native_modules(standard_modules());
+    let structured = direct
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let mut offline = publish(structured.declaration_snapshot(), &mut sources);
+    let parsed = offline
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    for snapshot in [structured, parsed] {
         let diagnostics = snapshot.file(root).unwrap().result().diagnostics();
         for name in ["former_shared", "former_mutable"] {
             assert!(
@@ -442,9 +476,29 @@ fn reference_named_registration(identity: ModuleIdentity) -> Arc<DefinitionMetad
 #[test]
 fn former_reference_owner_admits_ordinary_natives_in_both_declaration_routes() {
     let identity = kagari_stdlib::namespaces::module("core", "host");
-    let mut sources = SourceDatabase::new("/exports").unwrap();
-    sources.bind_module("host.kgr", identity.clone()).unwrap();
-    let id = sources
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(
+            "main.kgr",
+            include_str!("../../../tests/fixtures/analysis/external/reference_named_client.kgr")
+                .into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut direct = AnalysisDatabase::default();
+    direct.set_native_modules(vec![reference_named_registration(identity.clone())]);
+    let registered = direct
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let mut offline = AnalysisDatabase::default();
+    offline.set_import_environment(
+        registered
+            .declaration_snapshot()
+            .import_environment()
+            .clone(),
+    );
+    sources.bind_module("host.kgr", identity).unwrap();
+    sources
         .set(
             "host.kgr",
             include_str!("../../../tests/fixtures/analysis/external/reference_named_types.kgr")
@@ -452,26 +506,10 @@ fn former_reference_owner_admits_ordinary_natives_in_both_declaration_routes() {
             SourceLayer::Base,
         )
         .unwrap();
-    let mut declarations = ExternalModule::new(sources.snapshot().file(id).unwrap().clone());
-    declarations.package_alias = Some("core".into());
-    let source = Arc::new(SourceFile::new(
-        "/project/main.kgr",
-        include_str!("../../../tests/fixtures/analysis/external/reference_named_client.kgr"),
-    ));
-    let root = source.id();
-    for structured in [true, false] {
-        let mut db = AnalysisDatabase::new("/project").unwrap();
-        if structured {
-            db.set_native_modules(vec![reference_named_registration(identity.clone())]);
-        } else {
-            db.set_external_modules(vec![declarations.clone()]);
-        }
-        let snapshot = db
-            .snapshot(
-                SourceSnapshot::single_file(source.clone()),
-                &Default::default(),
-            )
-            .unwrap();
+    let parsed = offline
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    for (structured, snapshot) in [(true, registered), (false, parsed)] {
         let file = snapshot.file(root).unwrap();
         let diagnostics = file.result().diagnostics();
         let errors = diagnostics
@@ -517,12 +555,11 @@ fn former_reference_owner_admits_ordinary_natives_in_both_declaration_routes() {
 }
 
 #[test]
-fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
-    let missing = input(include_str!(
-        "../../../tests/fixtures/analysis/external/missing_dependency.kgr"
-    ));
-    let id = missing.source.id();
-    let (_, snapshot, _) = analyze(missing, "");
+fn missing_source_dependencies_are_not_admitted() {
+    let (_, snapshot, _, id) = analyze(
+        include_str!("../../../tests/fixtures/analysis/external/missing_dependency.kgr"),
+        "",
+    );
     let diagnostics = snapshot.file(id).unwrap().result().diagnostics();
     assert!(
         diagnostics
@@ -538,190 +575,9 @@ fn missing_dependencies_and_invalid_external_metadata_are_not_admitted() {
     );
     assert!(snapshot.check_program(id, &Default::default()).is_err());
 
-    let mut db = AnalysisDatabase::new("/project").unwrap();
-    let library = constructors();
-    db.set_external_modules(vec![library.clone(), library.clone()]);
-    assert!(matches!(
-        db.snapshot(SourceSnapshot::default(), &Default::default()),
-        Err(AnalysisError::NativeApi(_))
-    ));
-    db.set_external_modules(vec![library.clone()]);
-    assert!(matches!(
-        db.snapshot(SourceSnapshot::single_file(library.source.clone()), &Default::default()),
-        Err(AnalysisError::NativeApi(error)) if error.0.contains("source conflicts")
-    ));
-    let mut providers = standard_modules();
-    providers.push(super::equivalence::constructor_registration());
-    db.set_native_modules(providers);
-    assert!(matches!(
-        db.snapshot(SourceSnapshot::default(), &Default::default()),
-        Err(AnalysisError::NativeApi(error)) if error.0.contains("conflicts with installed")
-    ));
-    db.set_native_modules(vec![]);
-    let mut owner_sources = SourceDatabase::new("/owners").unwrap();
-    let mut owner_inputs = Vec::new();
-    for package in ["left", "right"] {
-        let uri = format!("{package}.kgr");
-        owner_sources
-            .bind_module(
-                &uri,
-                ModuleIdentity {
-                    package: PackageId(package.into()),
-                    path: vec![],
-                },
-            )
-            .unwrap();
-        let id = owner_sources
-            .set(
-                &uri,
-                include_str!("../../../tests/fixtures/analysis/external/constructor_owners.kgr")
-                    .into(),
-                SourceLayer::Base,
-            )
-            .unwrap();
-        let mut owner = ExternalModule::new(owner_sources.snapshot().file(id).unwrap().clone());
-        for name in ["Text", "Alias"] {
-            owner.types.insert(
-                name.into(),
-                ExternalType::Constructor(NativeTypeConstructor::String),
-            );
-        }
-        owner_inputs.push(owner);
-    }
-    // An arbitrary module cannot grant constructor identity, even for a local alias.
-    db.set_external_modules(vec![owner_inputs[0].clone()]);
+    let mut db = AnalysisDatabase::default();
+    db.set_native_modules(vec![super::equivalence::constructor_registration()]);
     assert!(
-        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("invalid external constructor shape"))
+        matches!(db.declarations(snapshot.physical_sources().clone(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("source conflicts with library"))
     );
-    db.set_external_modules(owner_inputs);
-    assert!(
-        matches!(db.declarations(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("invalid external constructor shape"))
-    );
-    db.set_native_modules(vec![]);
-    let mut malformed = library;
-    malformed.types.insert(
-        "Target".into(),
-        ExternalType::Constructor(NativeTypeConstructor::String),
-    );
-    db.set_external_modules(vec![malformed]);
-    assert!(matches!(
-        db.snapshot(SourceSnapshot::default(), &Default::default()),
-        Err(AnalysisError::NativeApi(_))
-    ));
-    // Constructor identity itself imposes shape, even when no sidecar is supplied.
-    for (package, module, name, constructor, valid, wrong_arity, fields) in [
-        (
-            "alloc",
-            "string",
-            "String",
-            NativeTypeConstructor::String,
-            "pub native type String;",
-            "pub native type String<T>;",
-            "pub native type String { pub val value: i32 }",
-        ),
-        (
-            "core",
-            "ops",
-            "Range",
-            NativeTypeConstructor::Range(RangeKind::Exclusive),
-            "pub native type Range<T>;",
-            "pub native type Range;",
-            "pub native type Range<T> { pub val value: i32 }",
-        ),
-        (
-            "core",
-            "ops",
-            "RangeFull",
-            NativeTypeConstructor::Range(RangeKind::Full),
-            "pub native type RangeFull;",
-            "pub native type RangeFull<T>;",
-            "pub native type RangeFull { pub val value: i32 }",
-        ),
-    ] {
-        let mut shapes = AnalysisDatabase::new("/constructor-shapes").unwrap();
-        let owner = kagari_stdlib::namespaces::module(package, module);
-        let bundled = packaged_modules()
-            .iter()
-            .find(|input| input.source.module_identity() == &owner)
-            .unwrap();
-        for (text, accepted) in [(valid, true), (wrong_arity, false), (fields, false)] {
-            let mut declaration = bundled.clone();
-            super::foundation::change_export(&mut declaration, |source| {
-                assert!(source.contains(valid));
-                source.replace(valid, text)
-            });
-            for sidecar in [false, true] {
-                let mut declaration = declaration.clone();
-                if sidecar {
-                    declaration
-                        .types
-                        .insert(name.into(), ExternalType::Constructor(constructor));
-                }
-                shapes.replace_core_fixture(declaration);
-                let result = shapes.declarations(SourceSnapshot::default(), &Default::default());
-                if accepted {
-                    assert!(result.is_ok(), "{text}, sidecar={sidecar}: {result:?}");
-                } else {
-                    assert!(
-                        matches!(result, Err(AnalysisError::NativeApi(ref error)) if error.0.contains("invalid language constructor declaration shape")),
-                        "{text}, sidecar={sidecar}: {result:?}"
-                    );
-                }
-            }
-        }
-    }
-
-    let locked = MethodPolicy {
-        override_allowed: false,
-        ..Default::default()
-    };
-    let loan = MethodPolicy {
-        receiver_access: Some(ReferenceAccess::Shared),
-        ..Default::default()
-    };
-    for (selector, policy) in [
-        (ExternalFunction::Function("bounded".into()), locked),
-        (
-            ExternalFunction::TraitMethod {
-                owner: "Read".into(),
-                name: "read".into(),
-            },
-            locked,
-        ),
-        (
-            ExternalFunction::TraitMethod {
-                owner: "Read".into(),
-                name: "defaulted".into(),
-            },
-            loan,
-        ),
-        (
-            ExternalFunction::ImplMethod {
-                owner: 0,
-                name: "new".into(),
-            },
-            loan,
-        ),
-        (
-            ExternalFunction::ImplMethod {
-                owner: 0,
-                name: "echo".into(),
-            },
-            locked,
-        ),
-    ] {
-        let mut invalid = input(LIBRARY);
-        invalid.methods.insert(selector, policy);
-        db.set_external_modules(vec![invalid]);
-        assert!(
-            matches!(db.snapshot(SourceSnapshot::default(), &Default::default()), Err(AnalysisError::NativeApi(error)) if error.0.contains("invalid external method policy"))
-        );
-    }
-    db.set_external_modules(vec![constructors()]);
-    let cancel = CancellationToken::default();
-    cancel.cancel();
-    assert!(matches!(
-        db.snapshot(SourceSnapshot::default(), &cancel),
-        Err(AnalysisError::Cancelled)
-    ));
 }

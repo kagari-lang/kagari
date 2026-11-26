@@ -23,11 +23,11 @@ with their existing owners. Production dependencies are `kagari-common`,
 | `parse(source, options, cancel)` | Recoverable syntax snapshot, or `Err(Cancelled)` when cancellation is observed |
 
 `ParseOptions { limits }` groups per-file resource limits. One parser accepts
-ordinary definitions and explicit `native fn` / `native type` declarations,
+ordinary definitions and `native fn`, `native type` and `native host type` declarations,
 independent of source provenance. Cancellation is a borrowed argument for one
 operation, not reusable configuration. The Engine's `set_parse_limits` supplies
-`ParseLimits` to subsequent analysis requests. A limit change also resets prepared
-Native registration inputs, including any retained presentation parses.
+`ParseLimits` to subsequent requests. This affects parsing physical documents,
+not the preparation of structured registrations, which have no parse.
 
 Syntax errors and resource exhaustion remain in `Parse::diagnostics()`. Consumers
 such as the CLI, formatter and package loader decide whether diagnostics prevent
@@ -35,11 +35,10 @@ their operation; there is no separate strict parsing entrypoint. Test helpers ma
 assert that a fixture has no diagnostics before taking its retained module view.
 
 A Native function or method retains a `native_keyword`; a Native type uses
-`NativeTypeDef` with an optional ordinary field list and a distinct
-`SyntaxKind::NativeTypeDef`. No parser mode or input-origin flag is retained in
-syntax. HIR owns source/export admission and checks installed registration views
-against their authoritative contracts; parsing alone grants no executable or
-installation authority. Ordinary source analysis still carries physical syntax
+`NativeTypeDef` with an optional field list and `host_modifier` token. In
+`native host type Player;` the modifier is lexically an identifier; in
+`native type host;` that identifier is the name. Both have `SyntaxKind::NativeTypeDef`.
+HIR uses the modifier for the handle category, not as an executable schema. Ordinary source analysis still carries physical syntax
 diagnostics into its strict checked-program gate.
 
 ## Grammar fields and recovered roles

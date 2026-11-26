@@ -1,0 +1,9 @@
+use example::data::ReadOnlyPayload;
+
+fn edit<T>(player: ReadOnlyPayload<T>) -> i32 {
+    player.edit()
+}
+
+pub fn blocked(player: ReadOnlyPayload<i32>) -> i32 {
+    edit(player)
+}

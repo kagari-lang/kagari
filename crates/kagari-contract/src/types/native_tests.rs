@@ -1,7 +1,11 @@
-use crate::layout::{EnumLayout, EnumVariantLayout, enum_abi_matches};
+use crate::layout::{EnumLayout, EnumVariantLayout, enum_abi_matches, validate_enum_layouts};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_types::{
-    declaration::{TypeDef, native::NativeTypeConstructor},
+    declaration::{
+        TypeDef,
+        native::{NativeStorageLayout, NativeTypeConstructor},
+    },
+    language::binding,
     range::RangeKind,
     visibility::Visibility,
 };
@@ -18,19 +22,16 @@ fn declaration(
     context: &DefinitionContext,
     kind: NativeTypeConstructor,
 ) -> (ModuleIdentity, TypeDef) {
-    let module = ModuleIdentity::single_file("native-contract.kgr");
-    let root = context.intern_root(&module).unwrap();
-    let owner = context
-        .intern_child(root, kind.declaration_kind(), "Native", 0)
-        .unwrap();
+    let path = kind.declaration();
+    let owner = context.intern(&path).unwrap();
     let generic_params: Vec<_> = (0..kind.arity())
         .map(|position| GenericParam { owner, position })
         .collect();
     let variants = Vec::new();
     (
-        module,
+        path.module,
         TypeDef {
-            name: "Native".into(),
+            name: path.path[0].name.clone(),
             kind: TypeDefKind::Native(kind),
             generic_params,
             bounds: Vec::new(),
@@ -64,6 +65,29 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
             .is_ok()
         };
         assert!(valid(ty.clone()), "{kind:?}");
+        if kind == NativeTypeConstructor::String {
+            let other = ModuleIdentity::single_file("other.kgr");
+            let root = context.intern_root(&other).unwrap();
+            context
+                .intern_child(root, kind.declaration_kind(), &ty.name, 0)
+                .unwrap();
+            assert!(
+                verify::validate(
+                    &[PublicItem::Type(ty.clone())],
+                    &other,
+                    &Default::default(),
+                    &context.snapshot()
+                )
+                .is_err(),
+                "correct shape, foreign owner"
+            );
+            let mut ordinary = ty.clone();
+            ordinary.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Opaque);
+            assert!(
+                !valid(ordinary),
+                "canonical definition cannot claim opaque storage"
+            );
+        }
         let mut wrong = ty.clone();
         wrong.fields.push(FieldDef {
             host_policy: None,
@@ -92,7 +116,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
                 .intern_child(
                     context.intern_root(&module).unwrap(),
                     DefinitionKind::Struct,
-                    "Native",
+                    &ty.name,
                     0,
                 )
                 .unwrap();
@@ -117,83 +141,96 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
 }
 
 #[test]
-fn ordinary_enum_layouts_validate_payloads_and_reporting_facts() {
-    let module = ModuleIdentity::single_file("ordinary-enum.kgr");
+fn result_layouts_validate_payloads_and_reporting_facts() {
+    let path = binding::result_declaration();
+    let module = path.module.clone();
     let context = DefinitionContext::new().unwrap();
-    let root = context.intern_root(&module).unwrap();
-    let owner = context
-        .intern_child(root, DefinitionKind::Enum, "Outcome", 0)
-        .unwrap();
-    let parameter = GenericParam { owner, position: 0 };
+    let owner = context.intern(&path).unwrap();
+    let parameters = [0, 1].map(|position| GenericParam { owner, position });
+    let arguments = [
+        Ty::Builtin(BuiltinType::I32),
+        Ty::Builtin(BuiltinType::String),
+    ];
     let declaration = TypeDef {
-        name: "Outcome".into(),
+        name: "Result".into(),
         kind: TypeDefKind::Enum,
-        generic_params: vec![parameter.clone()],
+        generic_params: parameters.to_vec(),
         bounds: vec![],
         fields: vec![],
-        variants: vec![
-            VariantDef {
-                reports_failure: true,
-                name: "Failure".into(),
-                payload: vec![parameter.as_type()],
-            },
-            VariantDef {
-                reports_failure: false,
-                name: "Success".into(),
-                payload: vec![],
-            },
-        ],
+        variants: ["Ok", "Err"]
+            .into_iter()
+            .enumerate()
+            .map(|(slot, name)| VariantDef {
+                reports_failure: slot == 1,
+                name: name.into(),
+                payload: vec![parameters[slot].as_type()],
+            })
+            .collect(),
     };
     let layout = EnumLayout {
         declaration: owner,
-        arguments: vec![Ty::Builtin(BuiltinType::String)],
-        variants: vec![
-            EnumVariantLayout {
-                reports_failure: true,
+        arguments: arguments.to_vec(),
+        variants: ["Ok", "Err"]
+            .into_iter()
+            .enumerate()
+            .map(|(slot, name)| EnumVariantLayout {
+                reports_failure: slot == 1,
                 declaration: context
-                    .intern_child(owner, DefinitionKind::Variant, "Failure", 0)
+                    .intern_child(owner, DefinitionKind::Variant, name, 0)
                     .unwrap(),
-                payload: vec![Ty::Builtin(BuiltinType::String)],
-            },
-            EnumVariantLayout {
-                reports_failure: false,
-                declaration: context
-                    .intern_child(owner, DefinitionKind::Variant, "Success", 0)
-                    .unwrap(),
-                payload: vec![],
-            },
-        ],
+                payload: vec![arguments[slot].clone()],
+            })
+            .collect(),
     };
+    // Identical member names, arguments and payloads under a different package.
+    let other = context
+        .intern_child(
+            context
+                .intern_root(&ModuleIdentity::single_file("lookalike"))
+                .unwrap(),
+            DefinitionKind::Enum,
+            "Result",
+            0,
+        )
+        .unwrap();
+    let mut lookalike = layout.clone();
+    lookalike.declaration = other;
+    for (variant, name) in lookalike.variants.iter_mut().zip(["Ok", "Err"]) {
+        variant.declaration = context
+            .intern_child(other, DefinitionKind::Variant, name, 0)
+            .unwrap();
+    }
     let items = vec![PublicItem::Type(declaration)];
-    assert!(verify::validate(&items, &module, &Default::default(), &context.snapshot()).is_ok());
-    assert!(
+    let table = context.snapshot();
+    let cancel = Default::default();
+    assert!(verify::validate(&items, &module, &cancel, &table).is_ok());
+    let matches = |layout: &EnumLayout| {
         enum_abi_matches(
-            std::slice::from_ref(&layout),
+            std::slice::from_ref(layout),
             &module,
             &items,
-            &Default::default(),
-            &context.snapshot()
+            &cancel,
+            &table,
         )
         .unwrap()
-    );
-    for case in 0..4 {
+    };
+    let valid = |layout: &EnumLayout| {
+        validate_enum_layouts(std::slice::from_ref(layout), &[], &cancel, &table).is_ok()
+    };
+    assert!(matches(&layout) && valid(&layout));
+    assert!(!valid(&lookalike));
+    lookalike.variants[1].reports_failure = false;
+    assert!(valid(&lookalike));
+    for case in 0..5 {
         let mut wrong = layout.clone();
         match case {
             0 => wrong.arguments.clear(),
-            1 => wrong.variants[0].payload.clear(),
-            2 => wrong.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool),
-            _ => wrong.variants[0].reports_failure = false,
+            1 => wrong.variants[1].payload.clear(),
+            2 => wrong.variants[1].payload[0] = arguments[0].clone(),
+            3 => wrong.variants[1].reports_failure = false,
+            _ => wrong.variants.swap(0, 1),
         }
-        assert!(
-            !enum_abi_matches(
-                &[wrong],
-                &module,
-                &items,
-                &Default::default(),
-                &context.snapshot()
-            )
-            .unwrap(),
-            "case {case}"
-        );
+        assert!(!matches(&wrong), "ABI case {case}");
+        assert!(!valid(&wrong), "standalone layout case {case}");
     }
 }

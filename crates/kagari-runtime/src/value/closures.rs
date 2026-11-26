@@ -81,7 +81,7 @@ impl ClosureObject {
             CallableTarget::Native(_) => {}
         }
         for value in captures {
-            if !ValueProperties::of(cx, *value)?.storable {
+            if !ValueProperties::of(cx, *value)?.retainable {
                 return Err(GcError::Representation);
             }
         }

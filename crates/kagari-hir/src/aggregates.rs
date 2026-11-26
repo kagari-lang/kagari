@@ -1,6 +1,5 @@
 //! Checked nominal contracts shared by local and imported member access.
 
-use crate::hir::item::function::FunctionImplementation as HirImplementation;
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
@@ -12,10 +11,9 @@ use kagari_common::{
 use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
     declarations::{Declaration, DeclarationId, Declarations},
-    hir::item::adt::HostContract,
     hir::{item::adt::Field, writeability::Writeability},
     imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
-    language::semantics as builtin_traits,
+    language::{items::derive_failure_origin, semantics as builtin_traits},
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     semantic::signatures::TypedFunction,
@@ -24,7 +22,6 @@ use crate::{
 };
 use kagari_types::{
     language::{Protocol, role::LangRole},
-    reference::ReferenceAccess,
     visibility::Visibility,
 };
 use std::{
@@ -62,8 +59,6 @@ pub struct FieldSignature {
 /// A canonical inherent method, its receiver pattern and typed callable contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InherentMethodSignature {
-    /// Explicit native member's required Rust loan, independent of storage.
-    pub receiver_access: Option<ReferenceAccess>,
     /// Qualified source declaration address of the method function.
     pub id: SourceDeclRef,
     /// Canonical method definition identity.
@@ -104,8 +99,8 @@ pub struct NativeTypeSignature {
     pub bounds: GenericBounds,
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
-    /// Static storage/type interpretation; independent of source spelling and not binding proof.
-    pub host: Option<HostContract>,
+    /// Whether this declaration denotes a Host identity.
+    pub is_host: bool,
     /// Declared interface fields; these do not grant executable adapters.
     pub fields: Vec<FieldSignature>,
 }
@@ -113,7 +108,7 @@ pub struct NativeTypeSignature {
 /// Canonical enum variant, payload types and logical variant slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantSignature {
-    /// Registration metadata marks this variant as reporting failure.
+    /// True only for the checked canonical `Result::Err` variant.
     pub reports_failure: bool,
     /// Canonical semantic definition identity used as the catalog key.
     pub id: DefinitionId,
@@ -242,7 +237,7 @@ impl AggregateCatalog {
                         .expect("checked native type constraints")
                         .clone(),
                     declaration: declaration.clone(),
-                    host: item.host.clone(),
+                    is_host: item.is_host,
                     fields,
                 }),
             );
@@ -302,7 +297,7 @@ impl AggregateCatalog {
                 }
                 self.variants.insert(*variant_id, (*id, variants.len()));
                 variants.push(VariantSignature {
-                    reports_failure: variant.reports_failure,
+                    reports_failure: false,
                     id: *variant_id,
                     owner: *id,
                     slot: variant.id.slot(),
@@ -311,19 +306,20 @@ impl AggregateCatalog {
                     declaration: declaration.clone(),
                 });
             }
-            self.enumerations.insert(
-                *id,
-                Arc::new(EnumSignature {
-                    id: *id,
-                    generic_params: declarations.parameters_of(id),
-                    bounds: signatures
-                        .type_bounds(id)
-                        .expect("checked type constraints")
-                        .clone(),
-                    declaration: declaration.clone(),
-                    variants,
-                }),
-            );
+            let mut signature = EnumSignature {
+                id: *id,
+                generic_params: declarations.parameters_of(id),
+                bounds: signatures
+                    .type_bounds(id)
+                    .expect("checked type constraints")
+                    .clone(),
+                declaration: declaration.clone(),
+                variants,
+            };
+            if enumeration.visibility == Visibility::Public {
+                derive_failure_origin(&mut signature, declarations.definitions());
+            }
+            self.enumerations.insert(*id, Arc::new(signature));
         }
         self.add_traits(lowered, declarations, signatures, cancel)?;
         self.add_implementations(lowered, declarations, signatures, cancel)?;
@@ -393,12 +389,6 @@ impl AggregateCatalog {
                 self.inherent_methods.insert(
                     *declaration,
                     Arc::new(InherentMethodSignature {
-                        receiver_access: match &lowered.module.functions[method.function.index()]
-                            .implementation
-                        {
-                            HirImplementation::Native(contract) => contract.receiver_access,
-                            _ => None,
-                        },
                         id: SourceDeclRef {
                             unit: SourceUnit::of(lowered, declarations.definitions()),
                             item: SourceItem::Function(method.function),

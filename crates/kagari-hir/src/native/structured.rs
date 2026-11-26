@@ -6,7 +6,7 @@ use crate::{
     collections::HashMap,
     hir::item::Item,
     lower::{LoweredModule, ModuleInputKind, context::Lowerer},
-    native::paths::LibraryPaths,
+    native::paths::{ImporterPaths, LibraryPaths},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -39,7 +39,7 @@ struct StructuredLowerer<'a> {
     lowerer: Lowerer,
     declaration: &'a ModuleDecl,
 
-    paths: &'a LibraryPaths,
+    paths: ImporterPaths<'a>,
     definitions: &'a DefinitionTable,
     correspondence: RegistrationMap,
     parameter_names: HashMap<(DefinitionId, usize), String>,
@@ -56,7 +56,7 @@ pub(crate) fn lower(
         lowerer: Lowerer::new(cancel.clone()),
         declaration: metadata.records(),
 
-        paths,
+        paths: paths.importer(&metadata.records().identity),
         definitions: metadata.definitions(),
         correspondence: RegistrationMap::default(),
         parameter_names: HashMap::default(),

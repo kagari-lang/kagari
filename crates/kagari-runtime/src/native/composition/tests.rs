@@ -16,10 +16,18 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{module::BytecodeModule, program::ModuleRef};
 use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_contract::layout::{EnumLayout, EnumVariantLayout};
-use kagari_types::{scalar::BuiltinType, ty::NominalTy};
+use kagari_contract::{
+    layout::{EnumLayout, EnumVariantLayout},
+    types::PublicItem,
+};
+use kagari_types::{
+    declaration::{TypeDef, TypeDefKind, VariantDef},
+    language::binding,
+    scalar::BuiltinType,
+    ty::{GenericParam, NominalTy},
+};
 
 #[derive(Debug)]
 struct Unused;
@@ -36,10 +44,12 @@ impl PairPolicy for Unused {
 
 fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, VariantRef, VariantRef) {
     let definitions = DefinitionContext::new().unwrap();
-    let identity = ModuleIdentity::single_file("pair-origin.kgr");
+    let path = binding::result_declaration();
+    let declared = definitions.intern(&path).unwrap();
+    let identity = path.module;
     let root = definitions.intern_root(&identity).unwrap();
-    let declared = definitions
-        .intern_child(root, DefinitionKind::Enum, "Outcome", 0)
+    let ok = definitions
+        .intern_child(declared, DefinitionKind::Variant, "Ok", 0)
         .unwrap();
     let foreign = definitions
         .intern_child(root, DefinitionKind::Enum, "Other", 0)
@@ -64,17 +74,51 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
         .map(|(declaration, success, payload)| EnumLayout {
             declaration: *declaration,
             arguments: vec![success.clone(), payload.clone()],
-            variants: vec![EnumVariantLayout {
-                declaration: if *declaration == declared {
-                    error
-                } else {
-                    other
-                },
-                payload: vec![payload.clone()],
-                reports_failure: true,
-            }],
+            variants: if *declaration == declared {
+                vec![
+                    EnumVariantLayout {
+                        declaration: ok,
+                        payload: vec![success.clone()],
+                        reports_failure: false,
+                    },
+                    EnumVariantLayout {
+                        declaration: error,
+                        payload: vec![payload.clone()],
+                        reports_failure: true,
+                    },
+                ]
+            } else {
+                vec![EnumVariantLayout {
+                    declaration: other,
+                    payload: vec![payload.clone()],
+                    reports_failure: false,
+                }]
+            },
         })
         .collect();
+    let params = [0, 1].map(|position| GenericParam {
+        owner: declared,
+        position,
+    });
+    let result = TypeDef {
+        name: "Result".into(),
+        kind: TypeDefKind::Enum,
+        generic_params: params.to_vec(),
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![
+            VariantDef {
+                name: "Ok".into(),
+                reports_failure: false,
+                payload: vec![params[0].as_type()],
+            },
+            VariantDef {
+                name: "Err".into(),
+                reports_failure: true,
+                payload: vec![params[1].as_type()],
+            },
+        ],
+    };
     let owner_program = load_bytecode(
         runtime,
         "pair-origin",
@@ -84,6 +128,7 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
             modules: vec![BytecodeModule {
                 identity,
                 enumerations: layouts,
+                public_items: vec![PublicItem::Type(result)],
                 ..Default::default()
             }],
         }

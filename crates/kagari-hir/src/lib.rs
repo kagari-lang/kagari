@@ -33,9 +33,9 @@ use crate::analysis::source_preparation::ParsedModule;
 use crate::{
     analysis::{
         declarations::validate_attribute_names,
-        external::evidence::validate_host_surfaces,
         ownership::recover_invalid_identity,
         records::{DeclarationRecord, SignatureRecord},
+        registered_fields::{HostSurfaces, validate_host_surfaces},
         signatures::BodyEnvironment,
     },
     hir::ids::BodySelection,
@@ -44,7 +44,7 @@ use crate::{
         constants::ImportedConstants, functions::ImportedFunctions, statics::ImportedStatics,
         types::ImportedTypes,
     },
-    language::items as language_items,
+    language::{items as language_items, types::validate_constructors},
     resolver::{
         collect::{collect_declarations, resolve_bodies},
         resolved::ResolvedNames,
@@ -265,6 +265,7 @@ impl PreparedSignatures {
     /// Validates signature contracts that require all modules' aggregate declarations to exist.
     fn completed_signatures(
         &self,
+        host_surfaces: &HostSurfaces<'_>,
         aggregates: &aggregates::AggregateCatalog,
         cancel: &CancellationToken,
     ) -> Result<Option<Arc<AnalysisResult<typeck::ModuleSignatures>>>, Cancelled> {
@@ -284,6 +285,8 @@ impl PreparedSignatures {
         validate_host_surfaces(
             &self.lowered,
             self.record.signatures.facts(),
+            &self.record.declarations,
+            host_surfaces,
             &mut diagnostics,
             cancel,
         );
@@ -418,9 +421,15 @@ fn declare_analysis(
     let mut declarations = if lowered.source.module_identity().within_path_limit() {
         Declarations::collect_named(&lowered.source, &lowered, &names.facts, definitions, cancel)?
     } else {
-        Declarations::empty(&lowered, &names.facts, definitions)
+        Declarations::empty(&names.facts, definitions)
     };
     if lowered.source.module_identity().within_path_limit() {
+        validate_constructors(
+            &lowered.module,
+            &declarations,
+            &mut names.diagnostics,
+            cancel,
+        )?;
         declarations.language_items =
             language_items::collect(&lowered, &declarations, &mut names.diagnostics);
     }

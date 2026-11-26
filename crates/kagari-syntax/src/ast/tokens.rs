@@ -216,6 +216,8 @@ markers!(
     AwaitKw,
     /// The `native` keyword marking a Native function or type declaration.
     NativeKw,
+    /// The contextual identifier `host` between `native` and `type`.
+    HostModifier,
     /// The `fn` keyword introducing a function declaration or function type.
     FnKw,
     /// The `mod` keyword introducing a module declaration.

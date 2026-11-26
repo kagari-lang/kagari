@@ -267,12 +267,19 @@ pub(super) fn resolve_constraint(
     } else {
         None
     };
+    let inaccessible = resolved.ty.is_unresolved()
+        && resolved.target.is_none()
+        && context
+            .declarations
+            .trait_path_inaccessible(&lowered.module.type_ref(reference.ty).kind, cancel);
     table.insert_type_ref(reference.ty, resolved);
     let target = target.filter(|_| reason.is_none());
     table.insert_constraint(reference.ty, target.clone());
     if target.is_none() {
         diagnostics.push(
-            Diagnostic::error(if let Some(reason) = reason {
+            Diagnostic::error(if inaccessible {
+                DiagnosticKind::ImportNotPublic { path: name.clone() }
+            } else if let Some(reason) = reason {
                 DiagnosticKind::InvalidTraitReference {
                     trait_name: ty::display_type(&lowered.module, reference.ty),
                     reason,

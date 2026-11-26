@@ -4,10 +4,18 @@ use crate::test_support::standard::standard_library;
 use crate::{
     BytecodeArtifact,
     engine::{KagariEngine, packages::PackageBuildSet, source::CheckedModule},
-    error::EmbeddingError,
+    error::{CompilationPhase, EmbeddingError},
     program::Program,
+    update::Update,
 };
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{
+        DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+        map::DefinitionContext,
+    },
+};
+use kagari_hir::imports::environment::ImportEnvironment;
 use kagari_package::{
     filesystem::FilesystemSources,
     input::InputTree,
@@ -381,6 +389,116 @@ fn captured_packages_share_the_sdk_pipeline_and_select_current_calls() {
         isolated.package_fingerprint(inputs, &cancel).unwrap(),
         "fresh sessions retain only native providers"
     );
+}
+
+#[test]
+fn detached_emission_checks_the_captured_installation_pin_even_without_trait_uses() {
+    const ORIGINAL: &str = "pub trait Probe {}";
+    const CHANGED: &str = "pub trait Probe { fn extra(self) -> i32 { 1 } }";
+    let cancel = CancellationToken::default();
+    let package = |text: &str| {
+        let files = VirtualSources::new([
+            ("Kagari.toml".into(), Arc::from("[package]\nname = 'contracts'\nnamespace = 'tests/pins'\nversion = '1.0.0'")),
+            ("src/lib.kgr".into(), Arc::from(text)),
+        ], &cancel).unwrap();
+        capture(&files, "")
+    };
+    let authorized = package(ORIGINAL);
+    let changed = package(CHANGED);
+    let path = DefinitionPath {
+        module: ModuleIdentity {
+            package: authorized.root().family.package_id(),
+            path: vec![],
+        },
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Probe".into(),
+            occurrence: 0,
+        }],
+    };
+    let author = KagariEngine::default();
+    let configuration = |owner: &ProgramInputs| {
+        let checked = author.compile_package(owner, &cancel).unwrap();
+        let context = DefinitionContext::new().unwrap();
+        let verified = author
+            .emit_artifact(&checked, Default::default())
+            .unwrap()
+            .import_into(&context, &cancel)
+            .unwrap()
+            .into_records()
+            .into_verified(&Default::default(), &context, &cancel)
+            .unwrap();
+        let mut builder = KagariEngine::builder().unwrap();
+        let catalog = builder
+            .declarations()
+            .with_verified_modules(verified.bytecode(), [&path.module])
+            .unwrap();
+        let mut importer = ModuleBuilder::new("host::probe", &catalog).unwrap();
+        importer.reference_trait(&path).unwrap();
+        builder.install(importer.finish().unwrap()).unwrap();
+        builder.build().unwrap()
+    };
+    let old = configuration(&authorized);
+    let new = configuration(&changed);
+    let session = old.new_session(Default::default());
+    let old_key = old.package_fingerprint(&changed, &cancel).unwrap();
+    assert_eq!(
+        session.package_fingerprint(&changed, &cancel).unwrap(),
+        old_key
+    );
+    assert_ne!(new.package_fingerprint(&changed, &cancel).unwrap(), old_key);
+    // Declaration checking sees the actual owner, not the old installation's ABI.
+    let stale = session.compile_package(&changed, &cancel).unwrap();
+    let current = new.compile_package(&changed, &cancel).unwrap();
+    let base = old.compile_package(&authorized, &cancel).unwrap();
+    let prepared = old.prepare(&base, Default::default()).unwrap();
+    let executable = prepared.program().bytecode();
+    let importer = executable
+        .modules()
+        .iter()
+        .find(|m| m.identity.package.0 == "host")
+        .unwrap();
+    let [reference] = importer.trait_references.as_slice() else {
+        panic!("unused pin must still be emitted")
+    };
+    assert_eq!(
+        executable
+            .definitions()
+            .resolve(reference.declaration)
+            .unwrap()
+            .to_path(),
+        path
+    );
+    // The same installation must not pull an unselected importer into the executable.
+    session.set_import_environment(ImportEnvironment {
+        modules: [(path.module.clone(), Default::default())].into(),
+    });
+    let owner_only = session.compile_package(&authorized, &cancel).unwrap();
+    let artifact = session
+        .emit_artifact(&owner_only, Default::default())
+        .unwrap();
+    assert!(
+        artifact
+            .records()
+            .program
+            .modules
+            .iter()
+            .all(|m| m.identity != importer.identity)
+    );
+    let mut edit = Update::new();
+    edit.replace_file(&base.source_name, CHANGED);
+    drop(old);
+    drop(session);
+    assert!(new.emit_artifact(&current, Default::default()).is_ok());
+    for result in [
+        new.emit_artifact(&stale, Default::default()).map(|_| ()),
+        prepared.prepare_update(edit).map(|_| ()),
+    ] {
+        assert!(
+            matches!(result, Err(EmbeddingError::Compilation { phase: CompilationPhase::MirLowering, ref message }) if message.contains("source trait references differ") && message.contains("Probe")),
+            "{result:?}"
+        );
+    }
 }
 
 #[test]

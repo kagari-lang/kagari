@@ -628,11 +628,13 @@ node!(
     /// `<T>`, `bounds` stores `: Resource`, and `terminator` holds `;`. In
     /// `native type Counter { pub var value: i32 }`, `fields` holds the ordinary
     /// field list and `terminator` is absent. An optional `where_clause` precedes
-    /// either form. No equals token, alias target or storage implementation is invented.
+    /// either form. In `native host type Player;`, `host_modifier` retains the
+        /// contextual identifier; it describes handle identity, not a borrow policy.
     NativeTypeDef {
         attributes: Attributes,
         visibility: Visibility,
         native_keyword: Required<Token<tokens::NativeKw>>,
+        host_modifier: Option<Token<tokens::HostModifier>>,
         keyword: Required<Token<tokens::TypeKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,

@@ -27,8 +27,8 @@ remain withdrawn; no compatibility aliases are installed.
 
 ## Namespaces and prelude
 
-The [eleven packaged modules](../../library/core/src/lib.rs) are `core::{cmp,
-convert, default, fmt, hash, iter, ops, option, result, str}` and `alloc::string`.
+The [packaged modules](../../library/core/src/lib.rs) are `core::{cmp,
+convert, default, fmt, future, hash, iter, ops, option, result, str}` and `alloc::string`.
 Their explicit paths work without stdlib or a prelude. The other modules below
 require the optional bundle or a separately installed provider (`std::io`). The
 `std` re-exports preserve definition identities,
@@ -50,6 +50,7 @@ including associated members, constructors, documentation and navigation.
 | `core::future` | Cold single-drive Future |
 | `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
 | `alloc::string` | String scalar declaration; optional methods belong to `std::string` |
+| `alloc::string_defaults` | Optional `Default for String` implementation |
 | `std::collections` | List/MutableList, Map/MutableMap and Set/MutableSet interfaces |
 | `std::io` | Host-backed `print(String)` and `println(String)`, installed separately |
 
@@ -573,9 +574,8 @@ Use an explicit Option-returning get method for recoverable lookup failure.
 See [index.kgr](../../examples/syntax/index.kgr).
 
 These operator/ordering traits use the standard protocol identities described in
-[traits](traits.md#standard-protocol-identities). Implementations must belong to
-the script type's defining module. Standard traits and their descendants remain
-static-only; this does not change ordinary user-defined dynamic interfaces.
+[traits](traits.md#standard-protocol-identities). The [package orphan rule](traits.md#coherence-guidance)
+applies; locality does not waive protocol-specific receiver, signature or interface compatibility checks.
 
 ## Conversion protocols
 
@@ -586,8 +586,10 @@ identity. Distinct error conversion runs once on Err, never on Ok, and cannot se
 a chain of intermediate conversions. Conversion traps retain completed effects.
 
 `TryFrom<S>` declares `type Error` and `fn try_from(value: S) -> Result<Self, Self::Error>`.
-Define the forward conversion on the destination; either the source or destination
-type's owner may supply it. An explicit `From` impl cannot overlap the built-in
+The forward impl’s receiver is the destination and its trait argument is the source.
+The [package orphan rule](traits.md#coherence-guidance) checks them in that order;
+a conversion designation does not confer ownership. A [Host conversion](host-interop.md#host-conversions)
+uses the same type checking and method selection. An explicit `From` impl cannot overlap the built-in
 identity conversion.
 `core::convert` supplies the reverse methods as ordinary conditional Script impls:
 

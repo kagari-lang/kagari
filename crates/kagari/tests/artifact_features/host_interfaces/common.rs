@@ -1,11 +1,10 @@
 use crate::standard_library;
 use kagari::{BytecodeArtifact, engine::KagariEngine};
-use kagari_bytecode::program::ModuleRef;
+use kagari_bytecode::program::{ModuleRef, verified::VerifiedBytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
     metadata::DefinitionMetadata, table::DefinitionId,
 };
-use kagari_contract::types::PublicItem;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -16,7 +15,7 @@ use kagari_runtime::{
         declarations::FunctionDecl,
         host,
         module::NativeModule,
-        types::{TraitRef, Type, TypeRef},
+        types::{Type, TypeRef},
     },
     value::{kind::ObjectKind, view::ValueView},
 };
@@ -78,28 +77,20 @@ impl Fixture {
         + Sync
         + 'static,
     ) -> Self {
-        let contract = source_contract(&config.trait_source, config.owner);
-        let source = &contract.records().program.modules[contract.records().program.root.index()];
-        let path = DefinitionPath {
-            module: source.identity.clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Trait,
-                name: "Reader".into(),
-                occurrence: 0,
-            }],
-        };
+        let (mut module, owner) = pinned_builder(&config.trait_source, config.owner);
+        let path = trait_path(&owner, "Reader");
         let mut method = path.clone();
         method.path.push(DefinitionPathSegment {
             kind: DefinitionKind::Method,
             name: "read".into(),
             occurrence: 0,
         });
-        let catalog = standard_library().declarations().catalog();
-        let mut module = ModuleBuilder::new("demo", catalog).unwrap();
-        let reader = reference_trait(&mut module, &contract, "Reader");
-        let child = config
-            .child
-            .then(|| reference_trait(&mut module, &contract, "Child"));
+        let reader = module.reference_trait(&path).unwrap();
+        let child = config.child.then(|| {
+            module
+                .reference_trait(&trait_path(&owner, "Child"))
+                .unwrap()
+        });
         let mut counter = module.define_type("Counter").unwrap();
         counter
             .external(HostTypePolicy {
@@ -113,24 +104,28 @@ impl Fixture {
         let calls = trace.clone();
         module
             .implement(counter.clone(), |group| {
+                let receiver = group.receiver();
                 group.trait_impl(reader.apply(config.reader_arguments)?, |methods| {
-                    methods.associated_type("Item", (config.output)(&counter))?;
-                    methods.host_policy(
-                        "read",
-                        HostCallPolicy {
-                            passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
-                            effects: HostFunctionEffects {
-                                may_allocate: true,
-                                may_trap: true,
-                                may_call_host_services: true,
-                                may_mutate_host_state: true,
-                                ..Default::default()
-                            },
+                    let output = (config.output)(&counter);
+                    methods.associated_type("Item", output.clone())?;
+                    let read_method_policy = HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                        effects: HostFunctionEffects {
+                            may_allocate: true,
+                            may_trap: true,
+                            may_call_host_services: true,
+                            may_mutate_host_state: true,
+                            ..Default::default()
                         },
-                    )?;
-                    methods.bind(
-                        "read",
-                        host::callback(move |cx, args| {
+                    };
+                    let read_method = FunctionDecl::new("read")
+                        .parameter("self", receiver)
+                        .parameter("amount", Type::i32())
+                        .returns(output)
+                        .host_policy(read_method_policy.clone());
+                    methods.define_method(
+                        read_method,
+                        host::callback(read_method_policy, move |cx, args| {
                             let [receiver, amount] = args else {
                                 panic!("checked host arguments")
                             };
@@ -158,24 +153,25 @@ impl Fixture {
                 })
                 .unwrap();
         }
+        let make_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
         let make = module
             .define_function(
                 FunctionDecl::new("make")
                     .returns(counter.apply([]).unwrap())
-                    .host_policy(HostCallPolicy {
-                        passing: vec![],
-                        effects: HostFunctionEffects {
-                            may_allocate: true,
-                            ..Default::default()
-                        },
-                    }),
+                    .host_policy(make_policy.clone()),
             )
             .unwrap();
         let calls = trace.clone();
         module
             .bind(
                 make,
-                host::callback(move |cx, _| {
+                host::callback(make_policy, move |cx, _| {
                     calls.lock().unwrap().push(0);
                     let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
                     let root = cx.runtime_mut().host_root_value(root).unwrap();
@@ -260,10 +256,10 @@ pub fn register_root(runtime: &mut Runtime) -> HostRootHandle {
         .unwrap()
 }
 
-pub fn source_contract(
+pub fn pinned_builder(
     source: &str,
     owner: Option<ModuleIdentity>,
-) -> DefinitionMetadata<BytecodeArtifact> {
+) -> (ModuleBuilder, ModuleIdentity) {
     let author = KagariEngine::with_native_modules(
         Default::default(),
         standard_library().modules().unwrap(),
@@ -278,43 +274,28 @@ pub fn source_contract(
     let checked = author
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
-    author.emit_artifact(&checked, Default::default()).unwrap()
+    let artifact = author.emit_artifact(&checked, Default::default()).unwrap();
+    let baseline = VerifiedBytecodeProgram::from_metadata(
+        super::artifact_program(artifact),
+        &Default::default(),
+    )
+    .unwrap();
+    let owner = &baseline.program().modules[baseline.program().root.index()].identity;
+    let catalog = standard_library()
+        .declarations()
+        .catalog()
+        .with_verified_modules(&baseline, [owner])
+        .unwrap();
+    (ModuleBuilder::new("demo", &catalog).unwrap(), owner.clone())
 }
 
-pub fn reference_trait(
-    module: &mut ModuleBuilder,
-    contract: &DefinitionMetadata<BytecodeArtifact>,
-    name: &str,
-) -> TraitRef {
-    let source = &contract.records().program.modules[contract.records().program.root.index()];
-    let abi = source
-        .trait_contracts
-        .iter()
-        .find(|contract| contract.abi.name == name)
-        .map(|contract| contract.abi.clone())
-        .or_else(|| {
-            source.public_items.iter().find_map(|item| {
-                if let PublicItem::Trait(abi) = item {
-                    (abi.name == name).then(|| abi.clone())
-                } else {
-                    None
-                }
-            })
-        })
-        .unwrap();
-    let path = DefinitionPath {
-        module: source.identity.clone(),
+pub fn trait_path(owner: &ModuleIdentity, name: &str) -> DefinitionPath {
+    DefinitionPath {
+        module: owner.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: name.into(),
             occurrence: 0,
         }],
-    };
-    module
-        .reference_trait(
-            &path,
-            DefinitionMetadata::checked(contract.definitions().clone(), abi, &Default::default())
-                .unwrap(),
-        )
-        .unwrap()
+    }
 }

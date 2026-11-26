@@ -1,7 +1,7 @@
 //! Normalize producer inputs into ordinary module import scopes before graph construction.
 
 use crate::{
-    analysis::{AnalysisDatabase, error::AnalysisError},
+    analysis::{AnalysisDatabase, core_source, error::AnalysisError},
     imports::{
         LocalName,
         environment::{ImportEnvironment, ModuleScope},
@@ -9,14 +9,21 @@ use crate::{
     lower::LoweredModule,
     native::{api, paths::LibraryPaths},
 };
-use kagari_common::cancellation::CancellationToken;
-use kagari_source::package::PackageEnvironment;
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use kagari_source::{package::PackageEnvironment, source::SourceFile};
 use kagari_types::declaration::module::DeclarationError;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+
+struct Producer {
+    dependencies: BTreeSet<ModuleIdentity>,
+    prelude: bool,
+}
 
 impl AnalysisDatabase {
-    /// Replaces explicit module import scopes. Inputs contain no implementation authority.
-    /// Existing snapshots keep their selections; future queries rebuild semantic facts.
+    /// Replaces explicit module import scopes. An entry replaces all defaults for its
+    /// importer. Inline children inherit their enclosing scope unless explicitly selected;
+    /// separately supplied documents do not inherit by logical path prefix.
+    /// Existing snapshots keep their selections. Scopes grant no implementation authority.
     pub fn set_import_environment(&mut self, environment: ImportEnvironment) {
         self.import_environment = environment;
         self.environment_fingerprint.take();
@@ -29,85 +36,65 @@ impl AnalysisDatabase {
         paths: &LibraryPaths,
         cancel: &CancellationToken,
     ) -> Result<ImportEnvironment, AnalysisError> {
-        let modules = modules.into_iter().collect::<Vec<_>>();
-        let declared = modules
-            .iter()
-            .map(|module| module.source.module_identity().clone())
-            .collect::<BTreeSet<_>>();
-        let mut libraries = Vec::new();
+        let mut declared = BTreeMap::new();
+        let mut documents = BTreeMap::new();
+        for module in modules {
+            cancel.check()?;
+            let source = module.source.as_ref();
+            declared.insert(source.module_identity(), module);
+            documents.insert((source.origin_id(), source.module_identity()), source);
+        }
+        let mut producers = BTreeMap::new();
+        let adopted = self.definitions.snapshot();
         for metadata in &self.native_modules {
             cancel.check()?;
             let input = metadata.records();
-            let Some(lowered) = modules
-                .iter()
-                .find(|module| module.source.module_identity() == &input.identity)
-            else {
+            let Some(lowered) = declared.get(&input.identity) else {
                 continue;
             };
-            libraries.push((
-                input.identity.clone(),
-                input.prelude,
-                api::dependencies(metadata, &self.native_modules, paths, lowered, cancel)?,
-            ));
+            let dependencies = api::dependencies(metadata, lowered, &adopted, cancel);
+            cancel.check()?;
+            producers.insert(
+                &input.identity,
+                Producer {
+                    dependencies: dependencies?,
+                    prelude: input.prelude,
+                },
+            );
         }
-        for input in self.libraries.all() {
-            libraries.push((
-                input.source.module_identity().clone(),
-                input.prelude,
-                input.dependencies.clone(),
-            ));
+        for source in self.core.iter() {
+            cancel.check()?;
+            let owner = source.module_identity();
+            let resource = core_source::resource(owner).expect("bundled core owner");
+            producers.insert(
+                owner,
+                Producer {
+                    dependencies: resource
+                        .dependencies
+                        .iter()
+                        .map(|name| core_source::identity(name))
+                        .collect(),
+                    prelude: false,
+                },
+            );
         }
         let mut environment = self.import_environment.clone();
-        for module in modules {
+        // Within one physical document path order puts a parent before its inline children.
+        for (&(origin, identity), source) in &documents {
             cancel.check()?;
-            let identity = module.source.module_identity();
             if environment.modules.contains_key(identity) {
                 continue;
             }
-            let producer = libraries
-                .iter()
-                .find(|(owner, ..)| owner == identity)
-                .or_else(|| {
-                    libraries
-                        .iter()
-                        .filter(|(owner, ..)| {
-                            owner.package == identity.package
-                                && identity.path.starts_with(&owner.path)
-                        })
-                        .max_by_key(|(owner, ..)| owner.path.len())
-                });
-            let mut scope = ModuleScope {
-                packages: packages
-                    .scope(&identity.package)
-                    .cloned()
-                    .unwrap_or_default(),
-                ..Default::default()
+            let inherited = inline_parent(source)
+                .filter(|parent| documents.contains_key(&(origin, parent)))
+                .and_then(|parent| environment.scope(&parent));
+            let scope = match inherited {
+                Some(scope) => scope.clone(),
+                None => default_scope(identity, packages, paths, &producers, cancel)?,
             };
-            for (alias, package) in paths.bindings() {
-                if let Some(previous) = scope
-                    .packages
-                    .dependencies
-                    .insert(alias.clone(), package.clone())
-                    && &previous != package
-                {
-                    return Err(
-                        DeclarationError(format!("conflicting package binding {alias}")).into(),
-                    );
-                }
-            }
-            if producer.is_none() {
-                for (owner, prelude, _) in &libraries {
-                    scope.dependencies.insert(owner.clone());
-                    if *prelude {
-                        scope.preludes.insert(owner.clone());
-                    }
-                }
-            }
-            if let Some((_, _, dependencies)) = producer {
-                scope.dependencies.extend(dependencies.iter().cloned());
-            }
             environment.modules.insert(identity.clone(), scope);
         }
+        let declared_packages: BTreeSet<_> = declared.keys().map(|id| &id.package).collect();
         for (owner, scope) in &environment.modules {
             cancel.check()?;
             for (alias, target) in &scope.packages.dependencies {
@@ -116,7 +103,7 @@ impl AnalysisDatabase {
                 {
                     return Err(DeclarationError(format!("invalid package binding {alias}")).into());
                 }
-                if !declared.iter().any(|module| &module.package == target) {
+                if !declared_packages.contains(target) {
                     return Err(DeclarationError(format!(
                         "missing package {} of {owner}",
                         target.0
@@ -126,7 +113,7 @@ impl AnalysisDatabase {
             }
             for target in scope.dependencies.iter().chain(&scope.preludes) {
                 cancel.check()?;
-                if !declared.contains(target) {
+                if !declared.contains_key(target) {
                     return Err(DeclarationError(format!(
                         "missing dependency {target} of {owner}"
                     ))
@@ -136,4 +123,59 @@ impl AnalysisDatabase {
         }
         Ok(environment)
     }
+}
+
+fn inline_parent(source: &SourceFile) -> Option<ModuleIdentity> {
+    source.inline_range()?;
+    let mut parent = source.module_identity().clone();
+    parent.path.pop()?;
+    Some(parent)
+}
+
+fn default_scope(
+    identity: &ModuleIdentity,
+    packages: &PackageEnvironment,
+    paths: &LibraryPaths,
+    producers: &BTreeMap<&ModuleIdentity, Producer>,
+    cancel: &CancellationToken,
+) -> Result<ModuleScope, AnalysisError> {
+    let mut scope = ModuleScope {
+        packages: packages
+            .scope(&identity.package)
+            .cloned()
+            .unwrap_or_default(),
+        ..Default::default()
+    };
+    let producer = producers.get(identity);
+    if let Some(producer) = producer {
+        scope.dependencies.clone_from(&producer.dependencies);
+    } else {
+        for (&owner, producer) in producers {
+            cancel.check()?;
+            scope.dependencies.insert(owner.clone());
+            if producer.prelude {
+                scope.preludes.insert(owner.clone());
+            }
+        }
+    }
+    // Project defaults expose the supplied libraries. A producer's default spellings
+    // cover its own package and the packages its declaration closure selects.
+    for (alias, package) in paths.bindings() {
+        cancel.check()?;
+        if producer.is_some()
+            && package != &identity.package
+            && !scope.dependencies.iter().any(|id| &id.package == package)
+        {
+            continue;
+        }
+        if let Some(previous) = scope
+            .packages
+            .dependencies
+            .insert(alias.clone(), package.clone())
+            && &previous != package
+        {
+            return Err(DeclarationError(format!("conflicting package binding {alias}")).into());
+        }
+    }
+    Ok(scope)
 }

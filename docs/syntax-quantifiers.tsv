@@ -10,10 +10,11 @@ type_alias_item	1	?	visibility
 type_alias_item	2	?	generic_param_clause
 type_alias_item	3	?	where_clause
 native_type_item	1	?	visibility
-native_type_item	2	?	generic_param_clause
-native_type_item	3	?	supertrait_clause
-native_type_item	4	?	where_clause
-native_type_item	5	?	field_list
+native_type_item	2	?	("host")
+native_type_item	3	?	generic_param_clause
+native_type_item	4	?	supertrait_clause
+native_type_item	5	?	where_clause
+native_type_item	6	?	field_list
 struct_item	1	?	visibility
 enum_item	1	?	visibility
 trait_item	1	?	visibility

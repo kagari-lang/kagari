@@ -20,6 +20,7 @@ use crate::{
     declaration::{
         host::{HostCallPolicy, HostFieldPolicy, HostTypePolicy},
         native::{NativeStorageLayout, NativeTypeConstructor},
+        path::NativePathOperation,
         requirement::NativeCallableRequirement,
     },
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -45,6 +46,7 @@ pub struct FnDecl {
 /// methods absent from the public ABI. The function uses the same checked model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeDeclaration {
+    pub path_operation: Option<NativePathOperation>,
     /// Concrete value produced by Rust before a checked interface-result adapter.
     pub concrete_result: Option<Ty>,
     pub declaration: DefinitionId,
@@ -120,7 +122,7 @@ pub struct FieldDef {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantDef {
-    /// Library-authored failure reporting captures diagnostic origin on construction.
+    /// Portable failure-origin fact, verified against the canonical `Result::Err` schema.
     pub reports_failure: bool,
     pub name: String,
     pub payload: Vec<Ty>,

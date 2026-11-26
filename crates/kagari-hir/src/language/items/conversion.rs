@@ -33,7 +33,6 @@ pub(crate) fn relationship(
     };
     (method.name == "try_from"
         && method.default.is_none()
-        && method.policy.override_allowed
         && input.name != "self"
         && definitions.lookup_child(owner, DefinitionKind::AssociatedType, "Error", 0)
             == Some(*member)
@@ -64,31 +63,29 @@ mod tests {
     #[test]
     fn authored_try_from_rejects_a_different_result_constructor() {
         let cancel = Default::default();
-        let mut convert = packaged_modules()
+        let convert = packaged_modules()
             .iter()
-            .find(|m| *m.source.module_identity() == Protocol::From.module())
-            .unwrap()
-            .clone();
+            .find(|m| *m.module_identity() == Protocol::From.module())
+            .unwrap();
         // Both the forward method and its blanket still agree on a binary enum.
         // Agreement alone must not authorize that enum as the conversion result.
         let mut sources = SourceDatabase::default();
-        let uri = convert.source.name();
+        let uri = convert.name();
         sources
-            .bind_module(uri, convert.source.module_identity().clone())
+            .bind_module(uri, convert.module_identity().clone())
             .unwrap();
         let id = sources
             .set(
                 uri,
-                convert.source.text().replace(
+                convert.text().replace(
                     "use core::result::Result;",
                     "use core::ops::ControlFlow as Result;",
                 ),
                 SourceLayer::Base,
             )
             .unwrap();
-        convert.source = sources.snapshot().file(id).unwrap().clone();
         let mut db = AnalysisDatabase::new("/app").unwrap();
-        db.replace_core_fixture(convert);
+        db.replace_core_fixture(sources.snapshot().file(id).unwrap().clone());
         let snapshot = db.snapshot(SourceSnapshot::default(), &cancel).unwrap();
         let file = snapshot.file(id).unwrap();
         let definitions = file.definitions();
@@ -112,13 +109,13 @@ mod tests {
         let modules = packaged_modules();
         let convert = modules
             .iter()
-            .find(|m| *m.source.module_identity() == Protocol::From.module())
+            .find(|m| *m.module_identity() == Protocol::From.module())
             .unwrap();
         // Check the very same declarations under an ordinary owner. Only the
         // canonical module may claim From's lang attribute.
         let ordinary = Arc::new(SourceFile::new(
             "/app/convert.kgr",
-            convert.source.text().replace("#[lang = \"from\"]", ""),
+            convert.text().replace("#[lang = \"from\"]", ""),
         ));
         let mut db = AnalysisDatabase::new("/app").unwrap();
 
@@ -126,7 +123,7 @@ mod tests {
             .snapshot(SourceSnapshot::single_file(ordinary.clone()), &cancel)
             .unwrap();
         snapshot.check_program(ordinary.id(), &cancel).unwrap();
-        for (file, canonical) in [(convert.source.id(), true), (ordinary.id(), false)] {
+        for (file, canonical) in [(convert.id(), true), (ordinary.id(), false)] {
             let file = snapshot.file(file).unwrap();
             let definitions = file.definitions();
             let facts = file.result().facts();

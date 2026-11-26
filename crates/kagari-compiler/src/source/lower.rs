@@ -68,6 +68,7 @@ pub enum MirLoweringError {
     UnresolvedPlace(PlaceId),
     MissingBinding(&'static str),
     MissingHostDeclaration(DefinitionPath),
+    MissingHostPassingPolicy(DefinitionPath),
     UnsupportedExpr(&'static str),
     UnsupportedStatement(&'static str),
     InvalidLoopControl,
@@ -119,7 +120,7 @@ impl From<DefinitionMappingError> for MirLoweringError {
 /// states and their definition IDs must not be transferred between input contexts.
 pub(crate) struct ModuleLoweringInputs<'a> {
     compilation: &'a CheckedCompilation<'a>,
-    modules: &'a [CheckedModule<'a>],
+
     modules_by_handle: HashMap<ModuleHandle, &'a CheckedModule<'a>>,
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
@@ -146,7 +147,6 @@ impl<'a> ModuleLoweringInputs<'a> {
         Self {
             native_declarations,
             compilation,
-            modules,
             modules_by_handle,
             catalog,
             context,
@@ -214,7 +214,7 @@ pub fn module_contract(
     cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
     Ok(DefinitionMetadata::checked(
         module.environment().definitions().clone(),
-        abi::collect_module_abi(module),
+        abi::collect_module_abi(module)?,
         cancel,
     )?)
 }

@@ -165,21 +165,22 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
             let descriptor = HostPathDescriptorId::new(0);
             let root = runtime.host().root(HostObjectId(1)).unwrap();
             let mut entered = ModuleBuilder::new("fixture::effects", &Default::default()).unwrap();
+            let entry_policy = HostCallPolicy {
+                passing: vec![],
+                effects: HostFunctionEffects {
+                    may_trap: true,
+                    may_call_host_services: true,
+                    may_mutate_host_state: true,
+                    ..Default::default()
+                },
+            };
             let entry = entered
-                .define_function(FunctionDecl::new("entered").host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        may_call_host_services: true,
-                        may_mutate_host_state: true,
-                        ..Default::default()
-                    },
-                }))
+                .define_function(FunctionDecl::new("entered").host_policy(entry_policy.clone()))
                 .unwrap();
             entered
                 .bind(
                     entry,
-                    callback(move |call: &mut HostCallContext<'_>, _| {
+                    callback(entry_policy, move |call: &mut HostCallContext<'_>, _| {
                         let root_value = call.runtime_mut().host_root_value(root).unwrap();
                         call.runtime_mut()
                             .set_host_path(&root_value, descriptor, &[], &RootedValue::from(20i32))

@@ -1,25 +1,35 @@
 //! Engine configuration and sealed registration state.
 pub mod builder;
 #[cfg(feature = "source")]
-mod declarations;
+pub mod declarations;
 #[cfg(feature = "source")]
 pub mod packages;
 #[cfg(feature = "source")]
+mod pins;
+#[cfg(feature = "source")]
 pub mod source;
+#[cfg(feature = "source")]
+use crate::engine::pins::InstallationPins;
 use crate::{
     context::ExecutionContext, engine::builder::KagariEngineBuilder, error::EmbeddingError,
     runtime::Runtime,
 };
 #[cfg(feature = "source")]
-use kagari_hir::{analysis::AnalysisDatabase, native::render::DeclarationSource};
+use kagari_common::cancellation::CancellationToken;
+#[cfg(feature = "source")]
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     RuntimeConfig,
     native::{binding::NativeResult, installation::NativeInstallation, module::NativeModule},
 };
 #[cfg(feature = "source")]
-use kagari_source::source_database::SourceDatabase;
+use kagari_source::source_database::{SourceDatabase, SourceSnapshot};
 #[cfg(feature = "source")]
-use std::cell::RefCell;
+use std::{
+    cell::RefCell,
+    path::{self, PathBuf},
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct EngineConfig {
@@ -33,7 +43,9 @@ pub struct KagariEngine {
     #[cfg(feature = "source")]
     native_analysis: AnalysisDatabase,
     #[cfg(feature = "source")]
-    declaration_sources: Vec<DeclarationSource>,
+    pins: Arc<InstallationPins>,
+    #[cfg(feature = "source")]
+    declaration_cache: Option<PathBuf>,
     #[cfg(feature = "source")]
     sources: RefCell<SourceDatabase>,
     #[cfg(feature = "source")]
@@ -69,6 +81,17 @@ impl KagariEngine {
 
     fn from_builder(builder: KagariEngineBuilder) -> Result<Self, EmbeddingError> {
         #[cfg(feature = "source")]
+        let declaration_cache = builder
+            .declaration_cache
+            .as_ref()
+            .map(|root| {
+                path::absolute(root).map_err(|error| EmbeddingError::DeclarationCache {
+                    path: root.clone(),
+                    error,
+                })
+            })
+            .transpose()?;
+        #[cfg(feature = "source")]
         let sources = match &builder.source_root {
             Some(root) => {
                 SourceDatabase::new(root).map_err(|message| EmbeddingError::Source { message })?
@@ -76,14 +99,17 @@ impl KagariEngine {
             None => SourceDatabase::default(),
         };
         #[cfg(feature = "source")]
-        let (analysis, declaration_sources) = declarations::prepare(&builder, sources.root())?;
+        let analysis =
+            declarations::prepare(&builder, sources.root(), declaration_cache.as_deref())?;
         Ok(Self {
             config: builder.config,
             installation: builder.installation,
             #[cfg(feature = "source")]
             native_analysis: analysis.clone(),
             #[cfg(feature = "source")]
-            declaration_sources,
+            pins: Arc::new(InstallationPins::capture(&builder.modules)?),
+            #[cfg(feature = "source")]
+            declaration_cache,
             #[cfg(feature = "source")]
             sources: RefCell::new(sources),
             #[cfg(feature = "source")]
@@ -91,9 +117,22 @@ impl KagariEngine {
         })
     }
 
+    /// Render the installed Host API for an editor analyzing `project`.
+    ///
+    /// Supply authored project sources only, not an earlier export. The returned
+    /// import selections apply to these exact module owners. Document keys survive
+    /// edits to registered documentation; display paths point to immutable files
+    /// if publication was requested, and otherwise are virtual. No files are read
+    /// back as compiler inputs. Returns an error for unrepresentable declarations,
+    /// invalid import selections, cancellation, or failed filesystem publication.
     #[cfg(feature = "source")]
-    pub fn native_declaration_sources(&self) -> &[DeclarationSource] {
-        &self.declaration_sources
+    pub fn native_declaration_sources(
+        &self,
+        project: SourceSnapshot,
+        cancel: &CancellationToken,
+    ) -> Result<declarations::DeclarationSources, EmbeddingError> {
+        let snapshot = self.declarations(project, cancel)?;
+        declarations::export(&snapshot, self.declaration_cache.as_deref(), cancel)
     }
 
     pub fn config(&self) -> &EngineConfig {
@@ -114,7 +153,9 @@ impl KagariEngine {
             #[cfg(feature = "source")]
             native_analysis: self.native_analysis.clone(),
             #[cfg(feature = "source")]
-            declaration_sources: self.declaration_sources.clone(),
+            pins: self.pins.clone(),
+            #[cfg(feature = "source")]
+            declaration_cache: self.declaration_cache.clone(),
             #[cfg(feature = "source")]
             sources: RefCell::new(
                 SourceDatabase::new(self.sources.borrow().root()).expect("captured source root"),

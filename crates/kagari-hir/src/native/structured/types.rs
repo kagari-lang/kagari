@@ -114,7 +114,7 @@ impl StructuredLowerer<'_> {
                 .collect::<Vec<_>>()
                 .join("::")
         } else {
-            self.paths.definition_path(view)
+            self.paths.definition_path(view, &self.lowerer.cancel)?
         })
     }
 
@@ -227,7 +227,20 @@ impl StructuredLowerer<'_> {
         arguments: &[Ty],
         outputs: &BTreeMap<DefinitionId, Ty>,
     ) -> Result<TypeRefId, DeclarationError> {
-        let name = self.path(declaration)?;
+        // An exact type use need not have a source spelling in this importer.
+        // A public facade may be its only accessible exposure; lookup chooses it.
+        let view = self
+            .definitions
+            .resolve(declaration)
+            .map_err(|error| DeclarationError(error.to_string()))?;
+        let owner = view.module();
+        let mut parts = Vec::new();
+        if owner != &self.declaration.identity {
+            parts.push(owner.package.0.as_str());
+            parts.extend(owner.path.iter().map(String::as_str));
+        }
+        parts.extend(view.segments().map(|part| part.name));
+        let name = parts.join("::");
         let args = arguments
             .iter()
             .map(|ty| self.ty(ty))

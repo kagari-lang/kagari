@@ -344,22 +344,25 @@ pub async fn serial() -> i32 { probe(); val a=probe(); val b=probe(); probe()+a+
 "#;
     let mut f = Fixture::with_source(source, Default::default(), |engine| {
         let mut module = ModuleBuilder::new("test::context", engine.declarations()).unwrap();
+        let function_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_call_host_services: true,
+                ..Default::default()
+            },
+        };
         let function = module
-            .define_function(FunctionDecl::new("probe").returns(Type::i32()).host_policy(
-                HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_call_host_services: true,
-                        ..Default::default()
-                    },
-                },
-            ))
+            .define_function(
+                FunctionDecl::new("probe")
+                    .returns(Type::i32())
+                    .host_policy(function_policy.clone()),
+            )
             .unwrap();
         let random = random.clone();
         module
             .bind(
                 function,
-                host::callback(move |cx, _| {
+                host::callback(function_policy, move |cx, _| {
                     assert_eq!(cx.execution_time_millis().unwrap(), 123);
                     random
                         .lock()

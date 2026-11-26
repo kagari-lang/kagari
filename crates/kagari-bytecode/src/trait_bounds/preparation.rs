@@ -20,10 +20,7 @@ use kagari_contract::types::{
     },
 };
 use kagari_types::declaration::{TraitDef, ownership::ReceiverOwners};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 pub(crate) struct VerificationResources<'a> {
     pub modules: Vec<&'a BytecodeModule>,
@@ -31,7 +28,7 @@ pub(crate) struct VerificationResources<'a> {
     pub declarations: Vec<Vec<(DefinitionId, &'a TraitDef)>>,
     pub tables: Vec<Vec<&'a InterfaceTable>>,
     proofs: ProgramProofs<'a>,
-    owners: ReceiverOwners,
+
     scopes: HashMap<Vec<usize>, Arc<VerificationScope<'a>>>,
 }
 
@@ -83,7 +80,7 @@ impl<'a> VerificationResources<'a> {
             all_declarations.push(declarations);
             all_tables.push(tables);
         }
-        let owners = ReceiverOwners::from_types(modules.iter().flat_map(|module| {
+        ReceiverOwners::from_types(modules.iter().flat_map(|module| {
             module.public_items.iter().filter_map(|item| match item {
                 PublicItem::Type(ty) => Some((&module.identity, ty)),
                 _ => None,
@@ -98,17 +95,9 @@ impl<'a> VerificationResources<'a> {
             declarations: all_declarations,
             tables: all_tables,
             proofs,
-            owners,
+
             scopes: HashMap::new(),
         })
-    }
-
-    pub fn receiver_owners(&self, indices: &[usize]) -> ReceiverOwners {
-        let visible = indices
-            .iter()
-            .map(|index| &self.modules[*index].identity)
-            .collect::<HashSet<_>>();
-        self.owners.restricted_to(|module| visible.contains(module))
     }
 
     /// Reuse closure-wide admission only for the exact sorted module positions.
@@ -125,7 +114,7 @@ impl<'a> VerificationResources<'a> {
         if let Some(scope) = self.scopes.get(indices) {
             return Ok(scope.clone());
         }
-        let owners = self.receiver_owners(indices);
+
         let catalog = self
             .proofs
             .view(indices.iter().copied(), cancel)
@@ -135,7 +124,7 @@ impl<'a> VerificationResources<'a> {
             .map(|index| self.modules[*index])
             .collect::<Vec<_>>();
         if !catalog
-            .overrides_valid(&owners, cancel)
+            .overrides_valid(cancel)
             .map_err(|error| LinkedValidationError::from(error).into_verification())?
         {
             return Err(LinkedValidationError::Contract.into_verification());

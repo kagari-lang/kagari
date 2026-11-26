@@ -8,8 +8,10 @@ use crate::{
     value::carriers::RootedValue,
     value_check,
 };
-use kagari_bytecode::artifact::KbcArtifact;
-use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId};
+use kagari_bytecode::{artifact::KbcArtifact, program::verified::VerifiedBytecodeProgram};
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, table::DefinitionId,
+};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
@@ -20,6 +22,23 @@ use kagari_types::{
 };
 use std::{iter, slice, sync::Arc};
 
+fn compile_owner(
+    analysis: &mut AnalysisDatabase,
+    sources: &mut SourceDatabase,
+    text: &str,
+) -> VerifiedBytecodeProgram {
+    let root = sources
+        .set("interface-authority.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analysis
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let checked = snapshot.check_program(root, &Default::default()).unwrap();
+    let input = CheckedCompilation::from_program(&checked, &Default::default()).unwrap();
+    let mir = lower_program_to_mir(&input, &Default::default()).unwrap();
+    lower_program_to_bytecode(&mir, &Default::default()).unwrap()
+}
+
 fn fixture() -> (Runtime, VerifiedProgram, DefinitionId, DefinitionId) {
     let mut provider = ModuleBuilder::new("authority::bindings", &Default::default()).unwrap();
     let mut shared = provider.define_trait("Shared").unwrap();
@@ -29,27 +48,43 @@ fn fixture() -> (Runtime, VerifiedProgram, DefinitionId, DefinitionId) {
     let mut analysis = AnalysisDatabase::default();
     analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
     let mut sources = SourceDatabase::default();
-    let root = sources
-        .set(
-            "interface-authority.kgr",
-            include_str!("../../../tests/fixtures/native/interface-authority.kgr").into(),
-            SourceLayer::Base,
-        )
+    let baseline = compile_owner(
+        &mut analysis,
+        &mut sources,
+        "pub trait Counter { fn next(self) -> i32; } pub trait Sibling {}",
+    );
+    let owner = &baseline.program().modules[baseline.program().root.index()].identity;
+    let seed = provider
+        .catalog()
+        .with_verified_modules(&baseline, [owner])
         .unwrap();
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    let bytecode = lower_program_to_bytecode(&mir, &Default::default()).unwrap();
+    let path = DefinitionPath {
+        module: owner.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Counter".into(),
+            occurrence: 0,
+        }],
+    };
+    let mut reference = ModuleBuilder::new("authority::reference", &seed).unwrap();
+    reference.reference_trait(&path).unwrap();
+    let reference = reference.finish().unwrap();
+    assert_eq!(
+        reference
+            .required_source_traits()
+            .iter()
+            .collect::<Vec<_>>(),
+        [&path]
+    );
+    let bytecode = compile_owner(
+        &mut analysis,
+        &mut sources,
+        include_str!("../../../tests/fixtures/native/interface-authority.kgr"),
+    );
     let artifact =
         KbcArtifact::from_verified(bytecode, Default::default(), &Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
-    drop((artifact, mir, checked, snapshot, analysis, sources));
+    drop((artifact, baseline, analysis, sources));
 
     let mut runtime = Runtime::default();
     provider.install(&mut runtime).unwrap();
@@ -80,42 +115,30 @@ fn fixture() -> (Runtime, VerifiedProgram, DefinitionId, DefinitionId) {
             definitions.lookup_child(root, DefinitionKind::Trait, "Shared", 0)
         })
         .unwrap();
-    let contract = script
-        .public_items
-        .iter()
-        .find_map(|item| match item {
-            PublicItem::Trait(contract) if contract.name == "Counter" => Some(contract.clone()),
-            _ => None,
-        })
-        .unwrap();
-    let path = definitions.resolve(counter).unwrap().to_path();
-    let mut reference = ModuleBuilder::new("authority::reference", &provider.catalog()).unwrap();
-    reference
-        .reference_trait(
-            &path,
-            DefinitionMetadata::checked(definitions.clone(), contract, &Default::default())
-                .unwrap(),
-        )
-        .unwrap();
-    reference.finish().unwrap().install(&mut runtime).unwrap();
-    // A catalog entry is not provider authority: this is an imported script requirement.
+    reference.install(&mut runtime).unwrap();
+    // The compiled owner is a requirement, never an installed native trait.
     let catalog = &runtime.native_entries.catalog;
-    assert!(catalog.traits.get_id(counter).is_some());
+    assert!(catalog.traits.get_id(counter).is_none());
     assert!(!catalog.contains_module(definitions.resolve(counter).unwrap().module()));
     assert!(catalog.contains_module(definitions.resolve(shared).unwrap().module()));
-    // Even a provider of the same module does not own a merely referenced trait.
+    // An empty native provider cannot replace the independently selected source owner.
     let identity = &script.identity;
     let name = iter::once(identity.package.0.as_str())
         .chain(identity.path.iter().map(String::as_str))
         .collect::<Vec<_>>()
         .join("::");
-    ModuleBuilder::new(&name, &Default::default())
+    let collision = ModuleBuilder::new(&name, &Default::default())
         .unwrap()
         .finish()
         .unwrap()
         .install(&mut runtime)
-        .unwrap();
-    assert!(runtime.native_entries.catalog.contains_module(identity));
+        .unwrap_err();
+    assert!(
+        collision
+            .to_string()
+            .contains("conflicting verified/native module origin")
+    );
+    assert!(!runtime.native_entries.catalog.contains_module(identity));
     assert!(!runtime.native_entries.owned_traits.contains(&counter));
     assert!(runtime.native_entries.owned_traits.contains(&shared));
     (runtime, prepared, counter, shared)

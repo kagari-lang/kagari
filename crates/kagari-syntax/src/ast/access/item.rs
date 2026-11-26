@@ -254,6 +254,10 @@ impl<'a> Ast<'a, AssociatedType> {
 impl<'a> Ast<'a, NativeTypeDef> {
     optional_child!(field_list, FieldList, fields);
 
+    pub fn is_host(self) -> bool {
+        self.node.host_modifier.is_some()
+    }
+
     pub fn bounds(self) -> Option<Ast<'a, TraitBoundList>> {
         self.node
             .bounds

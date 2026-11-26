@@ -53,17 +53,16 @@ impl NamespaceCatalog {
         if let Some(exposure) = request.exposure {
             return Ok(self
                 .lookup_exposure(ctx, exposure, request.namespace, cancel)?
+                .hit()
                 .filter(|hit| matches(&hit.target))
                 .map(|hit| DefinitionSelection {
                     hit,
                     exposure: exposure.clone(),
                 }));
         }
-        let defining = DefinitionExposure {
-            module: view.module().clone(),
-            path: view.segments().map(|part| part.name.to_owned()).collect(),
-        };
-        if let Some(hit) = self.lookup_exposure(ctx, &defining, request.namespace, cancel)?
+        let defining = DefinitionExposure::defining(view);
+        if let LookupResult::Found(hit) =
+            self.lookup_exposure(ctx, &defining, request.namespace, cancel)?
             && matches(&hit.target)
         {
             return Ok(Some(DefinitionSelection {
@@ -74,13 +73,13 @@ impl NamespaceCatalog {
         self.public_exposure(ctx, request.namespace, matches, cancel)
     }
 
-    fn lookup_exposure(
+    pub(crate) fn lookup_exposure(
         &self,
         ctx: &LookupContext<'_>,
         exposure: &DefinitionExposure,
         namespace: NameNamespace,
         cancel: &CancellationToken,
-    ) -> Result<Option<LookupHit>, Cancelled> {
+    ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
         if exposure.path.is_empty()
             || exposure
@@ -88,21 +87,21 @@ impl NamespaceCatalog {
                 .iter()
                 .any(|part| part.is_empty() || part.contains("::"))
         {
-            return Ok(None);
+            return Ok(LookupResult::Missing);
         }
         let Some(module) = self.definitions.lookup_module(&exposure.module) else {
-            return Ok(None);
+            return Ok(LookupResult::Missing);
+        };
+        let Some(units) = self.modules.get(&module) else {
+            return Ok(LookupResult::Missing);
         };
         if !self.exposure_module_allowed(ctx, module)
             || !self.module_accessible(ctx, &module, cancel)?
         {
-            return Ok(None);
+            return Ok(LookupResult::Inaccessible(vec![]));
         }
-        let Some(units) = self.modules.get(&module) else {
-            return Ok(None);
-        };
         let [unit] = units.as_slice() else {
-            return Ok(None);
+            return Ok(LookupResult::Ambiguous(vec![]));
         };
         let root = LookupResult::Found(LookupHit {
             support: HashSet::default(),
@@ -110,9 +109,7 @@ impl NamespaceCatalog {
             target: ResolvedTarget::Namespace(NamespaceId::Module(*unit)),
             via: vec![],
         });
-        Ok(self
-            .resolve_path(ctx, root, &exposure.path, namespace, cancel)?
-            .hit())
+        self.resolve_path(ctx, root, &exposure.path, namespace, cancel)
     }
 
     /// An explicit module dependency also admits its exposed ancestors as lookup

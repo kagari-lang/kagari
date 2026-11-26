@@ -192,7 +192,7 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
         arguments: vec![],
         variants: vec![EnumVariantLayout {
             declaration: variant,
-            reports_failure: true,
+            reports_failure: false,
             payload: vec![Ty::Struct(nominal(structure))],
         }],
     });
@@ -224,7 +224,7 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
     ]));
     let output = render(&program(vec![owner]), &[(0, 0)], &builder.freeze());
     assert!(output.contains("field#0 layouts::Box::\"state\\n\" name=\"state\\n\" type=enum layouts::State visibility=pub(super) mutable=true"));
-    assert!(output.contains("variant#0 layouts::State::Failure reports_failure=true"));
+    assert!(output.contains("variant#0 layouts::State::Failure reports_failure=false"));
     assert!(output.contains("payload#0 type=struct layouts::Box"));
     assert!(output.contains("@0:slot#0 layouts::\"counter\\n\" name=\"counter\\n\" type=i64 physical=i64 visibility=private mutable=false supplier=@0 layouts initializer=@0:0 state=runtime-only"));
     assert_eq!(output.matches("  @0:struct#0").count(), 1);
@@ -392,6 +392,7 @@ fn interface_declaration(declaration: DefinitionId, interface: DefinitionId) -> 
 
 fn native_declaration(declaration: DefinitionId, binding: DefinitionId) -> NativeDeclaration {
     NativeDeclaration {
+        path_operation: None,
         declaration,
         concrete_result: Some(integer()),
         callable_requirements: vec![],
@@ -399,7 +400,6 @@ fn native_declaration(declaration: DefinitionId, binding: DefinitionId) -> Nativ
             name: "entry".into(),
             implementation: CallableImplementation::Native(binding),
             method_policy: MethodPolicy {
-                override_allowed: false,
                 receiver_access: Some(ReferenceAccess::Shared),
             },
             generic_params: vec![],

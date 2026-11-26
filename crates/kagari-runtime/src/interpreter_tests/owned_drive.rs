@@ -152,26 +152,29 @@ impl Wake for WakeCount {
 #[test]
 fn async_owned_drive_contract() {
     let mut builder = ModuleBuilder::new("test::drive", &Default::default()).unwrap();
+    let step_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: HostFunctionEffects {
+            may_trap: true,
+            may_call_host_services: true,
+            may_mutate_host_state: true,
+            ..Default::default()
+        },
+    };
     let step = builder
         .define_function(
             FunctionDecl::new("step")
                 .parameter("message", Type::scalar(BuiltinType::String))
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        may_call_host_services: true,
-                        may_mutate_host_state: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(step_policy.clone()),
         )
         .unwrap();
     let mut producer = builder.clone();
     producer
         .bind(
             step.clone(),
-            callback(|_: &mut HostCallContext<'_>, _| Ok(ValueView::unit())),
+            callback(step_policy.clone(), |_: &mut HostCallContext<'_>, _| {
+                Ok(ValueView::unit())
+            }),
         )
         .unwrap();
     let program = compile_with_provider(
@@ -196,21 +199,24 @@ fn async_owned_drive_contract() {
     builder
         .bind(
             step,
-            callback(move |context: &mut HostCallContext<'_>, args| {
-                let root = context.runtime().execution_root().unwrap();
-                assert!(
-                    context
-                        .runtime_mut()
-                        .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
-                        .is_err()
-                );
-                let arguments = context.retain_temporaries(&[]).unwrap();
-                let nested = reenter(context, &root, ping, arguments).unwrap();
-                assert_eq!(nested.as_i32(), Some(7));
-                let text = context.read_string(&args[0], str::to_owned).unwrap();
-                received.lock().unwrap().push(text);
-                Ok(ValueView::unit())
-            }),
+            callback(
+                step_policy,
+                move |context: &mut HostCallContext<'_>, args| {
+                    let root = context.runtime().execution_root().unwrap();
+                    assert!(
+                        context
+                            .runtime_mut()
+                            .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
+                            .is_err()
+                    );
+                    let arguments = context.retain_temporaries(&[]).unwrap();
+                    let nested = reenter(context, &root, ping, arguments).unwrap();
+                    assert_eq!(nested.as_i32(), Some(7));
+                    let text = context.read_string(&args[0], str::to_owned).unwrap();
+                    received.lock().unwrap().push(text);
+                    Ok(ValueView::unit())
+                },
+            ),
         )
         .unwrap();
     builder.finish().unwrap().install(&mut runtime).unwrap();

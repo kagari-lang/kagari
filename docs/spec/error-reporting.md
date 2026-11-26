@@ -5,8 +5,8 @@ This is the authoritative error-reporting contract. Errors remain ordinary
 
 ## Origin ownership and propagation
 
-Packaged core supplies the checked `reports_failure` fact for the `Err` variant
-of the [authored Result type](../../library/core/result.kgr). A newly constructed `Result::Err(e)` captures the current source location
+Only the checked `Err` member of the [canonical Result type](../../library/core/result.kgr)
+has the `reports_failure` layout bit. Neither a spelling nor an external flag grants it. A newly constructed `Result::Err(e)` captures the current source location
 and synchronous script stack, innermost frame first. The metadata belongs to the
 Result value, not to `e`. It records the original call stack, not a history of
 later propagation. A stored error can therefore report callers that have already

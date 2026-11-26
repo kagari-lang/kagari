@@ -5,7 +5,7 @@ use crate::source::{
     program::{candidate::CandidateInputs, scheduler::Scheduler, update_requests::RequestQueue},
     source_package::build_source_manifest,
 };
-use kagari_common::identity::{ModuleIdentity, metadata::DefinitionMetadata};
+use kagari_common::identity::{DefinitionPath, ModuleIdentity, metadata::DefinitionMetadata};
 use kagari_contract::{
     types::named::NamedDeclaration,
     updates::{
@@ -15,6 +15,7 @@ use kagari_contract::{
 };
 use kagari_hir::compile_input::program::CheckedCompilation;
 use kagari_mir::program::{ProgramError, VerifiedMirProgram};
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(test)]
 use std::time::Instant;
 
@@ -23,6 +24,7 @@ mod discovery;
 mod exports;
 mod interface_requests;
 mod scheduler;
+mod trait_requirements;
 mod update_records;
 mod update_requests;
 mod update_source;
@@ -46,11 +48,19 @@ impl From<ProgramError> for SourceProgramError {
     }
 }
 
+/// Mandatory foreign trait identities for each participating installed importer.
+/// Paths cross the installation/compilation identity boundary; signatures never do.
+/// The installer retains its independent expected contracts for source-free linking.
+#[derive(Debug, Default, Clone)]
+pub struct InstallationTraitRequirements {
+    pub by_importer: BTreeMap<ModuleIdentity, BTreeSet<DefinitionPath>>,
+}
+
 pub fn lower_program_to_mir(
     program: &CheckedCompilation<'_>,
     options: &MirLoweringOptions,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
-    lower_program(program, options, None)
+    lower_program_with_installation(program, options, &Default::default(), None)
 }
 
 /// Compile candidate code for all retained installation demands as well as new source.
@@ -63,12 +73,24 @@ pub fn lower_program_to_mir_with_demands(
     retained: &DefinitionMetadata<DemandEnvelope>,
     implementation_headers: &[NamedDeclaration],
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
-    lower_program(program, options, Some((retained, implementation_headers)))
+    lower_program_with_installation(
+        program,
+        options,
+        &Default::default(),
+        Some((retained, implementation_headers)),
+    )
 }
 
-fn lower_program(
+/// Lower the checked graph with mandatory installation identities, even when no
+/// declaration or instruction mentions them. The caller selects requirements for
+/// participating providers and includes their owners in the checked graph. Unknown
+/// importers or requirements without a foreign portable owner are errors.
+/// Retained update demands, if any, are independently scoped as in
+/// [`lower_program_to_mir_with_demands`].
+pub fn lower_program_with_installation(
     program: &CheckedCompilation<'_>,
     options: &MirLoweringOptions,
+    installation: &InstallationTraitRequirements,
     retained: Option<(&DefinitionMetadata<DemandEnvelope>, &[NamedDeclaration])>,
 ) -> Result<VerifiedMirProgram, SourceProgramError> {
     let context = program.definition_context();
@@ -120,6 +142,7 @@ fn lower_program(
     requests.layouts(layout_requests);
     let mut scheduler = Scheduler::new(program, &context, &root, options, requests);
     let inputs = CandidateInputs {
+        installation,
         root: &root,
         context: &context,
         options,

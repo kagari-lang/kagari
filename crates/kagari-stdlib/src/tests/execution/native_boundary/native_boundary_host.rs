@@ -139,7 +139,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         builder
             .bind(
                 echo,
-                host::callback(move |_, args| {
+                host::callback(host_policy(1), move |_, args| {
                     called.fetch_add(1, Ordering::SeqCst);
                     Ok(args[0])
                 }),
@@ -157,7 +157,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
         builder
             .bind(
                 output,
-                host::callback(move |cx, _| {
+                host::callback(host_policy(0), move |cx, _| {
                     called.fetch_add(1, Ordering::SeqCst);
                     cx.import(&bad_result)
                         .map_err(|error| HostError::new(error.to_string()))
@@ -240,7 +240,7 @@ fn composite_arguments_survive_callback_collection_and_reject_foreign_ownership(
     builder
         .bind(
             echo,
-            host::callback(move |cx, args| {
+            host::callback(host_policy(1), move |cx, args| {
                 called.fetch_add(1, Ordering::SeqCst);
                 cx.runtime_mut().collect_garbage().unwrap();
                 Ok(args[0])

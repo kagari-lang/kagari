@@ -138,6 +138,7 @@ impl Fixture {
                         parents: vec![],
                     }],
                     native_declarations: vec![NativeDeclaration {
+                        path_operation: None,
                         declaration,
                         concrete_result: None,
                         callable_requirements: vec![],

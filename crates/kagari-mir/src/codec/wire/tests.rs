@@ -246,7 +246,7 @@ fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() 
         encode_program(&decoded, &Default::default()).unwrap(),
         bytes
     );
-    for corruption in 0..4 {
+    for corruption in 0..5 {
         let mut invalid = module.clone();
         match corruption {
             0 => {
@@ -261,11 +261,18 @@ fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() 
                     position: 0,
                 }
             }
+            // Consistency between the layout and its template is not origin authority.
+            4 => {
+                invalid.abi.private_types[0].definition.variants[0].reports_failure = true;
+                invalid.enumerations[0].variants[0].reports_failure = true;
+            }
             _ => unreachable!(),
         }
+        let error = decode_program(&forged(&context, &[invalid]), &Default::default()).unwrap_err();
         assert!(
-            decode_program(&forged(&context, &[invalid]), &Default::default()).is_err(),
-            "corruption {corruption}"
+            matches!(&error, MirCodecError::Verification(error) if matches!(&error.kind,
+            ProgramErrorKind::Verification(error) if error.kind == MirVerificationErrorKind::InvalidPublicAbi)),
+            "corruption {corruption}: {error:?}"
         );
     }
 }

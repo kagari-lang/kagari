@@ -221,7 +221,12 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         }
     }
 
-    for path in module.path_declarations.iter() {
+    for path in module.path_declarations.iter().chain(
+        module
+            .native_declarations
+            .iter()
+            .filter_map(|d| d.path_operation.as_ref().map(|op| &op.path)),
+    ) {
         if !add(path.segments.len()) {
             return false;
         }
@@ -424,16 +429,26 @@ pub(super) fn module_abi_type_limit(
     {
         return false;
     }
-    if !module.path_declarations.iter().all(|path| {
-        path.segments.len() <= 256
-            && path.segments.iter().all(|segment| match segment {
-                HostPathSegmentDeclaration::Field(_) => true,
-                HostPathSegmentDeclaration::Index(index) => {
-                    valid(&index.collection) && valid(&index.index) && valid(&index.result)
-                }
-                HostPathSegmentDeclaration::Virtual(step) => valid(&step.result),
-            })
-    }) {
+    if !module
+        .path_declarations
+        .iter()
+        .chain(
+            module
+                .native_declarations
+                .iter()
+                .filter_map(|d| d.path_operation.as_ref().map(|op| &op.path)),
+        )
+        .all(|path| {
+            path.segments.len() <= 256
+                && path.segments.iter().all(|segment| match segment {
+                    HostPathSegmentDeclaration::Field(_) => true,
+                    HostPathSegmentDeclaration::Index(index) => {
+                        valid(&index.collection) && valid(&index.index) && valid(&index.result)
+                    }
+                    HostPathSegmentDeclaration::Virtual(step) => valid(&step.result),
+                })
+        })
+    {
         return false;
     }
     module

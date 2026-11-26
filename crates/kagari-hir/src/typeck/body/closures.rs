@@ -1,11 +1,10 @@
-//! Shared capture checks and callable boundaries for closures and async blocks.
+//! Callable boundaries and type inference for closures and async blocks.
 
 use crate::{
     hir::{
         expr::{ClosureParam, ExprKind},
         ids::ExprId,
     },
-    resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv, asynchronous as async_types,
         body::BodyChecker,
@@ -40,23 +39,7 @@ impl BodyChecker<'_> {
                 _ => unreachable!("capturing body"),
             };
         let name = if is_block { "async block" } else { "closure" };
-        for capture in self.names.closure_captures(expr_id) {
-            let captured = match capture {
-                ResolvedName::Local(id) => env.locals.get(id),
-                ResolvedName::Param(id) => env.params.get(id),
-                _ => None,
-            };
-            if let Some(ty) = captured
-                && ty.contains_host_value()
-            {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidClosureCapture {
-                        type_name: display_type_id(self.declarations.definitions(), ty),
-                    })
-                    .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
-                );
-            }
-        }
+
         let expected_params = match expected.filter(|_| !is_block) {
             Some(TypeId::Function { params, .. }) => Some(params.as_slice()),
             _ => None,
@@ -106,21 +89,7 @@ impl BodyChecker<'_> {
                 TypeId::Unknown
             };
             self.type_table.insert_local(param.local, ty.clone());
-            if is_async && ty.contains_host_value() {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
-                        type_name: display_type_id(self.declarations.definitions(), &ty),
-                    })
-                    .with_span(
-                        self.lowered
-                            .module
-                            .nodes
-                            .local(param.local)
-                            .origin
-                            .diagnostic_span(),
-                    ),
-                );
-            }
+
             closure_env.locals.insert(param.local, ty.clone());
             param_types.push(ty);
         }

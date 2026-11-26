@@ -3,7 +3,7 @@ use crate::{
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
         HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameAccess, HostFrameId,
-        HostFrameMark, HostObjectId,
+        HostFrameMark, HostObjectId, HostRegistryId, HostRootHandle,
     },
     metadata::TypeId,
     resource::ResourceState,
@@ -58,6 +58,23 @@ impl FrameBorrowRecord {
 }
 
 impl HostBorrowTable {
+    pub(crate) fn for_registry(registry: HostRegistryId) -> Self {
+        Self {
+            registry: Some(registry),
+            ..Self::default()
+        }
+    }
+
+    // Retention does not grant access. Even after parking, a consumer must
+    // authenticate the complete handle against the registry's live roots.
+    pub(crate) fn permits_root_retention(&self, root: HostRootHandle) -> bool {
+        self.registry == Some(root.owner) && !self.is_borrowed(root.object_id)
+    }
+
+    pub(super) fn is_borrowed(&self, object: HostObjectId) -> bool {
+        self.state.borrow().object_borrows.contains_key(&object)
+    }
+
     pub fn enter_frame(&self) -> Result<HostCallGuard<'_>, RuntimeError> {
         self.enter_frame_in(None)
     }

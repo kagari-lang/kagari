@@ -124,7 +124,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             .check_program(declared.source().id(), &Default::default())
             .unwrap();
         let input = compilation(&program);
-        let abi = collect_module_abi(input.module(input.root()).unwrap());
+        let abi = collect_module_abi(input.module(input.root()).unwrap()).unwrap();
         assert!(!abi.public_items.iter().any(|item| {
             matches!(item, PublicItem::Type(ty) if matches!(ty.name.as_str(), "Ref" | "RefMut"))
         }));
@@ -238,7 +238,7 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
             .unwrap();
         let input = compilation(&program);
         let checked = input.module(input.root()).unwrap();
-        let module = collect_module_abi(checked);
+        let module = collect_module_abi(checked).unwrap();
         if declared.source().module_identity() == &Protocol::From.module() {
             // The declaration of TryInto retains Self::Error even though its blanket
             // implementation returns the destination's TryFrom::Error.
@@ -321,7 +321,6 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                     Some(MethodDefault::Native(_)) => CallableImplementation::Native(method.id),
                 };
                 assert_eq!(record.methods[slot].implementation, expected);
-                assert_eq!(record.methods[slot].method_policy, method.policy);
             }
             assert!(contracts.insert(id, record.clone()).is_none());
         }
@@ -388,7 +387,7 @@ fn every_installed_callable_and_public_contract_passes_portable_validation() {
             .check_program(declared.source().id(), &Default::default())
             .unwrap();
         let input = compilation(&program);
-        let abi = collect_module_abi(input.module(input.root()).unwrap());
+        let abi = collect_module_abi(input.module(input.root()).unwrap()).unwrap();
         let identity = declared.source().module_identity();
         named_verify::validate(
             &abi.named_declarations,

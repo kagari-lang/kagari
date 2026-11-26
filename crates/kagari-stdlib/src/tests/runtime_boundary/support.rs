@@ -1,7 +1,7 @@
+use crate::tests::support::lower_for_installation;
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, compile_input::program::CheckedCompilation};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::native::module::NativeModule;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use std::sync::Arc;
@@ -30,12 +30,5 @@ pub(super) fn compile_program(
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
-    let mir = lower_program_to_mir(
-        &CheckedCompilation::from_program(&checked, &Default::default()).unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap()
+    lower_for_installation(&checked, modules)
 }

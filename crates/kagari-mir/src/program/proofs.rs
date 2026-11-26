@@ -13,15 +13,10 @@ use kagari_contract::types::{
     },
 };
 use kagari_types::{declaration::ownership::ReceiverOwners, ty::substitution::TypeTransformError};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 pub(super) struct ProofResources<'a> {
-    modules: &'a [ValidatedMirModule],
     proofs: ProgramProofs<'a>,
-    owners: ReceiverOwners,
     scopes: HashMap<Vec<usize>, Arc<ProofCatalog<'a>>>,
 }
 
@@ -72,7 +67,7 @@ impl<'a> ProofResources<'a> {
                 native_declarations: module.abi.native_declarations.iter().collect(),
             });
         }
-        let owners = ReceiverOwners::from_types(modules.iter().flat_map(|module| {
+        ReceiverOwners::from_types(modules.iter().flat_map(|module| {
             module
                 .abi
                 .public_items
@@ -84,8 +79,6 @@ impl<'a> ProofResources<'a> {
         }))
         .map_err(|_| TypeTransformError::InvalidContract)?;
         Ok(Self {
-            modules,
-            owners,
             proofs: ProgramProofs::new(records, definitions, cancel)?,
             scopes: HashMap::new(),
         })
@@ -102,13 +95,9 @@ impl<'a> ProofResources<'a> {
         if let Some(catalog) = self.scopes.get(&indices) {
             return Ok(catalog.clone());
         }
-        let visible = indices
-            .iter()
-            .map(|index| &self.modules[*index].identity)
-            .collect::<HashSet<_>>();
-        let owners = self.owners.restricted_to(|module| visible.contains(module));
+
         let catalog = self.proofs.view(indices.iter().copied(), cancel)?;
-        if !catalog.overrides_valid(&owners, cancel)? {
+        if !catalog.overrides_valid(cancel)? {
             return Err(TypeTransformError::InvalidContract);
         }
         let catalog = Arc::new(catalog);

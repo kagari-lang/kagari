@@ -5,8 +5,9 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, scoped::DefinitionReferences, table::DefinitionId},
+    identity::{DefinitionKind, DefinitionPath, scoped::DefinitionReferences, table::DefinitionId},
 };
+use kagari_contract::decode_limits::MAX_NESTED_RECORDS;
 use kagari_types::{
     declaration::native::NativeTypeConstructor,
     declaration::path::HostPathSegmentDeclaration,
@@ -207,13 +208,6 @@ impl DeclarationCatalog {
         for module in modules {
             references.pending.extend(
                 module
-                    .trait_references
-                    .keys()
-                    .copied()
-                    .map(Reference::Trait),
-            );
-            references.pending.extend(
-                module
                     .paths
                     .iter()
                     .map(|path| Reference::External(path.root)),
@@ -244,9 +238,10 @@ impl DeclarationCatalog {
         &self,
         base: &DependencyClosure,
         module: &ModuleDecl,
+        required_traits: &mut BTreeSet<DefinitionPath>,
         declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
     ) -> Result<Self, RuntimeError> {
-        if self.authored.is_empty() {
+        if self.authored.is_empty() && required_traits.is_empty() {
             return self.binding_dependencies(base, declarations);
         }
         let mut seed = base.clone();
@@ -257,6 +252,18 @@ impl DeclarationCatalog {
         }
         let definitions = self.definitions();
         let mut references = References::default();
+        for path in required_traits.iter() {
+            let id = definitions
+                .lookup(path)
+                .filter(|id| self.is_source_requirement(*id, &module.identity))
+                .ok_or_else(|| {
+                    RuntimeError::metadata_conflict(
+                        "missing verified public source trait requirement",
+                    )
+                })?;
+            references.pending.push(Reference::Trait(id));
+        }
+        let mut used_traits = BTreeSet::new();
         module
             .visit_definition_ids(
                 &mut |id| {
@@ -272,6 +279,7 @@ impl DeclarationCatalog {
                                 break;
                             }
                             if self.traits.get_id(id).is_some() {
+                                used_traits.insert(id);
                                 references.pending.push(Reference::Trait(id));
                                 break;
                             }
@@ -283,6 +291,23 @@ impl DeclarationCatalog {
                 &CancellationToken::default(),
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        // Direct uses owe a portable record. The transitive proof closure and unrelated
+        // siblings in the verified owner are not additional importer references.
+        for id in used_traits {
+            if self.is_source_requirement(id, &module.identity) {
+                required_traits.insert(
+                    definitions
+                        .resolve(id)
+                        .expect("visited definition")
+                        .to_path(),
+                );
+            }
+        }
+        if required_traits.len() > MAX_NESTED_RECORDS {
+            return Err(RuntimeError::metadata_conflict(
+                "too many source trait requirements",
+            ));
+        }
         for declaration in declarations {
             references.declaration(declaration)?;
         }

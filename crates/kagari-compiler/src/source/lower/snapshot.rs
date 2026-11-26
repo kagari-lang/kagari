@@ -5,9 +5,8 @@ use crate::source::lower::{
     instances::MirLoweringOptions, verification_error,
 };
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_contract::{host as module_host, types::identity};
+use kagari_contract::types::identity;
 use kagari_mir::{function::MirModule, ids::InstanceId, verify::verify_mir};
-use std::iter;
 
 impl ModuleLowering {
     /// Copy unoptimized products and independently verify a fresh module candidate.
@@ -46,62 +45,10 @@ impl ModuleLowering {
             bridge.id = InstanceId::new(functions.len());
             functions.push(bridge);
         }
-        let mut host_types = self.instances.host_types.clone();
-        host_types.extend(
-            module_host::references(
-                &products.abi.public_items,
-                products.structures,
-                products.enumerations,
-                &available.cancel,
-            )
-            .map_err(|_| MirLoweringError::Cancelled)?,
-        );
-        host_types.extend(
-            module_host::type_references(
-                products
-                    .abi
-                    .native_declarations
-                    .iter()
-                    .flat_map(|declaration| {
-                        declaration
-                            .function
-                            .params
-                            .iter()
-                            .map(|param| &param.ty)
-                            .chain(iter::once(&declaration.function.return_type))
-                    })
-                    .chain(products.native_targets.iter().flat_map(|import| {
-                        import
-                            .signature
-                            .params
-                            .iter()
-                            .chain(iter::once(&import.signature.result))
-                    }))
-                    .chain(functions.iter().flat_map(|function| {
-                        function
-                            .semantic
-                            .params
-                            .values()
-                            .chain(function.semantic.result.iter())
-                            .chain(function.semantic.locals.values())
-                            .chain(function.semantic.registers.values())
-                    })),
-                &available.cancel,
-            )
-            .map_err(|_| MirLoweringError::Cancelled)?,
-        );
-        let external_types = host::collect(
-            module,
-            inputs.modules,
-            host_types,
-            &functions,
-            &available.cancel,
-            &inputs.context.snapshot(),
-        )?;
-        let mir = MirModule {
+        let mut mir = MirModule {
             native_targets: products.native_targets.to_vec(),
             interface_instances: products.interface_instances.to_vec(),
-            external_types,
+            external_types: Vec::new(),
             dependencies: inputs
                 .compilation
                 .dependencies(module.handle())
@@ -124,6 +71,8 @@ impl ModuleLowering {
             abi: products.abi.clone(),
             functions,
         };
+        mir.external_types =
+            host::collect(inputs, &self.instances.host_types, &mir, &available.cancel)?;
         identity::collect(
             &mir.identity,
             &mir.abi.public_items,

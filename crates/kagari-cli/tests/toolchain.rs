@@ -44,6 +44,7 @@ fn std_io_writes_exact_stdout_from_source_and_artifact() {
 
     let emitted = project.run(&["emit", "output.kgr", "-o", "output.kbc"]);
     assert!(emitted.status.success(), "{emitted:?}");
+    assert!(!project.0.join("target/kagari-declarations").exists());
     fs::remove_file(project.0.join("output.kgr")).unwrap();
     let artifact = project.run(&["run-artifact", "output.kbc"]);
     assert!(artifact.status.success(), "{artifact:?}");

@@ -104,9 +104,6 @@ impl DefinitionReferences for Declarations {
             check_cancel(cancel)?;
             visit(value0)?;
         }
-        for value0 in self.host_types.values() {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
 
         Ok(())
     }

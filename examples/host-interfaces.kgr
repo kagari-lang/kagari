@@ -5,6 +5,7 @@ use demo::{Counter, make};
 
 pub trait Reader {
     type Item: Eq + Hash;
+
     fn read(self, amount: i32) -> Self::Item;
 }
 

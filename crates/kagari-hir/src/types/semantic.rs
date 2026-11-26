@@ -1,6 +1,13 @@
 //! Convert checked HIR types to source-independent semantic facts in the same scope.
 use crate::types::{GenericParameterType, NominalType, TypeId};
-use kagari_types::ty::{NominalTy, Ty, matching::impl_headers_overlap};
+use kagari_common::identity::{
+    ModuleIdentity,
+    table::{DefinitionId, DefinitionTable},
+};
+use kagari_types::{
+    declaration::ownership::trait_impl_orphan_error,
+    ty::{NominalTy, Ty, matching::impl_headers_overlap},
+};
 
 /// The input patterns of one resolved implementation, lowered once per coherence pass.
 /// Bounds and associated outputs do not distinguish implementations.
@@ -15,6 +22,21 @@ impl ImplHeader {
             receiver: lower_type(receiver),
             arguments: arguments.iter().map(lower_type).collect(),
         }
+    }
+
+    pub(crate) fn orphan_error(
+        &self,
+        module: &ModuleIdentity,
+        definitions: &DefinitionTable,
+        interface: DefinitionId,
+    ) -> Option<&'static str> {
+        trait_impl_orphan_error(
+            module,
+            definitions,
+            interface,
+            &self.receiver,
+            &self.arguments,
+        )
     }
 
     pub(crate) fn overlaps(&self, other: &Self) -> bool {

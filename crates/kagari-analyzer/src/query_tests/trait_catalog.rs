@@ -1,5 +1,5 @@
 use crate::query_tests::native_fixture as fixture;
-use crate::query_tests::{render_native, standard_modules};
+use crate::query_tests::{publish_native_documents, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::{
@@ -30,28 +30,25 @@ fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
 }
 
 fn analyze(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnapshot {
-    let providers = standard_modules()
-        .into_iter()
-        .chain([fixture::module()])
-        .collect::<Vec<_>>();
-    let views = providers
-        .iter()
-        .map(|provider| render_native(provider, &providers))
-        .collect();
-    db.set_native_sources(providers, views).unwrap();
     db.snapshot(sources.snapshot(), &Default::default())
         .unwrap()
 }
 
 #[test]
-fn native_and_script_defaults_keep_source_identity_and_override_policy() {
+fn native_and_script_defaults_keep_source_identity() {
     let mut sources = SourceDatabase::default();
     let root = insert(
         &mut sources,
         "root",
         "use demo::bindings::NativeRead; trait Local { fn required(self) -> i32; fn map(self) -> i32 { 1 } fn join(self) -> i32 { 2 } } struct Point {} impl Local for Point { fn required(self) -> i32 { 3 } fn join(self) -> i32 { 4 } }",
     );
-    let snapshot = analyze(&mut test_analysis(), &sources);
+    let providers = standard_modules()
+        .into_iter()
+        .chain([fixture::module()])
+        .collect::<Vec<_>>();
+    let (mut editor, views) = publish_native_documents(&mut sources, &providers);
+    let fixture_view = views.last().unwrap();
+    let snapshot = analyze(&mut editor, &sources);
     let file = snapshot.file(root).unwrap();
     assert!(
         file.result().diagnostics().is_empty(),
@@ -68,28 +65,23 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
     assert_eq!(local.methods[0].default, None);
     for method in &local.methods[1..] {
         assert_eq!(method.default, Some(MethodDefault::Script));
-        assert!(method.allows_override());
         assert_eq!(method.declaration.source_location().unwrap().file, root);
     }
     let iterator = catalog
         .traits()
         .find(|item| item.declaration.name == "NativeRead")
         .unwrap();
-    for (name, overridable) in [("read", true), ("fixed", false)] {
+    for name in ["read", "fixed"] {
         let method = iterator
             .methods
             .iter()
             .find(|method| method.name == name)
             .unwrap();
         assert_eq!(method.default, Some(MethodDefault::Script));
-        assert_eq!(method.allows_override(), overridable);
         let source = snapshot
             .source(method.declaration.source_location().unwrap().file)
             .unwrap();
-        assert_eq!(
-            source.name(),
-            render_native(&fixture::module(), &standard_modules()).uri
-        );
+        assert_eq!(source.name(), fixture_view.uri);
         let native = snapshot
             .file(method.declaration.source_location().unwrap().file)
             .unwrap();

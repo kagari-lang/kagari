@@ -47,7 +47,7 @@ fn expected_modules(names: &[&str]) -> Vec<ModuleIdentity> {
     expected.extend(
         packaged_modules()
             .iter()
-            .map(|input| input.source.module_identity().clone()),
+            .map(|input| input.module_identity().clone()),
     );
     expected.sort();
     expected
@@ -506,6 +506,18 @@ fn duplicate_source_and_structured_module_owners_are_rejected() {
             .diagnostics()
             .is_empty()
     );
+    db.set("mem://api", "pub mod child {}".into(), SourceLayer::Overlay)
+        .unwrap();
+    let ambiguous = analysis
+        .declarations(db.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        ambiguous.file(root).unwrap().diagnostics().iter().any(|d| {
+            matches!(&d.kind, DiagnosticKind::AmbiguousImport { path } if path == "pkg::api::child")
+        }),
+        "{:?}",
+        ambiguous.file(root).unwrap().diagnostics()
+    );
     analysis.set_native_modules(modules);
     let error = analysis
         .snapshot(db.snapshot(), &Default::default())
@@ -637,6 +649,124 @@ fn declared_source_aliases_cannot_conflict_with_supplied_package_bindings() {
             "right"
         );
     }
+}
+
+#[test]
+fn importer_scopes_bind_producer_aliases_only_for_selected_packages() {
+    let mut exports = SourceDatabase::default();
+    let bridge = insert(&mut exports, "bridge", "pub use core::Token;");
+    let token = exports
+        .set(
+            "foreign.kgr",
+            "pub struct Token {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let inputs = exports.snapshot();
+    let target = inputs.file(token).unwrap().module_identity().clone();
+    let mut db = AnalysisDatabase::default();
+    db.set_import_environment(environment::ImportEnvironment {
+        modules: [(
+            identity("bridge"),
+            environment::ModuleScope {
+                packages: PackageScope {
+                    dependencies: [("core".into(), target.package.clone())].into(),
+                    selection: "bridge".into(),
+                },
+                dependencies: [target].into(),
+                ..Default::default()
+            },
+        )]
+        .into(),
+    });
+    let snapshot = db.declarations(inputs, &Default::default()).unwrap();
+    let file = snapshot.file(bridge).unwrap();
+    assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+    let [directive] = file.names().imports.directives.as_slice() else {
+        panic!("expected one re-export")
+    };
+    assert!(
+        matches!(directive.resolution.target(), Some(ResolvedTarget::Source(source)) if source.unit.file == token)
+    );
+}
+
+#[test]
+fn importer_scopes_follow_inline_owners_not_logical_path_prefixes() {
+    let mut sources = SourceDatabase::default();
+    insert(
+        &mut sources,
+        "producer",
+        include_str!("../../tests/fixtures/analysis/external/inline_scopes.kgr"),
+    );
+    let scopes = ["left", "right"].map(|name| {
+        let target = ModuleIdentity {
+            package: PackageId(name.into()),
+            path: vec![],
+        };
+        sources.bind_module(name, target.clone()).unwrap();
+        sources
+            .set(name, "pub struct Token {}".into(), SourceLayer::Base)
+            .unwrap();
+        environment::ModuleScope {
+            packages: PackageScope {
+                dependencies: [("selected".into(), target.package.clone())].into(),
+                selection: name.into(),
+            },
+            dependencies: [target.clone()].into(),
+            preludes: [target].into(),
+        }
+    });
+    insert(&mut sources, "producer::separate", "");
+    let mut db = AnalysisDatabase::default();
+    db.set_import_environment(environment::ImportEnvironment {
+        modules: [
+            (identity("producer"), scopes[0].clone()),
+            (identity("producer::switched"), scopes[1].clone()),
+            (
+                identity("producer::separate"),
+                environment::ModuleScope {
+                    dependencies: [identity("producer")].into(),
+                    preludes: [identity("producer")].into(),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into(),
+    });
+    let snapshot = db
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let graph = snapshot.module_graph();
+    for (name, scope) in [
+        ("producer::inherited", &scopes[0]),
+        ("producer::switched::nested", &scopes[1]),
+    ] {
+        let importer = identity(name);
+        assert_eq!(graph.catalog.environment.scope(&importer), Some(scope));
+        let file = snapshot
+            .files()
+            .find(|file| file.source().module_identity() == &importer)
+            .unwrap();
+        assert!(file.diagnostics().is_empty(), "{:?}", file.diagnostics());
+        let [directive] = file.names().imports.directives.as_slice() else {
+            panic!("expected one re-export")
+        };
+        let Some(ResolvedTarget::Source(target)) = directive.resolution.target() else {
+            panic!("expected source Token")
+        };
+        assert_eq!(
+            graph.catalog.identity(target.unit.module).package,
+            scope.packages.dependencies["selected"]
+        );
+    }
+    let separate = graph
+        .catalog
+        .environment
+        .scope(&identity("producer::separate"))
+        .unwrap();
+    assert!(!separate.packages.dependencies.contains_key("selected"));
+    assert!(separate.dependencies.contains(&identity("producer")));
+    assert_eq!(separate.preludes, [identity("producer")].into());
 }
 
 #[test]

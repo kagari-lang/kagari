@@ -83,15 +83,31 @@ impl NativeTypeConstructor {
 
     /// Language constructors have fixed declaration owners, independent of registration.
     pub fn from_definition(id: DefinitionId, definitions: &DefinitionTable) -> Option<Self> {
-        if language_type(id, definitions, "kagari-alloc", "string", "String") {
-            return Some(Self::String);
+        let view = definitions.resolve(id).ok()?;
+        let part = view.last()?;
+        if part.kind != DefinitionKind::AssociatedType
+            || part.occurrence != 0
+            || view.segments().count() != 1
+        {
+            return None;
         }
-        for kind in RangeKind::ALL {
-            if language_type(id, definitions, "kagari-core", "ops", kind.name()) {
-                return Some(Self::Range(kind));
-            }
+        Self::reserved_name(view.module(), part.name)
+    }
+
+    /// The reserved slot for a top-level Native declaration, not proof that the
+    /// definition has the required kind, occurrence or shape.
+    pub fn reserved_name(owner: &ModuleIdentity, name: &str) -> Option<Self> {
+        let [module] = owner.path.as_slice() else {
+            return None;
+        };
+        match (owner.package.0.as_str(), module.as_str()) {
+            ("kagari-alloc", "string") if name == "String" => Some(Self::String),
+            ("kagari-core", "ops") => RangeKind::ALL
+                .into_iter()
+                .find(|kind| kind.name() == name)
+                .map(Self::Range),
+            _ => None,
         }
-        None
     }
 
     pub fn arity(self) -> usize {
@@ -107,7 +123,8 @@ impl NativeTypeConstructor {
     }
 
     pub fn shape_valid(self, declaration: &TypeDef) -> bool {
-        declaration.fields.is_empty()
+        declaration.bounds.is_empty()
+            && declaration.fields.is_empty()
             && declaration.variants.is_empty()
             && declaration.generic_params.len() == self.arity()
     }

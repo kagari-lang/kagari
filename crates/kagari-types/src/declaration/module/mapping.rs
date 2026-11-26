@@ -70,6 +70,12 @@ impl RemapDefinitions for ModuleDecl {
             package_alias: self.package_alias.clone(),
             dependencies: self.dependencies.clone(),
             types: map_sequence(&self.types, |value| (value).remap_definitions(mapper))?,
+            path_operations: map_entries(
+                self.path_operations.len(),
+                self.path_operations
+                    .iter()
+                    .map(|(id, op)| Ok((mapper.reference(id)?, op.remap_definitions(mapper)?))),
+            )?,
             paths: map_sequence(&self.paths, |value| value.remap_definitions(mapper))?,
             variant_exports: self.variant_exports.clone(),
             exports: map_entries(
@@ -79,12 +85,6 @@ impl RemapDefinitions for ModuleDecl {
                     .map(|(name, id)| Ok((name.clone(), mapper.reference(id)?))),
             )?,
             traits: map_sequence(&self.traits, |value| (value).remap_definitions(mapper))?,
-            trait_references: map_entries(
-                self.trait_references.len(),
-                self.trait_references.iter().map(|(id, contract)| {
-                    Ok((mapper.reference(id)?, contract.remap_definitions(mapper)?))
-                }),
-            )?,
             implementations: map_sequence(&self.implementations, |value| {
                 (value).remap_definitions(mapper)
             })?,
@@ -136,6 +136,10 @@ impl DefinitionReferences for ModuleDecl {
         for value0 in &self.types {
             (value0).visit_definition_ids(visit, cancel)?;
         }
+        for (id, operation) in &self.path_operations {
+            visit(id)?;
+            operation.visit_definition_ids(visit, cancel)?;
+        }
         for path in &self.paths {
             path.visit_definition_ids(visit, cancel)?;
         }
@@ -144,10 +148,6 @@ impl DefinitionReferences for ModuleDecl {
         }
         for value0 in &self.traits {
             (value0).visit_definition_ids(visit, cancel)?;
-        }
-        for (id, contract) in &self.trait_references {
-            visit(id)?;
-            contract.visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.implementations {
             (value0).visit_definition_ids(visit, cancel)?;

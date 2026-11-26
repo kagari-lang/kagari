@@ -1,6 +1,6 @@
 //! LSP lifecycle, capability publication and ordered document notification dispatch.
 use crate::documents::Documents;
-use kagari_source::source_database::SourceDatabase;
+use kagari_analyzer::workspace::EditorWorkspace;
 use lsp_server::{ErrorCode, Message, Notification, Request, Response};
 use lsp_types::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
@@ -36,10 +36,10 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    pub(crate) fn new(source: SourceDatabase) -> Self {
+    pub(crate) fn new(workspace: EditorWorkspace) -> Self {
         Self {
             state: State::Uninitialized,
-            documents: Documents::new(source),
+            documents: Documents::new(workspace),
         }
     }
 
@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn invalid_initialized_notifications_do_not_advance_the_session() {
-        let mut session = Session::new(SourceDatabase::new("c:/project").unwrap());
+        let mut session = Session::new(EditorWorkspace::new(Default::default()).unwrap());
         assert!(matches!(
             notify(&mut session, "initialized", json!({})),
             Action::None

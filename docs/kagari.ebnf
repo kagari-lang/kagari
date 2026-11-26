@@ -40,8 +40,10 @@ static_item         ::= visibility? "static" ("val" | "var") IDENT type_annotati
 type_alias_item     ::= visibility? "type" IDENT generic_param_clause? (where_clause "=" type | "=" type where_clause?) ";" ;
 
 (* Explicit Native declarations share the ordinary grammar regardless of input
-   provenance; HIR owns admission. `native` is reserved, never an IDENT. *)
-native_type_item    ::= visibility? "native" "type" IDENT generic_param_clause? supertrait_clause? where_clause? (";" | "{" field_list? "}") ;
+   provenance. `native` is reserved; `host` is an IDENT matched contextually
+   only between `native` and `type`. Host handles cannot have type parameters
+   (checked after parsing). *)
+native_type_item    ::= visibility? "native" ("host")? "type" IDENT generic_param_clause? supertrait_clause? where_clause? (";" | "{" field_list? "}") ;
 
 struct_item         ::= visibility? struct_decl ;
 

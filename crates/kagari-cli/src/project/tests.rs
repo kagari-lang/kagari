@@ -1,7 +1,7 @@
 use crate::{
     args::{ProjectAction, ProjectArgs},
+    cli_engine,
     project::{locate, run_from},
-    runtime_engine,
 };
 use kagari::{BytecodeArtifact, program::Program};
 use std::{
@@ -94,6 +94,7 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
     )
     .unwrap();
     run_from(ProjectAction::Build, all, false, &directory).unwrap();
+    assert!(!directory.join("target/kagari/declarations").exists());
     let previous = artifacts(&directory);
     assert_eq!(
         previous.len(),
@@ -101,7 +102,7 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
         "each selected root has a separate Program"
     );
     // CLI artifacts carry std::io declarations even when the package does not call them.
-    let engine = runtime_engine().unwrap();
+    let engine = cli_engine().unwrap();
     let mut roots = BTreeSet::new();
     for path in &previous {
         let artifact = BytecodeArtifact::from_bytes(&fs::read(path).unwrap()).unwrap();

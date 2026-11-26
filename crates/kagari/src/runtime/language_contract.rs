@@ -458,21 +458,27 @@ fn run(
         builder
             .bind(
                 vector,
-                host::callback(move |cx, _| {
-                    capture_host
-                        .lock()
-                        .unwrap()
-                        .calls
-                        .push(HostCall::ObserveVector);
-                    let root = capture_vector
-                        .lock()
-                        .unwrap()
-                        .as_ref()
-                        .cloned()
-                        .ok_or_else(|| HostError::new("array fixture is not initialized"))?;
-                    cx.import(&root)
-                        .map_err(|error| HostError::new(error.to_string()))
-                }),
+                host::callback(
+                    HostCallPolicy {
+                        passing: vec![],
+                        effects: Default::default(),
+                    },
+                    move |cx, _| {
+                        capture_host
+                            .lock()
+                            .unwrap()
+                            .calls
+                            .push(HostCall::ObserveVector);
+                        let root = capture_vector
+                            .lock()
+                            .unwrap()
+                            .as_ref()
+                            .cloned()
+                            .ok_or_else(|| HostError::new("array fixture is not initialized"))?;
+                        cx.import(&root)
+                            .map_err(|error| HostError::new(error.to_string()))
+                    },
+                ),
             )
             .unwrap();
         builder.finish().unwrap().install(&mut runtime).unwrap();

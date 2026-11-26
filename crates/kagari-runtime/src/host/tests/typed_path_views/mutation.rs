@@ -1,10 +1,12 @@
 use super::*;
+use crate::host::HostCallContext;
 #[cfg(test)]
 use crate::test_support::bytecode::load_bytecode;
 use crate::test_support::native::program::ProgramFixture;
 use crate::value::{arrays::ArrayObject, carriers::RootedValue, view::ValueView};
 use kagari_abi::representation::ValueType;
 use kagari_common::cancellation::CancellationToken;
+use kagari_types::declaration::path::HostPathDeclaration;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -48,6 +50,14 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
         RuntimeErrorKind::HostBorrowConflict
     );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        scope
+            .runtime_mut()
+            .retire_host_root(root)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::HostBorrowConflict
+    );
     drop(scope);
     let mut scope = runtime.host_scope(&[]).unwrap();
     scope
@@ -67,12 +77,85 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
         RuntimeErrorKind::HostBorrowConflict
     );
     assert!(scope.runtime().host_dirty_paths().is_empty());
+    assert_eq!(
+        scope
+            .runtime_mut()
+            .retire_host_root(root)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::HostBorrowConflict
+    );
     drop(scope);
     runtime
         .set_host_path(&root_value, descriptor, &[], &RootedValue::from(20))
         .unwrap();
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert_eq!(runtime.gc_stats().root_registrations, baseline_roots);
+}
+
+#[test]
+fn retired_root_and_retained_view_never_resolve_to_a_same_schema_replacement() {
+    let mut runtime = path_mutation_runtime();
+    let scalar = register_i32(&runtime);
+    let player = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadOnly);
+    let epoch = HostSchemaEpoch::new(0);
+    let a = runtime
+        .register_host_root(HostObjectId(7), player, epoch)
+        .unwrap();
+    let hp = register_hp_descriptor(&mut runtime, player, scalar, PathAccess::ReadOnly);
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let observed = reads.clone();
+    runtime
+        .register_host_path_adapter(
+            hp,
+            HostPathAdapter::new().with_read(move |_, path| {
+                observed.lock().unwrap().push(path.root);
+                Ok(ValueView::from(10))
+            }),
+        )
+        .unwrap();
+    let value = runtime.host_root_value(a).unwrap();
+    let view = runtime.make_host_path_view(&value, hp, &[]).unwrap();
+    let mut call = HostCallContext::new(&mut runtime, &[]).unwrap();
+    let view = call.import(&view).unwrap();
+    assert_eq!(call.inspect_path(&view).unwrap().root, a);
+    call.runtime_mut().retire_host_root(a).unwrap();
+    assert_eq!(call.runtime().host().root(a.object_id()), None);
+    let b = call
+        .runtime_mut()
+        .register_host_root(HostObjectId(8), player, epoch)
+        .unwrap();
+    assert_eq!(
+        call.inspect_path(&view).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    drop(call);
+    assert_eq!(runtime.host().roots().collect::<Vec<_>>(), [b]);
+    assert_eq!(
+        runtime
+            .register_host_root(a.object_id(), player, epoch)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::MetadataConflict
+    );
+    assert_eq!(
+        runtime.retire_host_root(a).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    assert_eq!(
+        runtime.host_root_value(a).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    assert_eq!(
+        runtime.read_host_path(&value, hp, &[]).unwrap_err().kind(),
+        RuntimeErrorKind::TypedPathValidation
+    );
+    let fresh = runtime.host_root_value(b).unwrap();
+    assert_eq!(
+        runtime.read_host_path(&fresh, hp, &[]).unwrap().as_i32(),
+        Some(10)
+    );
+    assert_eq!(*reads.lock().unwrap(), [b]);
 }
 
 #[test]
@@ -396,6 +479,149 @@ fn commit_panics_quarantine_only_the_affected_runtime() {
 }
 
 #[test]
+fn bound_whole_path_mutates_below_val_but_a_separate_view_cannot() {
+    struct Stats {
+        hp: i32,
+    }
+
+    struct Player {
+        baseline: Stats,
+    }
+
+    let context = DefinitionContext::new().unwrap();
+    let player = nominal(&context, "game::Player");
+    let stats = nominal(&context, "game::Stats");
+    let field = |owner, name| {
+        HostPathSegmentDeclaration::Field(
+            context
+                .intern_child(owner, DefinitionKind::Field, name, 0)
+                .unwrap(),
+        )
+    };
+    let baseline = field(player, "baseline");
+    let hp = field(stats, "hp");
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    for (owner, name, ty, mutable, access) in [
+        (
+            "Stats",
+            "hp",
+            Ty::Builtin(BuiltinType::I32),
+            true,
+            PathAccess::ReadWrite,
+        ),
+        (
+            "Player",
+            "baseline",
+            Ty::Host(stats),
+            false,
+            PathAccess::ReadOnly,
+        ),
+    ] {
+        let mut owner = module.define_type(owner).unwrap();
+        owner
+            .external(HostTypePolicy {
+                ownership: HostTypeOwnership::HostRoot,
+                reflection: HostReflectionPolicy::Metadata,
+                path_access: PathAccess::ReadWrite,
+            })
+            .unwrap();
+        owner
+            .field(
+                DefinitionMetadata::checked(
+                    context.snapshot(),
+                    FieldDef {
+                        name: name.into(),
+                        ty,
+                        mutable,
+                        visibility: Visibility::Public,
+                        host_policy: Some(HostFieldPolicy {
+                            readable: true,
+                            path_access: access,
+                        }),
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        owner.finish().unwrap();
+    }
+    let path = module
+        .define_path(
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                HostPathDeclaration {
+                    root: player,
+                    segments: vec![baseline.clone(), hp],
+                    access: PathAccess::ReadWrite,
+                    schema_epoch: 0,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let state = Arc::new(Mutex::new(Player {
+        baseline: Stats { hp: 10 },
+    }));
+    let read = state.clone();
+    let adapter = HostPathAdapter::new()
+        .with_read(move |_, _| Ok(ValueView::from(read.lock().unwrap().baseline.hp)));
+    assert_eq!(
+        module.bind_path(&path, adapter.clone()).unwrap_err().kind(),
+        RuntimeErrorKind::MetadataConflict
+    );
+    let write = state.clone();
+    let adapter = adapter.with_prepare_write(move |_, _, record| {
+        let value = record.new_value.as_i32().unwrap();
+        let write = write.clone();
+        Ok(PreparedHostPathWrite::new(move || {
+            write.lock().unwrap().baseline.hp = value;
+        }))
+    });
+    module.bind_path(&path, adapter.clone()).unwrap();
+    let mut runtime = path_mutation_runtime();
+    module.finish().unwrap().install(&mut runtime).unwrap();
+    let id = runtime.resolve_host_path(&path).unwrap();
+    let descriptor = runtime.host().path_descriptor(id).unwrap();
+    assert_eq!(descriptor.segments[0].access(), PathAccess::ReadOnly);
+    assert_eq!(descriptor.segments[1].access(), PathAccess::ReadWrite);
+    let (player, scalar) = (descriptor.root_type, descriptor.result_type);
+    let stats = descriptor.segments[0].result_type();
+    let root = runtime
+        .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
+        .unwrap();
+    let root = runtime.host_root_value(root).unwrap();
+    runtime
+        .set_host_path(&root, id, &[], &RootedValue::from(20))
+        .unwrap();
+    assert_eq!(state.lock().unwrap().baseline.hp, 20);
+    let prefix = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions: context.snapshot(),
+            root_type: player,
+            result_type: stats,
+            segments: vec![baseline],
+            access: PathAccess::ReadOnly,
+            schema_epoch: HostSchemaEpoch::new(0),
+        })
+        .unwrap();
+    let view = runtime.make_host_path_view(&root, prefix, &[]).unwrap();
+    let suffix = register_hp_descriptor(&mut runtime, stats, scalar, PathAccess::ReadWrite);
+    runtime.register_host_path_adapter(suffix, adapter).unwrap();
+    let error = runtime
+        .set_host_path(&view, suffix, &[], &RootedValue::from(99))
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::TypedPathValidation);
+    assert!(
+        error.to_string().contains("host path view is not writable"),
+        "{error}"
+    );
+    assert_eq!(state.lock().unwrap().baseline.hp, 20);
+    assert_eq!(runtime.host_dirty_paths().len(), 1);
+}
+
+#[test]
 fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
@@ -586,6 +812,66 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
         assert_eq!(error.to_string(), message);
         assert_eq!(*value.lock().unwrap(), initial);
         assert_eq!(*writes.lock().unwrap(), 0);
+        assert!(runtime.host_dirty_paths().is_empty());
+    }
+}
+
+#[test]
+fn narrow_path_add_checks_the_old_value_and_sum_before_preparing_a_write() {
+    let mut runtime = path_mutation_runtime();
+    root_module(
+        "game::Player",
+        PathAccess::ReadWrite,
+        vec![("hp", Ty::Builtin(BuiltinType::I8))],
+    )
+    .install(&mut runtime)
+    .unwrap();
+    let player = runtime.types().get_by_name("game::Player").unwrap().id;
+    let leaf = runtime.types().get_by_name("i8").unwrap().id;
+    let descriptor = register_hp_descriptor(&mut runtime, player, leaf, PathAccess::ReadWrite);
+    let root = runtime
+        .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
+        .unwrap();
+    let root = runtime.host_root_value(root).unwrap();
+    let hp = Arc::new(AtomicI32::new(127));
+    let prepares = Arc::new(AtomicUsize::new(0));
+    let (read, write, count) = (hp.clone(), hp.clone(), prepares.clone());
+    runtime
+        .register_host_path_adapter(
+            descriptor,
+            HostPathAdapter::new()
+                .with_read(move |_, _| Ok(ValueView::from(read.load(Ordering::SeqCst))))
+                .with_prepare_write(move |_, _, change| {
+                    count.fetch_add(1, Ordering::SeqCst);
+                    let next = change.new_value.as_i32().unwrap();
+                    let write = write.clone();
+                    Ok(PreparedHostPathWrite::new(move || {
+                        write.store(next, Ordering::SeqCst)
+                    }))
+                }),
+        )
+        .unwrap();
+    // The second sum would fit i8: validating only the result misses the invalid read.
+    for (old, rhs, kind) in [
+        (127, 1, RuntimeErrorKind::ScriptTrap),
+        (128, -1, RuntimeErrorKind::TypedPathValidation),
+    ] {
+        hp.store(old, Ordering::SeqCst);
+        let error = runtime
+            .modify_host_path(
+                &root,
+                descriptor,
+                &[],
+                BinaryOp::Add,
+                &RootedValue::from(rhs),
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), kind);
+        if kind == RuntimeErrorKind::ScriptTrap {
+            assert_eq!(error.to_string(), "integer overflow");
+        }
+        assert_eq!(prepares.load(Ordering::SeqCst), 0);
+        assert_eq!(hp.load(Ordering::SeqCst), old);
         assert!(runtime.host_dirty_paths().is_empty());
     }
 }

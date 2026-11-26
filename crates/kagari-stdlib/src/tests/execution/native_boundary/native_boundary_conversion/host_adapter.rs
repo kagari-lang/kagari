@@ -47,19 +47,20 @@ use std::sync::{
 fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
     let catalog = test_library::standard().catalog();
     let mut builder = ModuleBuilder::new("example::services", catalog).unwrap();
+    let echo_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::SharedBorrow],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            may_call_host_services: true,
+            ..Default::default()
+        },
+    };
     let echo = builder
         .define_function(
             FunctionDecl::new("echo")
                 .parameter("text", Type::scalar(BuiltinType::String))
                 .returns(Type::scalar(BuiltinType::String))
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::SharedBorrow],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        may_call_host_services: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(echo_policy.clone()),
         )
         .unwrap();
     assert!(
@@ -73,7 +74,7 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
     builder
         .bind(
             echo.clone(),
-            host::callback(|cx, args| {
+            host::callback(echo_policy, |cx, args| {
                 cx.runtime_mut().collect_garbage().unwrap();
                 let text = cx.read_string(&args[0], str::to_owned).unwrap();
                 let time = cx.execution_time_millis().unwrap();
@@ -84,24 +85,27 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         .unwrap();
     let entered = Arc::new(AtomicUsize::new(0));
     for name in ["configuration", "fail", "cancel", "panic"] {
+        let function_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_trap: true,
+                may_read_immutable_configuration: name == "configuration",
+                may_call_host_services: name != "configuration",
+                ..Default::default()
+            },
+        };
         let function = builder
-            .define_function(FunctionDecl::new(name).returns(Type::i32()).host_policy(
-                HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_trap: true,
-                        may_read_immutable_configuration: name == "configuration",
-                        may_call_host_services: name != "configuration",
-                        ..Default::default()
-                    },
-                },
-            ))
+            .define_function(
+                FunctionDecl::new(name)
+                    .returns(Type::i32())
+                    .host_policy(function_policy.clone()),
+            )
             .unwrap();
         let entered = entered.clone();
         builder
             .bind(
                 function,
-                host::callback(move |cx, _| {
+                host::callback(function_policy, move |cx, _| {
                     entered.fetch_add(1, Ordering::Relaxed);
                     match name {
                         "configuration" => Ok(ValueView::from(7i32)),
@@ -123,7 +127,13 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
         builder
             .bind(
                 missing_policy.clone(),
-                host::callback(|_, _| Ok(ValueView::unit()))
+                host::callback(
+                    HostCallPolicy {
+                        passing: vec![],
+                        effects: Default::default()
+                    },
+                    |_, _| Ok(ValueView::unit())
+                )
             )
             .is_err()
     );
@@ -333,21 +343,22 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
             let edited = state.clone();
             let heal_identity = identity.clone();
             group.inherent_impl(|methods| {
+                let method_policy = HostCallPolicy {
+                    passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
+                    effects: HostFunctionEffects {
+                        may_mutate_host_state: true,
+                        ..Default::default()
+                    },
+                };
                 let method = methods.define_method(
                     MethodDecl::instance("heal")
                         .parameter("amount", Type::i32())
                         .returns(Type::i32())
-                        .host_policy(HostCallPolicy {
-                            passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
-                            effects: HostFunctionEffects {
-                                may_mutate_host_state: true,
-                                ..Default::default()
-                            },
-                        }),
+                        .host_policy(method_policy.clone()),
                 )?;
                 methods.bind(
                     method,
-                    host::callback(move |context, values| {
+                    host::callback(method_policy, move |context, values| {
                         context.runtime_mut().collect_garbage().unwrap();
                         let [value, amount] = values else {
                             panic!("root and amount")
@@ -365,16 +376,14 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
             let read = state.clone();
             let identity = identity.clone();
             group.trait_impl(interface.apply([])?, |methods| {
-                methods.host_policy(
-                    "hp",
-                    HostCallPolicy {
-                        passing: vec![HostPassingStyle::SharedBorrow],
-                        effects: Default::default(),
-                    },
-                )?;
+                let method_policy = HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: Default::default(),
+                };
+                methods.host_policy("hp", method_policy.clone())?;
                 methods.bind(
                     "hp",
-                    host::callback(move |context, values| {
+                    host::callback(method_policy, move |context, values| {
                         context.runtime_mut().collect_garbage().unwrap();
                         let [value] = values else { panic!("root") };
                         let path = context.runtime().resolve_host_path(&identity).unwrap();
@@ -557,6 +566,19 @@ fn host_argument_pack_rolls_back_partial_loans_without_rolling_back_callback_wri
         })
         .unwrap();
     let account = account.finish().unwrap().apply([]).unwrap();
+    let transfer_policy = HostCallPolicy {
+        passing: vec![
+            HostPassingStyle::UniqueBorrow,
+            HostPassingStyle::UniqueBorrow,
+            HostPassingStyle::Owned,
+        ],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            may_mutate_host_state: true,
+            may_trap: true,
+            ..Default::default()
+        },
+    };
     let transfer = builder
         .define_function(
             FunctionDecl::new("transfer")
@@ -564,19 +586,7 @@ fn host_argument_pack_rolls_back_partial_loans_without_rolling_back_callback_wri
                 .parameter("second", account)
                 .parameter("amount", Type::i32())
                 .returns(Type::scalar(BuiltinType::String))
-                .host_policy(HostCallPolicy {
-                    passing: vec![
-                        HostPassingStyle::UniqueBorrow,
-                        HostPassingStyle::UniqueBorrow,
-                        HostPassingStyle::Owned,
-                    ],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        may_mutate_host_state: true,
-                        may_trap: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(transfer_policy.clone()),
         )
         .unwrap();
     let balances = Arc::new([AtomicI32::new(40), AtomicI32::new(25)]);
@@ -586,7 +596,7 @@ fn host_argument_pack_rolls_back_partial_loans_without_rolling_back_callback_wri
     builder
         .bind(
             transfer,
-            host::callback(move |cx, values| {
+            host::callback(transfer_policy, move |cx, values| {
                 called.fetch_add(1, Ordering::SeqCst);
                 let amount = values[2].as_i32().expect("checked amount");
                 let first = edited[0].fetch_add(amount, Ordering::SeqCst) + amount;

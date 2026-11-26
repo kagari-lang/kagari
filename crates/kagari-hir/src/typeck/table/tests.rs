@@ -1,7 +1,7 @@
 //! Test-only comparison after validating and normalizing local node identities.
 
 use crate::{
-    hir::ids::{ExprId, FieldId, LoweringId, PlaceId},
+    hir::ids::{ExprId, FieldId, LoweringId},
     tests::common::import_facts,
     typeck::table::TypeTable,
 };
@@ -42,7 +42,7 @@ impl TypeTable {
                 )+};
             }
 
-            keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
+            keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, place_index_writes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
                 places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_fields: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
@@ -51,22 +51,6 @@ impl TypeTable {
                 if let Some(receiver) = call.receiver {
                     assert_eq!(receiver.arena(), from);
                     call.receiver = Some(ExprId::new(to, receiver.owner(), receiver.index()));
-                }
-            }
-            for path in result.host_paths.values_mut() {
-                assert_eq!(path.root.arena(), from);
-                path.root = ExprId::new(to, path.root.owner(), path.root.index());
-                for (_, argument) in &mut path.dynamic_arguments {
-                    assert_eq!(argument.arena(), from);
-                    *argument = ExprId::new(to, argument.owner(), argument.index());
-                }
-            }
-            for path in result.host_place_paths.values_mut() {
-                assert_eq!(path.root.arena(), from);
-                path.root = PlaceId::new(to, path.root.owner(), path.root.index());
-                for (_, argument) in &mut path.dynamic_arguments {
-                    assert_eq!(argument.arena(), from);
-                    *argument = ExprId::new(to, argument.owner(), argument.index());
                 }
             }
             result

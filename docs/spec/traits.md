@@ -38,7 +38,6 @@ The current trait scope excludes:
 - specialization
 - negative impls
 - auto traits
-- full Rust-style coherence and orphan behavior
 - higher-rank bounds
 - higher-kinded type parameters and projection-heavy solving beyond the bounded associated type normalizer
 
@@ -577,20 +576,7 @@ trait TraitName<T1, T2> {
 }
 ```
 
-Grammar shape:
-
-```ebnf
-trait_item       ::= visibility? trait_decl ;
-
-trait_decl       ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
-supertrait_clause ::= ":" type_bound_list ;
-
-trait_member     ::= attribute* trait_method | associated_type_decl ;
-trait_method     ::= method_sig (";" | block) ;
-associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
-
-method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
-```
+See the [trait grammar](syntax.md#traits) for required, Script and Native members.
 
 Trait members are limited to:
 
@@ -602,45 +588,21 @@ Trait members are limited to:
 
 Trait implementation is distinct from inherent `impl`.
 
-Example:
+For example, a package can implement an imported trait for its own generic type:
 
 ```kagari
-impl Display for Player {
-    fn to_string(self) -> String {
-        self.name
-    }
+use core::fmt::Display;
+use alloc::string::String;
+
+struct Label<T> { val value: T }
+
+impl<T: Display> Display for Label<T> {
+    fn display(self) -> String { self.value.display() }
 }
 ```
 
-Generic implementation:
-
-```kagari
-impl<T> Display for Vec<T>
-where T: Display
-{
-    fn to_string(self) -> String {
-        ...
-    }
-}
-```
-
-Grammar shape:
-
-```ebnf
-impl_block        ::= inherent_impl
-                    | trait_impl ;
-
-inherent_impl     ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
-
-trait_impl        ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
-
-trait_ref         ::= path generic_args? ;
-```
-
-This keeps the language model clear:
-
-- `impl Type { ... }` means inherent methods
-- `impl Trait for Type { ... }` means trait implementation
+`impl<T> Label<T>` without a trait introduces inherent methods instead. See the
+[impl grammar](syntax.md#impl-blocks-and-methods) and [coherence rules](#coherence-guidance).
 
 ### Blanket trait implementations
 
@@ -877,6 +839,31 @@ proofs against the executable dependency closure.
 
 ## Coherence Guidance
 
+An `impl Trait<A, B> for R` belongs to the package of the module declaring the
+impl. If that package owns `Trait`, the orphan check passes. Otherwise inspect
+`R`, then `A`, then `B`, in order. At least one input must have a type constructor
+owned by the impl package. No uncovered impl parameter may appear before the
+first such input. A bare parameter or an unresolved projection containing an
+impl parameter is uncovered there. A constructor covers its arguments, but it
+is local only by its **own** identity: `[Local]` does not make the array type local.
+Bounds and associated output bindings are not inputs to this check.
+
+For example, given `game::api::Convert<S>`, the sibling module `game::compat`
+may implement `Convert<bool> for i32`; an unrelated `plugin` may not. If `Score`
+belongs to `plugin`, consider these alternative headers there:
+
+| Header | Orphan check |
+| --- | --- |
+| `impl Convert<bool> for Score` | Passes: local receiver. |
+| `impl<T> Convert<Score> for T` | Fails: uncovered `T` precedes `Score`. |
+| `impl<T> Convert<Score> for [T]` | Passes: the array covers `T`; the next input is local. |
+| `impl Convert<bool> for [Score]` | Fails: neither outer input is local. |
+
+This is the rule for **all trait impls**, including conversions and registrations.
+A package alias, re-export, or Rust binding does not transfer ownership. Inherent
+methods have separate defining-module rules. Passing the orphan check neither
+grants visibility nor proves that an impl satisfies its trait or protocol.
+
 Two headers for the same trait conflict if their receiver and ordered trait
 arguments can match the same application. Each header's binders are independent;
 renaming `T` does not create a disjoint impl. In the [blanket example](#blanket-trait-implementations), a separate
@@ -886,8 +873,8 @@ Bounds and associated outputs do not distinguish overlapping headers, but
 
 Conflicts reject the whole [checked package closure](packages.md#checking-and-host-entries),
 including unused sibling dependencies. Portable named impl headers undergo the
-same conservative check. There is no declaration-order priority, specialization,
-negative impl or Rust-style package orphan rule.
+same orphan and conservative overlap checks. There is no declaration-order priority,
+specialization or negative impl.
 
 ## Host Interoperability
 
@@ -927,7 +914,7 @@ The current trait system includes:
 The current trait system excludes:
 
 - script-level `dyn` trait-object syntax
-- associated consts
+- interface dispatch for traits requiring associated constants
 - specialization
 - interface dispatch for non-interface-compatible methods
 
@@ -1000,10 +987,8 @@ An embedding path that already has a linked implementation can create and
 retain such a value explicitly:
 
 ```rust,ignore
-let value = runtime.make_interface(&loaded_impl, table_index, concrete_value)?;
-let rooted = runtime.root_value(value).expect("valid runtime-owned value");
-let value = rooted.value(runtime.gc()).expect("owning runtime");
-let result = runtime.invoke_interface_method(&value, &method_id, &[])?;
+let interface = runtime.make_interface(&loaded_impl, table_index, &concrete_value)?;
+let result = runtime.invoke_interface_method(&interface, &method_id, &[])?;
 ```
 
 The root must remain alive while the host retains the value. The table index
@@ -1063,7 +1048,9 @@ returns `42` from both numeric and string interface instances.
 ### Host Associated Outputs and Interfaces
 
 An offline common `ImplDecl` contains the trait application, ordered concrete
-inputs, associated type bindings and the method mapping. Each output is keyed by
+inputs, associated type bindings and the impl's own method signatures. For a
+source trait the importer must resolve its visible owner; a native binding does
+not declare the trait or grant access to private members. Each output is keyed by
 its trait-owned member identity and has a portable `Ty`. Every declared output must appear
 exactly once, even when no method is called. Signature analysis and artifact
 verification check output bounds and substitute outputs, trait inputs and `Self`
@@ -1130,10 +1117,13 @@ returns `42` through static calls, inherited projections and dynamic parent view
 
 ### Default Methods
 
-A trait method with a body supplies a default implementation for script impls
-that omit that method. An explicit implementation takes precedence. Every
-default body is checked in the trait's own declaration context, including when
-no implementation uses it. Required methods without bodies remain mandatory.
+Omitting a method with a default inherits the trait’s implementation. An explicit
+member with a matching substituted signature overrides it; a mismatch is an
+error, not a request to fall back to the default. Required methods remain mandatory.
+This applies to Script and Native defaults whether the trait or impl comes from
+source or Rust registration. There is no final-method syntax or provider veto.
+Every Script default body is checked in the trait’s own declaration context,
+even if no impl uses it.
 
 `self.method()` in a default body selects the concrete receiver's implementation,
 including explicit overrides and parent implementations. Static calls,
@@ -1151,16 +1141,11 @@ module does not change the default body. Debug locations and breakpoints retain
 the original source module and span. No runtime default-method search, name
 resolution or generic specialization is performed.
 
-Offline host trait tables continue to map every declared method explicitly;
-omitted host mappings do not invoke script defaults in this checkpoint.
-
-Registered native defaults appear in generated traits as forwarding bodies to
-private typed native helpers. These bodies obey the same declaration-context
-checking rule, even when unused. Only a checked single call that forwards each
-parameter once, in order, and agrees with the registered generic application may
-lower directly to the native helper. This adds no script call frame and preserves
-native cancellation, traps and cleanup. Required methods still have no body;
-explicit implementations override defaults when their declaration permits it.
+A registered Script default can call a private Native helper; that is an ordinary
+checked body, including its argument order, not a recipe inferred from a name.
+At source-free load, a body claiming to inherit an installed default must still
+match its independent [installation contract](standard-declarations.md#checked-executable-contracts).
+An explicit override does not authenticate a substituted inherited body.
 
 See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which returns
 `42` through default and overridden static/dynamic calls.
@@ -1172,7 +1157,7 @@ and Iterator/Iterable, are listed alongside the six optional collection interfac
 [builtins](builtins.md). They use ordinary declaration identities, bounds and
 static method resolution. Intrinsic implementations are compiler/runtime owned;
 user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
-and enums may explicitly implement PartialEq/Eq/Hash in their defining module.
+and enums may explicitly implement PartialEq/Eq/Hash under the [package orphan rule](#coherence-guidance).
 Eq requires PartialEq, and custom Hash requires both. Generic impl bounds must
 establish those requirements. There are no identity defaults or implicit user-enum
 comparison. The [equality and hashing contract](value-semantics.md#equality-and-hashing)
@@ -1180,11 +1165,16 @@ defines conditional library implementations, member composition, custom key
 callbacks and key stability.
 Explicit equality, hashing and nominal formatting methods are checked,
 specialized and linked through the ordinary static implementation path.
-Operator and ordering impls are also restricted to script Structs/enums in the
-type's defining module. Native host tables may implement Debug/Display, but not
-these operator, ordering or equality protocols. Applied operator inputs and
-associated Output identities are checked before static specialization and again
-when loading portable implementation metadata.
+Among the reserved language protocols, an external Host receiver may explicitly
+implement `From`, `Debug` and `Display`. This rule is about the receiver, not
+whether the impl body is Script or Native. For example, in the package that owns
+`native host type Player;`, `impl PartialEq for Player` is rejected. For an
+ordinary opaque `native type Token;`, its package may provide
+`impl PartialEq for Token` with a matching `eq` method. Neither type gets `==` merely
+from its declaration. Ordinary traits and [Host conversions](host-interop.md#host-conversions),
+including `TryFrom`, follow their own contracts and the same package coherence rules.
+Applied operator inputs and associated `Output` identities are checked before
+static specialization and again when loading portable implementation metadata.
 The [structural rules](#interface-compatibility-rules) govern every applied trait.
 PartialEq is incompatible because of `other: Self`, and Eq inherits that restriction.
 Debug, Display and Hash can become dynamic interfaces. Collection interfaces and

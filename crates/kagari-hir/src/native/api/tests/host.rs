@@ -1,9 +1,14 @@
-use crate::tests::standard::standard_modules;
-use crate::{analyze_source, native::render::declaration_source, types::TypeId};
+use crate::{
+    analysis::AnalysisDatabase, analyze_source, hir::expr::ExprKind, typeck::table::CallTarget,
+    types::TypeId,
+};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_source::source::SourceFile;
+use kagari_source::{
+    source::SourceFile,
+    source_database::{SourceDatabase, SourceLayer},
+};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -17,10 +22,10 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::Ty,
 };
-use std::sync::Arc;
+use std::{slice, sync::Arc};
 
 #[test]
-fn shared_host_declarations_keep_external_identity_without_rust_reference_admission() {
+fn host_bounce_checks_the_same_kagari_call_without_a_passing_policy_on_both_routes() {
     let context = DefinitionContext::new().unwrap();
     let mut module = ModuleDecl::new(ModuleIdentity {
         package: PackageId("example".into()),
@@ -72,32 +77,81 @@ fn shared_host_declarations_keep_external_identity_without_rust_reference_admiss
     let module = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap(),
     );
-    let mut providers = standard_modules();
-    providers.push(module.clone());
-    let view = declaration_source(&module, &providers).unwrap();
-    assert!(view.text.contains("pub native type Player;"));
-    assert!(view.text.contains("player: Player"));
-    let analysis = analyze_source(&SourceFile::new("root.kgr", "use example::roots::{Player, inspect}; fn forward(player: Player) -> i32 { inspect(player) }"), providers.clone()).unwrap();
-    assert!(
-        analysis.diagnostics().is_empty(),
-        "{:?}",
-        analysis.diagnostics()
-    );
-    let function = analysis
-        .facts
-        .typed
-        .signatures
-        .functions()
-        .iter()
-        .find(|function| function.name == "forward")
+    let cancel = Default::default();
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set(
+            "root.kgr",
+            include_str!("../../../../tests/fixtures/native/host_bounce.kgr").into(),
+            SourceLayer::Base,
+        )
         .unwrap();
-    assert!(matches!(function.params[0].ty, TypeId::Host(_)));
+    let mut structured = AnalysisDatabase::default();
+    structured.set_native_modules(vec![module.clone()]);
+    let declarations = structured
+        .declarations(sources.snapshot(), &cancel)
+        .unwrap();
+    let view = declarations
+        .render_native_document(&module, &cancel)
+        .unwrap();
+    assert!(view.text.contains("pub native host type Player;"));
+    assert!(view.text.contains("player: Player"));
+    let direct = structured.snapshot(sources.snapshot(), &cancel).unwrap();
+    let mut editor = AnalysisDatabase::default();
+    editor.set_import_environment(declarations.import_environment().clone());
+    sources
+        .bind_module(&view.uri, module.records().identity.clone())
+        .unwrap();
+    sources
+        .set(&view.uri, view.text, SourceLayer::Base)
+        .unwrap();
+    let parsed = editor.snapshot(sources.snapshot(), &cancel).unwrap();
+    for snapshot in [direct, parsed] {
+        let file = snapshot.file(root).unwrap();
+        let diagnostics = file.result().diagnostics();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        snapshot.check_program(root, &cancel).unwrap();
+        let facts = file.result().facts();
+        let bounce = facts
+            .typed
+            .signatures()
+            .functions()
+            .iter()
+            .find(|f| f.name == "bounce")
+            .unwrap();
+        let player = &bounce.params[0].ty;
+        let TypeId::Host(id) = player else {
+            panic!("unexpected Player representation {player:?}");
+        };
+        let identity = file.definitions().resolve(*id).unwrap();
+        assert_eq!(identity.module(), &module.records().identity);
+        assert_eq!(identity.last().unwrap().name, "Player");
+        assert_eq!(identity.last().unwrap().kind, DefinitionKind::Struct);
+        let types = facts.typed.type_table();
+        let (site, call) = facts
+            .lowered
+            .module
+            .nodes
+            .expressions()
+            .find_map(|(id, expr)| {
+                let ExprKind::Call { .. } = expr.kind else {
+                    return None;
+                };
+                let call = types.call_resolution(id)?;
+                (call.target == CallTarget::Function(bounce.id)).then_some((id, call))
+            })
+            .expect("resolved local Native bounce call");
+        let signature = call.signature.as_ref().unwrap();
+        assert_eq!(signature.params.as_slice(), slice::from_ref(player));
+        assert_eq!(&signature.return_type, player);
+        assert_eq!(types.expr_type(site).as_ref(), Some(player));
+    }
     let analysis = analyze_source(
         &SourceFile::new(
             "root-reject.kgr",
             "use example::roots::Player; fn reject(player: Player) { player.unregistered(); }",
         ),
-        providers,
+        vec![module],
     )
     .unwrap();
     assert!(!analysis.diagnostics().is_empty());

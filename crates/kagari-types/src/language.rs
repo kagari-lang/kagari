@@ -199,7 +199,7 @@ impl Protocol {
     }
 
     pub fn host_implementable(self) -> bool {
-        matches!(self, Self::Debug | Self::Display)
+        matches!(self, Self::From | Self::Debug | Self::Display)
     }
 
     /// Roles defined by the public comparison module (not hash or arithmetic).

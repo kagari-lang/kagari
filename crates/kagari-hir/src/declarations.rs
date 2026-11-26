@@ -1,12 +1,8 @@
 //! Declaration and binding identities owned by one semantic analysis.
-use kagari_types::{
-    declaration::{TypeDef, names::NameNamespace},
-    language::role::LangRole,
-};
+use kagari_types::{declaration::names::NameNamespace, language::role::LangRole};
 
 use crate::{
     collections::HashMap,
-    hir::item::adt::HostContract,
     hir::{
         ids::{
             BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, NativeTypeId, TypeRefId,
@@ -14,12 +10,12 @@ use crate::{
         },
         item::{Module, function::FunctionKind},
         origin::NodeOrigin,
-        ty::DefinitionExposure,
+        ty::{DefinitionExposure, TypeKind},
     },
     imports::{
         SourceItem,
         catalog::{
-            LookupContext, NamespaceCatalog,
+            LookupContext, LookupResult, NamespaceCatalog,
             definitions::{DefinitionLookup, DefinitionSelection},
         },
         types::ImportedTypes,
@@ -159,7 +155,6 @@ pub struct Declarations {
     identities: HashMap<DeclarationId, DeclarationKey>,
     /// Local implementation slots to semantic definition identities.
     impl_identities: HashMap<ImplId, DefinitionId>,
-    host_types: HashMap<NativeTypeId, HostContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -180,11 +175,7 @@ impl From<ResolvedName> for DeclarationKey {
 
 impl Declarations {
     /// Construct empty recovery facts without assigning an identity to an invalid source module.
-    pub(crate) fn empty(
-        lowered: &LoweredModule,
-        names: &DeclarationNames,
-        context: &DefinitionContext,
-    ) -> Self {
+    pub(crate) fn empty(names: &DeclarationNames, context: &DefinitionContext) -> Self {
         let analysis = AnalysisId(
             NEXT_ANALYSIS
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -201,12 +192,6 @@ impl Declarations {
             targets: HashMap::default(),
             identities: HashMap::default(),
             impl_identities: HashMap::default(),
-            host_types: lowered
-                .module
-                .native_types
-                .iter()
-                .filter_map(|item| item.host.clone().map(|host| (item.id, host)))
-                .collect(),
         }
     }
 
@@ -226,7 +211,7 @@ impl Declarations {
             source: lowered.source_surface().map(|_| source),
             module: &lowered.module,
             cancel,
-            result: Self::empty(lowered, names, context),
+            result: Self::empty(names, context),
             occurrences: HashMap::default(),
         };
         let module = &lowered.module;
@@ -313,7 +298,7 @@ impl Declarations {
             let owner = builder.definition(
                 ResolvedName::NativeType(item.id),
                 root,
-                if item.host.is_some() {
+                if item.is_host {
                     DefinitionKind::Struct
                 } else {
                     DefinitionKind::AssociatedType
@@ -732,32 +717,14 @@ impl Declarations {
         &self.definitions
     }
 
-    pub(crate) fn host_types(&self) -> impl Iterator<Item = &HostContract> {
-        self.host_types
-            .values()
-            .chain(self.imported_types.host_types())
-    }
-
     pub(crate) fn native_type(&self, id: NativeTypeId) -> Option<TypeConstructor> {
         let declaration = *self.definition(ResolvedName::NativeType(id))?;
         Some(TypeConstructor::declaration(
             declaration,
             self.parameters_of(&declaration).len(),
-            self.host_types.contains_key(&id),
+            self.definitions.resolve(declaration).ok()?.last()?.kind == DefinitionKind::Struct,
             &self.definitions,
         ))
-    }
-
-    pub fn external_type(&self, id: DefinitionId) -> Option<&TypeDef> {
-        self.host_types().find_map(|host| {
-            if host.declaration == id {
-                Some(host.definition.as_ref())
-            } else {
-                host.schemas
-                    .iter()
-                    .find_map(|schema| (schema.declaration == id).then_some(&schema.definition))
-            }
-        })
     }
 
     /// Borrows the semantic identity assigned to a local implementation block.
@@ -773,6 +740,44 @@ impl Declarations {
         self.catalog
             .resolve_name(&self.names, name, namespace, &Default::default())
             .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
+    }
+
+    /// Distinguish denied access from a missing or malformed trait after normal
+    /// resolution (including public re-exports for an exact identity) failed.
+    pub(crate) fn trait_path_inaccessible(
+        &self,
+        kind: &TypeKind,
+        cancel: &CancellationToken,
+    ) -> bool {
+        let category = NameNamespace::Type;
+        let lookup = match kind {
+            TypeKind::Named(name) | TypeKind::Generic { name, .. } => {
+                self.catalog
+                    .lookup_name(&self.names, name, category, cancel)
+            }
+            TypeKind::Definition {
+                declaration,
+                exposure,
+                ..
+            } => {
+                let (Some(unit), Ok(view)) =
+                    (&self.names.unit, self.definitions.resolve(*declaration))
+                else {
+                    return false;
+                };
+                let route = exposure
+                    .clone()
+                    .unwrap_or_else(|| DefinitionExposure::defining(view));
+                self.catalog.lookup_exposure(
+                    &LookupContext::new(&unit.module),
+                    &route,
+                    category,
+                    cancel,
+                )
+            }
+            _ => return false,
+        };
+        matches!(lookup, Ok(LookupResult::Inaccessible(_)))
     }
 
     /// Resolve an exact structured reference through the same access-checked catalog.

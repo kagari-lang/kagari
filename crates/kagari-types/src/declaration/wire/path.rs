@@ -3,7 +3,7 @@ use crate::{
     declaration::host::PathAccess,
     declaration::path::{
         HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-        HostVirtualSegmentDeclaration,
+        HostVirtualSegmentDeclaration, NativePathOperation, NativePathOperationKind,
     },
     decode_limits,
     ty::wire::WireType,
@@ -16,6 +16,36 @@ use kagari_common::{
     },
 };
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct NativePathOperationRecord {
+    kind: NativePathOperationKind,
+    path: PathDeclarationRecord,
+}
+
+impl NativePathOperationRecord {
+    pub fn encode(
+        value: &NativePathOperation,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            kind: value.kind,
+            path: PathDeclarationRecord::encode(&value.path, encoding, cancel)?,
+        })
+    }
+
+    pub fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<NativePathOperation, DefinitionMappingError> {
+        Ok(NativePathOperation {
+            kind: self.kind,
+            path: self.path.decode(decoding, cancel)?,
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct PathDeclarationRecord {

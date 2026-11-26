@@ -1,0 +1,39 @@
+use build::api::echo;
+
+use build::api;
+
+pub fn direct_set(value: api::Player, next: i32) {
+    value.set_score(next);
+}
+
+pub fn add_score(value: api::Player, amount: i32) {
+    value.add_score(amount);
+}
+
+pub fn direct_score(value: api::Player) -> i32 {
+    value.score
+}
+
+pub fn indexed_score(value: api::Player, index: i32) -> i32 {
+    value.read_index(index)
+}
+
+pub fn indexed_scores(value: api::Player, index: i32) -> i32 {
+    value.read_scores_at(index)
+}
+
+pub fn nested_score(value: api::Player, first: i32, second: i32) -> i32 {
+    value.read_nested_score(first, second)
+}
+
+pub fn score(value: api::Player) -> i32 {
+    value.read_score()
+}
+
+pub fn pass(value: api::Player) -> api::service::Player {
+    value
+}
+
+fn main() -> [i32] {
+    echo(api::service::echo([42]))
+}

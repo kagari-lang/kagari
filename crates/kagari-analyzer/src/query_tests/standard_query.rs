@@ -1,4 +1,4 @@
-use crate::query_tests::{render_native, standard_modules};
+use crate::query_tests::{native_fixture, publish_native_documents, standard_modules};
 use crate::{AnalyzerQueries, query_tests::test_analysis};
 // Source query regressions, including native implementations and protocol views.
 use kagari_hir::{
@@ -58,22 +58,7 @@ mod tests {
 mod trait_tests {
     use super::*;
 
-    use kagari_hir::analysis::AnalysisDatabase;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
-
-    fn source_database() -> AnalysisDatabase {
-        let providers = standard_modules()
-            .into_iter()
-            .chain([crate::query_tests::native_fixture::module()])
-            .collect::<Vec<_>>();
-        let views = providers
-            .iter()
-            .map(|provider| render_native(provider, &providers))
-            .collect();
-        let mut database = test_analysis();
-        database.set_native_sources(providers, views).unwrap();
-        database
-    }
 
     #[test]
     fn registered_defaults_navigate_to_source_and_expose_checked_signatures() {
@@ -82,7 +67,16 @@ mod trait_tests {
         let file = sources
             .set("defaults.kgr", text.into(), SourceLayer::Base)
             .unwrap();
-        let snapshot = source_database()
+        let fixture = native_fixture::module();
+        let mut providers = standard_modules();
+        providers.push(fixture.clone());
+        let (mut editor, _) = publish_native_documents(&mut sources, &providers);
+        let expected_file = sources
+            .snapshot()
+            .module(&fixture.records().identity)
+            .unwrap()
+            .id();
+        let snapshot = editor
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
         let analysis = snapshot.file(file).unwrap();
@@ -97,15 +91,8 @@ mod trait_tests {
             assert_eq!(api.declaration.name, name);
             assert_eq!(api.documentation, format!("Native {name} contract."));
             assert_eq!(
-                snapshot
-                    .source(api.declaration.source_location().unwrap().file)
-                    .unwrap()
-                    .name(),
-                render_native(
-                    &crate::query_tests::native_fixture::module(),
-                    &standard_modules()
-                )
-                .uri
+                api.declaration.source_location().unwrap().file,
+                expected_file
             );
             let signature = analysis.queries().call_signature_at(offset).unwrap();
             assert_eq!(signature.declaration, api.declaration.id.clone());
@@ -124,7 +111,7 @@ mod trait_tests {
         let file = sources
             .set("untitled:traits.kgr", text.into(), SourceLayer::Overlay)
             .unwrap();
-        let mut db = source_database();
+        let (mut db, _) = publish_native_documents(&mut sources, &standard_modules());
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();

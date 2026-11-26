@@ -533,6 +533,7 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     native.modules[0]
         .native_declarations
         .push(NativeDeclaration {
+            path_operation: None,
             declaration,
             function,
             callable_requirements: vec![],

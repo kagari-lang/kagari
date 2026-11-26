@@ -19,21 +19,24 @@ fn host_results_preserve_builtin_array_shape_through_artifacts_and_binding_check
     let declarations = standard_library().declarations();
     let module = |result: Type| {
         let mut builder = ModuleBuilder::new("demo", declarations.catalog()).unwrap();
+        let values_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
         let values = builder
-            .define_function(FunctionDecl::new("values").returns(result).host_policy(
-                HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                },
-            ))
+            .define_function(
+                FunctionDecl::new("values")
+                    .returns(result)
+                    .host_policy(values_policy.clone()),
+            )
             .unwrap();
         builder
             .bind(
                 values,
-                host::callback(|context, _| {
+                host::callback(values_policy, |context, _| {
                     let owner = context.runtime().execution_root().unwrap();
                     let root = context
                         .runtime_mut()

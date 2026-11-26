@@ -404,13 +404,25 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
 #[test]
 fn artifact_preserves_portable_virtual_path_declarations() {
     let context = DefinitionContext::new().unwrap();
-    use kagari_contract::types::PublicItem;
+    use crate::{program::updates::fixtures::certify, verifier::verify_module};
+    use kagari_contract::{
+        native_import::NativeImport,
+        types::{
+            ConcreteFunctionIdentity,
+            named::{NamedContract, NamedDeclaration},
+        },
+    };
     use kagari_types::{
+        callable::{CallableImplementation, Signature},
         declaration::{
-            TypeDeclaration, TypeDef, TypeDefKind,
-            host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+            FnDecl, NativeDeclaration, Param, TypeDeclaration, TypeDef, TypeDefKind,
+            host::{
+                HostCallPolicy, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
+                HostTypePolicy, PathAccess,
+            },
             path::{
                 HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
+                NativePathOperation, NativePathOperationKind,
             },
             wire::declarations::TypeDeclarationRecord,
         },
@@ -459,13 +471,68 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         module.external_types[0].definition.clone(),
     ));
     module.path_declarations.push(path.clone());
-    let artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            update_evidence: crate::program::updates::empty(),
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![module],
+    let declaration = context
+        .intern_child(owner, DefinitionKind::Function, "preview", 0)
+        .unwrap();
+    let function = FnDecl {
+        name: "preview".into(),
+        implementation: CallableImplementation::Native(declaration),
+        generic_params: vec![],
+        bounds: vec![],
+        method_policy: Default::default(),
+        host_policy: Some(HostCallPolicy {
+            passing: vec![HostPassingStyle::Owned],
+            effects: Default::default(),
+        }),
+        params: vec![Param {
+            name: "player".into(),
+            ty: Ty::Host(root),
+            mutable: false,
+        }],
+        return_type: Ty::Builtin(BuiltinType::I32),
+    };
+    module.native_imports.push(NativeImport {
+        binding: declaration,
+        instance: ConcreteFunctionIdentity {
+            declaration,
+            arguments: vec![],
         },
+        signature: Signature {
+            params: vec![Ty::Host(root)],
+            result: function.return_type.clone(),
+        },
+        generic: None,
+        receiver_access: None,
+        result_adapter: None,
+        requirements: vec![],
+        callables: vec![],
+    });
+    module.named_declarations.push(NamedDeclaration {
+        declaration,
+        visibility: Visibility::Private,
+        ambiguous_local_body: None,
+        contract: NamedContract::Function(function.clone()),
+    });
+    module.native_declarations.push(NativeDeclaration {
+        declaration,
+        function,
+        concrete_result: None,
+        callable_requirements: vec![],
+        path_operation: Some(NativePathOperation {
+            kind: NativePathOperationKind::Read,
+            path: path.clone(),
+        }),
+    });
+    let artifact = KbcArtifact::from_program(
+        certify(
+            BytecodeProgram {
+                update_evidence: crate::program::updates::empty(),
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+            &context,
+        ),
         ArtifactBuildOptions::default(),
         &context,
         &Default::default(),
@@ -479,6 +546,28 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     assert_eq!(
         same_scope.records().program.modules[0].path_declarations,
         artifact.program.modules[0].path_declarations
+    );
+    let actor = &decoded.records().program.modules[0];
+    assert_eq!(
+        actor.native_declarations[0]
+            .path_operation
+            .as_ref()
+            .unwrap()
+            .path,
+        actor.path_declarations[0]
+    );
+    // No path opcode references this requirement. Replacing it by an otherwise
+    // valid path for the same root and result must still fail import verification.
+    let mut forged = actor.clone();
+    forged.path_declarations[0].schema_epoch += 1;
+    assert_eq!(
+        verify_module(&forged, decoded.definitions(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidPathLayout)
+    );
+    forged.path_declarations.clear();
+    assert_eq!(
+        verify_module(&forged, decoded.definitions(), &Default::default()),
+        Err(BytecodeVerificationError::InvalidPathLayout)
     );
     let decoded_path = &decoded.records().program.modules[0].path_declarations[0];
     assert_eq!(

@@ -4,6 +4,7 @@ use crate::{
     CompileResult,
     engine::{
         packages::PackageBuildInput,
+        pins::InstallationPins,
         source::{CheckedModule, inputs::CheckedInputs},
     },
     error::EmbeddingError,
@@ -47,12 +48,22 @@ pub struct SourceAnalysis {
 }
 
 impl SourceAnalysis {
+    #[cfg(test)]
     pub(crate) fn new(
         snapshot: AnalysisSnapshot,
         root: FileId,
         provenance: Option<PackageBuildInput>,
     ) -> CompileResult<Self> {
-        let inputs = CheckedInputs::capture(&snapshot, root, provenance)?;
+        Self::capture(snapshot, root, provenance, Arc::default())
+    }
+
+    pub(super) fn capture(
+        snapshot: AnalysisSnapshot,
+        root: FileId,
+        provenance: Option<PackageBuildInput>,
+        pins: Arc<InstallationPins>,
+    ) -> CompileResult<Self> {
+        let inputs = CheckedInputs::capture(&snapshot, root, provenance, pins)?;
         Ok(Self {
             snapshot,
             root,

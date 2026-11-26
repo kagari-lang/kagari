@@ -273,24 +273,6 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
 }
 
 #[test]
-fn installed_non_overridable_default_rejects_a_script_replacement() {
-    let mut sources = SourceDatabase::default();
-    let root = insert(
-        &mut sources,
-        "root",
-        "use demo::bindings::NativeRead; struct Values {} impl NativeRead for Values { fn fixed(self) -> i32 { 7 } }",
-    );
-    let snapshot = analyze(&mut test_analysis(), &sources);
-    let file = snapshot.file(root).unwrap();
-    assert!(file.result().diagnostics().iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::TraitMethodMismatch { method_name, reason, .. }
-            if method_name == "fixed" && reason == "this method declaration forbids overriding"
-    )));
-    assert!(file.result().clone().into_codegen().is_err());
-}
-
-#[test]
 fn adding_a_script_default_satisfies_old_impls_without_changing_method_identity() {
     let mut sources = SourceDatabase::default();
     let text = "trait Action { fn act(self) -> i32; } struct Point {} impl Action for Point {}";

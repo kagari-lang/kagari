@@ -19,7 +19,6 @@ use kagari::{
     context::{ExecutionContext, JitPolicy},
     engine::{
         KagariEngine,
-        builder::KagariEngineBuilder,
         source::{ArtifactOptions, PreparationOptions},
     },
     error::EmbeddingError,
@@ -45,7 +44,7 @@ use kagari_syntax::parser::{ParseOptions, parse};
 use std::{
     env, fs,
     io::{self, Write},
-    path::{Path, PathBuf},
+    path::Path,
     process::ExitCode,
 };
 
@@ -105,15 +104,9 @@ fn parse_source(path: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
-fn source_engine(declaration_cache: impl Into<PathBuf>) -> Result<KagariEngine, CliError> {
-    let mut builder = engine_builder()?;
-    builder.declaration_cache(declaration_cache);
-    builder.build().map_err(print_embedding_error)
-}
-
 fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = source_engine("target/kagari-declarations")?;
+    let engine = cli_engine()?;
     let artifact = engine
         .compile_to_artifact(source, ArtifactOptions::default())
         .map_err(|error| print_source_error(&engine, error))?;
@@ -142,7 +135,7 @@ fn source_preparation(jit: bool) -> PreparationOptions {
 
 fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = source_engine("target/kagari-declarations")?;
+    let engine = cli_engine()?;
     let program = engine
         .compile(source, source_preparation(jit))
         .map_err(|error| print_source_error(&engine, error))?;
@@ -165,7 +158,7 @@ fn run_artifact(path: &Path, jit: bool) -> Result<(), CliError> {
     })?;
     let artifact = BytecodeArtifact::from_bytes(&bytes)
         .map_err(|error| CliError::message(1, error.to_string()))?;
-    run_loaded_artifact(&runtime_engine()?, artifact, LoadOptions::default(), jit)
+    run_loaded_artifact(&cli_engine()?, artifact, LoadOptions::default(), jit)
 }
 
 fn run_loaded_artifact(
@@ -268,7 +261,7 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
     Ok(SourceFile::new(path.display().to_string(), text))
 }
 
-fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
+fn cli_engine() -> Result<KagariEngine, CliError> {
     let registration = |error: RuntimeError| CliError::message(1, error.to_string());
     let mut engine = KagariEngine::builder().map_err(registration)?;
     let standard = StandardLibrary::new(engine.declarations()).map_err(registration)?;
@@ -287,11 +280,7 @@ fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
     })
     .map_err(registration)?;
     engine.install(output).map_err(registration)?;
-    Ok(engine)
-}
-
-fn runtime_engine() -> Result<KagariEngine, CliError> {
-    engine_builder()?.build().map_err(print_embedding_error)
+    engine.build().map_err(print_embedding_error)
 }
 
 fn print_common_diagnostics(diagnostics: &[Diagnostic]) {

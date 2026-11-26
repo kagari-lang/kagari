@@ -1,0 +1,13 @@
+use host::Player;
+
+async fn health(player: Player) -> i32 {
+    player.hp
+}
+
+pub async fn combined_hp(first: Player, second: Player) -> i32 {
+    val combine = async |other: Player| {
+        val hp = health(other).await;
+        first.hp + hp
+    };
+    combine(second).await
+}

@@ -167,24 +167,25 @@ impl NominalSchema {
     }
 
     pub fn make(&mut self, trace: Arc<Mutex<Vec<&'static str>>>, label: &'static str) {
+        let make_policy = HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                ..Default::default()
+            },
+        };
         let make = self
             .builder
             .define_function(
                 FunctionDecl::new("make")
                     .returns(self.item.apply([]).unwrap())
-                    .host_policy(HostCallPolicy {
-                        passing: vec![],
-                        effects: HostFunctionEffects {
-                            may_allocate: true,
-                            ..Default::default()
-                        },
-                    }),
+                    .host_policy(make_policy.clone()),
             )
             .unwrap();
         self.builder
             .bind(
                 make,
-                host::callback(move |cx, _| {
+                host::callback(make_policy, move |cx, _| {
                     trace.lock().unwrap().push(label);
                     let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
                     let root = cx.runtime_mut().host_root_value(root).unwrap();

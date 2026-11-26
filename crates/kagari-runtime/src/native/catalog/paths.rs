@@ -25,6 +25,22 @@ impl DeclarationCatalog {
                     .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             }
         }
+        for declaration in self.declarations.values() {
+            if let Some(operation) = &declaration.path_operation {
+                declaration
+                    .validate_path_operation(&schemas, &definitions)
+                    .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+                if !self
+                    .paths
+                    .get_id(operation.path.root)
+                    .is_some_and(|paths| paths.contains(&operation.path))
+                {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native operation path is absent from the catalog",
+                    ));
+                }
+            }
+        }
         Ok(())
     }
 }

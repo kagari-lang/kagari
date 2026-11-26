@@ -1,0 +1,5 @@
+native fn get() -> i32;
+
+mod child {
+    native fn get() -> i32;
+}

@@ -7,7 +7,7 @@ mod tests;
 use crate::{
     CliError,
     args::{ProjectAction, ProjectArgs},
-    checking, print_source_error, run_prepared_program, source_engine, source_preparation,
+    checking, cli_engine, print_source_error, run_prepared_program, source_preparation,
 };
 use kagari::{engine::source::ArtifactOptions, runtime::LoadOptions};
 use kagari_common::cancellation::CancellationToken;
@@ -76,7 +76,7 @@ fn run_from(
         )
         .map_err(package_error)?;
     let workspace = source.root().join(&project.workspace().directory);
-    let engine = source_engine(workspace.join("target/kagari/declarations"))?;
+    let engine = cli_engine()?;
     for inputs in project.programs().values() {
         let checked = engine
             .compile_package(inputs, &cancel)

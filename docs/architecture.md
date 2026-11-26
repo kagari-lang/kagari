@@ -172,16 +172,16 @@ this boundary rather than a fabricated working directory or filesystem emulator.
 source acquisition provenance; no package acquisition runs during execution.
 CLI project commands use these same inputs, select roots before execution and publish
 one shared workspace lock. Each selected package produces a separate Program.
-Explicitly materialized declaration views and immutable outputs share the workspace build directory;
-outputs include checked-input and emitted-content identity and do not bypass source
+CLI source commands do not publish declaration views. Immutable build outputs
+include checked-input and emitted-content identity and do not bypass source
 checking. See [CLI loading](spec/module-loading.md#cli-loading) for selectors and the
 command-line filesystem policy.
 
 `ModuleDecl::compiler_input_bytes` encodes the complete native declaration contract
 using the existing portable definition/wire records. `AnalysisDatabase` owns and
 caches the provider/settings fingerprint, invalidating it at environment setters.
-It includes explicit import scopes, ordinary structured Script bodies, external
-static contracts and parser/constant/diagnostic limits, excluding runtime callback
+It includes scoped provider records (including Script bodies), packaged core documents,
+import selections and parser/constant/diagnostic limits, excluding runtime callback
 captures and physical tooling origins. The SDK combines this with
 the exact package source/selection/alias closure and compiler contract identifier;
 `CheckedModule` retains the identity of what was checked. This is input identity,
@@ -362,8 +362,8 @@ The SDK retains a native-only analysis baseline at engine construction.
 `KagariEngine::new_session(config)` starts with empty user sources and a clone of
 that baseline, not another session's user files or later settings. Analysis clones
 share an append-only `DefinitionContext` and can share `NativeFiles` inputs:
-validated adopted registrations and any explicitly supplied presentation parses.
-They do not carry previous HIR or checked source facts. Each request prepares fresh
+validated adopted registrations, logical file keys and effective import paths.
+They do not carry parses, previous HIR or checked source facts. Each request prepares fresh
 lowerings and checks the requested stages; a retained snapshot stays readable
 through its own immutable records. See the
 [HIR query contract](architecture/hir.md#query-work-reuse-and-publication).
@@ -640,8 +640,8 @@ sealing from native preparation. Installation validates dependencies and publish
 atomically. Runtime construction starts empty. Hosts explicitly install standard modules through the same builder path as
 application modules, retaining independent heaps, host state and generations.
 
-The frontend compiles eleven authored modules: `core::{cmp, convert, default, fmt,
-hash, iter, ops, option, result, str}` and `alloc::string`. Their source defines
+The [packaged source owners](../library/core/src/lib.rs) are `core::{cmp, convert,
+default, fmt, future, hash, iter, ops, option, result, str}` and `alloc::string`. Their source defines
 26 compiler-recognized traits and nine ordinary traits. The remaining six foundation
 traits are optional stdlib collection interfaces. Core also supplies Script bodies,
 including propagation, blanket conversions and iterator adapters. Declaring the
@@ -779,10 +779,10 @@ different stage and need not absorb incomplete-source analysis state. HIR conver
 checked declarations to shared semantic records without depending on execution.
 
 ```text
-user KGR -----------------------> syntax --+
-external KGR + static sidecars --> syntax --+-> shared HIR checking
-registered semantic declarations ---------+     |
-                                                -> checked program -> compiler admission (installed evidence required)
+user, packaged core and generated KGR -> syntax --+
+structured registrations -> direct construction --+-> shared HIR checking
+                                                |
+                                                -> checked program -> compiler admission
                                                 -> compiler lowering/specialization -> verified MIR
                                                      -> bytecode emission -> verified bytecode
                                                      -> codegen/backend -> owned machine code
@@ -798,9 +798,9 @@ shared native lowerers rather than implementing a second interpretation of them.
 ## Unified library registration
 
 The preceding crate boundaries define the semantic and execution split.
-Structured registrations and real external declaration sources enter the same HIR
-and checker. Optional generated views present registrations; only checked registration
-and installation evidence, not declaration text, can authorize executable bindings.
+The compiler lowers structured registrations; the editor parses their generated
+declarations as source. Both use the same HIR and checker. Declaration text does
+not authorize executable bindings.
 
 Standard and application native libraries supply the same kind of module:
 explicit Kagari declarations, documentation, dependencies and checked Rust
@@ -815,12 +815,12 @@ already-used engine's registrations is a separate lifecycle decision.
 ```text
 bundled standard modules + application native modules
   -> Engine registration -> validated declaration inputs
-       +-> default: ModuleDecl -> direct HIR -> shared checking with user source
-       +-> explicit declaration_cache: render -> checked parsed declaration views
+       +-> compilation: ModuleDecl -> direct HIR -> shared checking with user source
+       +-> explicit tooling request or publication: render navigable .kgr documents
        `-> runtime-local installation: Rust entries and storage bindings
 
-real exported .kgr + scoped static sidecars
-  -> parse/lower -> shared checking with user source (offline; no installed bindings)
+editor: generated and user .kgr documents + packaged core + effective import scopes
+  -> parse/lower -> shared checking (no installed bindings)
 ```
 
 `AnalysisDatabase::set_native_modules` lowers owned `ModuleDecl` records directly,
@@ -839,50 +839,46 @@ writeability is a frontend contract, not new executable field support. The
 [HIR input contract](architecture/hir.md#native-declaration-inputs-and-origins) owns
 these details and a same-call comparison of direct and offline analysis.
 
-Offline tooling supplies real `.kgr` inputs through `ExternalModule`, retaining
-complete Script definitions alongside Native interfaces. Scoped static sidecars
-supply facts absent from syntax: constructor/Host selections, Host schema/path
-closures, forward conversion metadata, exceptional method policies, enum failure flags,
-namespace-qualified import selectors and ordered Native operations/results. Shared
-checking validates actual owners. Canonical constructor shape and language-role
-requirements are checked independently of sidecar presence. Ordinary project source
-uses the same Native declaration rules. Complete checked programs from any input
-route may enter compilation; unsupported executable operations still reject, and
-linking separately requires matching implementations. No source route installs Rust
-callbacks or grants layout access.
+The editor binds generated documents to their logical modules in the same physical
+`SourceSnapshot` as user source. It checks complete Script definitions and declared
+Native signatures, fields and methods without installed registrations. For example,
+`pub native host type Player;` identifies an external Host handle on both routes;
+`pub native type Player;` does not. The modifier changes which operations type-check,
+not how Rust passes the handle. A checked source declaration is not an executable
+schema: even a fieldless Host owner requires its structured registration **instead of**
+its generated document for compilation. Admission projects schemas, paths and loans
+from registrations; linking checks the demanded implementations.
 
 [ImportEnvironment](../crates/kagari-hir/src/imports/environment.rs) carries module
 package bindings, explicit dependency edges and selected preludes before graph
 construction. Input normalization uses producer/package defaults only where no
 explicit scope is supplied. Explicit aliases win over dependency-derived spellings;
 prelude candidates obey ordinary access and implicit-binding tiers. Coherence uses
-actual defining identities, not an engine-owned or external-source privilege.
-[AnalysisInputs](../crates/kagari-hir/src/analysis/inputs.rs) captures explicit scopes
-for replay. Later requests use the current scopes; changing them also resets the
-provider/settings fingerprint.
+the impl package's ownership of the trait or an ordered input type, not the input route.
+[AnalysisInputs](../crates/kagari-hir/src/analysis/inputs.rs) retains core, registrations,
+scopes and limits. Reproducing a request also requires its physical source snapshot.
 
-The source-enabled SDK still renders declaration documents for
-`native_declaration_sources()`. By default analysis uses structured input, not these
-rendered documents. Explicit `builder.declaration_cache(path)` currently selects
-`set_native_sources`: the SDK assigns final cache identities, parses/checks complete
-views against registration and materializes them for navigation. This remains a
-source-backed analysis route, not merely file output after direct analysis. Documents
-include traits, types, functions, impls, public re-exports, docs and navigation sites;
+SDK compilation always lowers structured registrations. A tooling host can call
+`engine.native_declaration_sources(project, cancel)` with an authored snapshot to
+render the installed API. It receives generated text, stable document keys, logical
+module identities, display paths and the effective import scopes. An editor can
+parse these documents alongside user source and packaged core with no registrations.
+Documents include traits, types, functions, impls, public re-exports and docs;
 Script definitions retain real bodies, including defaults calling declared Native helpers.
 Native-only and artifact-only consumers install the same records/entries without source rendering
 or parsing.
 
-For editor/LSP use, the tooling host can configure this generated-source cache, for
-example `target/kagari-declarations/kgr-native-v1/<content-hash>.kgr`. Materialized
-views return normalized absolute paths and precise ranges in the same content;
-LSP adapters encode those paths as file URIs. Without a cache directory, the SDK
-retains rendered in-memory presentation but structured semantic declarations have
-no physical source locations. `DeclarationOrigin` is canonical; a logical
+With `builder.declaration_cache(path)`, published documents have normalized
+absolute display paths, for example `target/kagari-declarations/kgr-native-v1/<stable-key-hash>/<content-hash>.kgr`.
+LSP adapters encode those paths as file URIs. Without a cache directory, only an
+explicit tooling request renders documents, with virtual paths. Neither mode gives
+structured compiler inputs physical source locations. `DeclarationOrigin` is canonical; a logical
 `SourceUnit` registration file key is not a physical input. Filesystem IO belongs
 to tooling/host integration, not types, contract, HIR's renderer or generic runtime.
 
-Cache identity includes the declaration/documentation content and renderer
-version. Unchanged content reuses a stable path; changed content receives a new
+Cache identity includes the logical document key, declaration/documentation content and renderer
+version. Distinct owners stay navigable even with identical bytes. For the same owner,
+unchanged content reuses a stable path; changed content receives a new
 snapshot path so existing navigation ranges retain their original text. Publish
 complete files before exposing navigation targets and retain files referenced by
 active snapshots. Generated files are disposable views marked as generated;
@@ -1017,9 +1013,9 @@ native libraries. Registration and configuration operations mutate the builder;
 | `ModuleAssembly::declarations()` / `into_modules()` | Retain a declaration-only snapshot / consume one-shot native preparation |
 | `builder.install(module) -> NativeResult<()>` | Validate and atomically add one completed module to the builder's registrations |
 | `builder.install_all(modules) -> NativeResult<()>` | Stage a module set and validate its complete dependency closure before publishing, including mutually dependent standard modules |
-| `builder.declaration_cache(path)` (source feature) | Select checked parsed declaration views and SDK file materialization; pure rendering remains in HIR |
-| `builder.build() -> Result<KagariEngine, EmbeddingError>` | Check required language bindings and seal registrations; with source enabled, prepare direct analysis plus presentation views, or checked parsed views with an explicit cache |
-| `engine.native_declaration_sources()` (source feature) | Return the complete registered source views and their published locations, including docs and navigation sites |
+| `builder.declaration_cache(path)` (source feature) | Opt into immutable file publication for tooling, without changing compilation inputs |
+| `builder.build() -> Result<KagariEngine, EmbeddingError>` | Check required language bindings and seal registrations; with source enabled, prepare structured analysis and publish source-independent registrations only if requested |
+| `engine.native_declaration_sources(project, cancel)` (source feature) | Export generated documents and effective import selections for the supplied authored project snapshot |
 
 Use mutable builder operations for registration/configuration. `build` consumes
 the builder. `ModuleBuilder::finish` checks declarations, storage and bindings
@@ -1057,18 +1053,14 @@ Module overview text has an explicit module-level field on ModuleDecl; item docs
 remain attached to their declaration identities in authoring metadata. No Markdown
 fields are added to physical ABI records or executable function signatures.
 
-During `build`, source-enabled SDK tooling renders from the sealed declarations.
-Without a cache directory it retains in-memory presentation documents and prepares
-analysis directly from registration records, with no Native declaration parse.
-With a directory it checks parsed views under their final file identities before
-publishing complete files and exposing navigation. Preparation validates the closed
-source-independent provider subset, including unused defaults; source-dependent
-providers are checked with the user's source snapshot. Cache IO/errors belong to
-this SDK integration, not module registration or runtime execution; SDK errors retain
-the failing path and underlying cause. CLI source commands supply
-`target/kagari-declarations`; LSP hosts configure a directory through the builder.
-Standalone HIR accepts explicit registration records or external source/static inputs
-without depending on Engine or stdlib.
+During `build`, source-enabled SDK preparation checks the closed source-independent
+provider subset, including unused defaults; source-dependent providers are checked
+with the user's source snapshot. An explicit cache publishes the closed subset at
+build time; a tooling request can export the full API with the project snapshot.
+Cache IO belongs to the SDK, not module registration or runtime execution; errors
+retain the failing path and underlying cause. CLI source commands do not opt in.
+Standalone HIR accepts scoped registration records or ordinary source documents and
+import scopes without depending on Engine or stdlib.
 
 ### Responsibility boundaries
 
@@ -2794,8 +2786,8 @@ matching, identity/equality and interface dispatch do not recognize collection
 names. The [language/type owner](../crates/kagari-hir/src/language/types.rs)
 interprets canonical String/Range constructors with common shape/arity checks;
 ordinary Native declarations retain their own identities, fields and generic
-contracts. Host schema/path/access facts stay explicit static contracts; physical
-storage and Rust adapters belong to executable representation and installation.
+contracts. Host schemas, paths and receiver loans are registration evidence for
+executable admission, not additional editor inputs; storage and adapters belong to Runtime.
 The removed script reference wrappers have no replacement. Checked Host paths and
 Opaque loans are independent of constructor interpretation. Ordinary new containers
 use nominal NativeStorage registration without
@@ -2920,8 +2912,7 @@ role. Range construction does not imply an installed iterator provider.
 
 ```text
 structured declarations -> direct HIR construction ------------+
-explicit registration-backed source views -> parse/lower ------+
-packaged core / external .kgr + sidecars / user source -> parse/lower +
+packaged core, generated and user documents -> parse/lower ----+
   -> common static environment, checking, roles and selected calls
   -> checked compiler admission -> verified MIR -> bytecode/native products
 
@@ -2929,12 +2920,11 @@ checked executable products + installed Rust implementations
   -> source-independent validation/linking -> execution
 ```
 
-Registered semantic records supply direct HIR input; generated source is not a
-mandatory or independently editable authority. Explicit registration-backed source
-views must match declaration IDs, binders, signatures, bounds, parents and associated
-members. Offline sources instead own their declarations with validated static sidecars,
-not installed facts. Collect headers/roles before dependent bodies from the explicit
-inputs; there is no duplicate injected library catalog. Runtime installation never
+Registered semantic records supply direct compiler input. For editors, publication
+checks that rendered re-exports select the intended identity in both namespaces;
+the resulting text is parsed as ordinary source, not matched back to registration IDs.
+Both routes collect headers and roles before checking dependent bodies; neither injects
+a duplicate library catalog. Runtime installation never
 parses generated source.
 
 [ScriptExpr](../crates/kagari-types/src/declaration/script.rs) retains ordinary
@@ -2947,8 +2937,8 @@ without a dedicated forwarding recipe or default-call table; genuine Native defa
 remain Native declarations.
 
 Portable interface tables retain authored-member/impl-placement `method_origins`.
-[Contract checks](../crates/kagari-contract/src/types/verify.rs) enforce canonical
-origins and final override policy, while [materialization checks](../crates/kagari-contract/src/types/materialization.rs)
+[Contract checks](../crates/kagari-contract/src/types/verify.rs) verify the canonical
+trait member, its placement and the selected implementation identity, while [materialization checks](../crates/kagari-contract/src/types/materialization.rs)
 tie emitted Script bodies to instruction-validated portable source/body records during
 [bytecode program verification](../crates/kagari-bytecode/src/program.rs), independently
 of an optional authored-source manifest. These establish internal materialization
@@ -2957,8 +2947,10 @@ evidence together. [Runtime Script authentication](../crates/kagari-runtime/src/
 compares the actual bytecode call/value trace against the independently installed
 canonical ScriptExpr and function contract. It applies trait/receiver/method binders
 and normalizes associated outputs/families through the checked applied impl before
-comparison. A final Script method supplied by a Native registration without its installed canonical expression
-fails closed; origins, signatures or product-supplied digests cannot replace it.
+comparison when a product claims an inherited installed Script body. A substituted
+body with the same signature and fresh instruction evidence is not authenticated.
+Omitting the impl method inherits the default; a signature-matching explicit impl
+selects its own body instead. Authored traits without an installed owner need no registration.
 Native materializations preserve applied bounds, ordered requirements, access policy
 and concrete results for independent linking against Runtime implementations. These
 checks require neither HIR nor source parsing. SDK preparation checks closed
@@ -2987,7 +2979,7 @@ without source analysis or a concrete library API catalog.
 
 Core documentation and navigation use the exact packaged source in the analysis
 snapshot. Registered modules retain their own Markdown and structured origins;
-optional generated views add renderer-recorded sites or checked cache-file ranges.
+editor ranges in generated views belong to the parsed documents, not the registrations.
 Source-free loading and reload consume executable evidence for core and validate
 native dependencies against the actual installation. They do not require a native
 registration of every core trait.

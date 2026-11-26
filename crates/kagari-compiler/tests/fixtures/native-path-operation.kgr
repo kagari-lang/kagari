@@ -1,0 +1,5 @@
+use example::roots::{Player, score};
+
+pub fn relay(player: Player, key: u64) -> i32 {
+    player.score(key, score(player, key))
+}

@@ -2,7 +2,7 @@
 //!
 //! Preparation, checked facts and compiler admission belong to `kagari-hir`.
 //! These views select source positions and build editor projections only on demand;
-//! the analyzer binary independently owns LSP lifecycle and document synchronization.
+//! the editor workspace owns source delivery, and the binary owns LSP synchronization.
 
 pub mod calls;
 pub mod declarations;
@@ -12,6 +12,7 @@ pub mod methods;
 pub mod navigation;
 pub mod snapshot;
 pub mod staged;
+pub mod workspace;
 
 use crate::{
     declarations::{DeclarationFileQueries, DeclarationSnapshotQueries},

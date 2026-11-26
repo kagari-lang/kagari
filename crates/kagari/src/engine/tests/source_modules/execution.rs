@@ -21,7 +21,7 @@ use std::num::NonZeroUsize;
 #[test]
 fn independent_bag_library_iterates_and_collects_without_stdlib() {
     let engine = KagariEngine::default();
-    assert!(engine.native_declaration_sources().is_empty());
+
     insert(
         &engine,
         "bag",

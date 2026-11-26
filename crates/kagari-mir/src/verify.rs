@@ -2,7 +2,7 @@ use crate::{
     analysis::FunctionAnalysis,
     function::{MirFunction, MirModule},
     ids::{BlockId, InstanceId, LocalId, TempId},
-    instruction::{MirValue, Terminator},
+    instruction::{Instruction, MirValue, Terminator},
     verify::analysis::Budget,
 };
 use kagari_abi::representation::ValueType;
@@ -474,6 +474,7 @@ fn verify_function(
     }
     debug::verify(function, context)?;
     let mut effects = EffectSet::default();
+    let mut has_path_view = false;
     let mut count = 0usize;
     for (index, block) in function.blocks.iter().enumerate() {
         let context = Context {
@@ -514,6 +515,7 @@ fn verify_function(
                 context.value(function, dst)?;
             }
             operation::verify(module, function, instruction, context)?;
+            has_path_view |= matches!(instruction, Instruction::MakePathView { .. });
             effects = effects.union(instruction.effects());
         }
         let context = Context {
@@ -558,6 +560,6 @@ fn verify_function(
     analysis::reserve(function, context, budget)?;
     let initialized = flow::verify(function, context, budget)?;
     let analysis = analysis::build(function, initialized, context, budget)?;
-    suspension::verify(function, &analysis, context, budget)?;
+    suspension::verify(function, &analysis, has_path_view, context, budget)?;
     Ok(analysis)
 }

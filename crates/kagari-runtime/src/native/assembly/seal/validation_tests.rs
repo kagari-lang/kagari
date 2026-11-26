@@ -15,7 +15,9 @@ use kagari_types::{
         TypeDef, TypeDefKind, VariantDef,
         module::{ImplDecl, ModuleDecl},
         names::{ExportName, NameNamespace},
+        native::NativeTypeConstructor,
     },
+    scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
@@ -59,6 +61,7 @@ fn assert_rejected_with_providers(
         vec![],
         BTreeMap::new(),
         vec![],
+        Default::default(),
         &providers,
     )
     .expect_err("native preparation must reject the semantic record");
@@ -88,6 +91,35 @@ fn assert_rejected_with_providers(
     let sealed = seal(context, &providers, &mut [draft])
         .expect_err("declaration sealing must reject the semantic record");
     assert!(sealed.to_string().contains(message), "{sealed}");
+}
+
+#[test]
+fn constructor_tag_cannot_install_a_foreign_string_owner() {
+    let (context, mut draft, _) = fixture();
+    draft.declaration.types.push(TypeDef {
+        name: "String".into(),
+        kind: TypeDefKind::Native(NativeTypeConstructor::String),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    draft.declaration.collect_definitions(&context).unwrap();
+    assert_rejected(&context, draft, "invalid native constructor declaration");
+}
+
+#[test]
+fn registration_cannot_mark_an_unrelated_payload_as_a_failure() {
+    let (context, mut draft, _) = fixture();
+    draft.declaration.types[0].variants[0]
+        .payload
+        .push(Ty::Builtin(BuiltinType::I32));
+    draft
+        .declaration
+        .validate(&|_| None, &context.snapshot())
+        .unwrap();
+    draft.declaration.types[0].variants[0].reports_failure = true;
+    assert_rejected(&context, draft, "invalid or unsupported native declaration");
 }
 
 #[test]
@@ -170,6 +202,7 @@ fn real_type_and_variant_exports_survive_both_projections() {
         vec![],
         BTreeMap::new(),
         vec![],
+        Default::default(),
         &providers,
     )
     .unwrap();

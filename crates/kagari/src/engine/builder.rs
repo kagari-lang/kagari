@@ -6,7 +6,9 @@ use crate::{
 #[cfg(feature = "source")]
 use kagari_compiler::source::core_library;
 #[cfg(feature = "source")]
-use kagari_hir::analysis::core_source::packaged_modules;
+use kagari_hir::{
+    analysis::core_source::packaged_modules, imports::environment::ImportEnvironment,
+};
 use kagari_runtime::{
     error::RuntimeError,
     native::{
@@ -29,6 +31,8 @@ pub struct KagariEngineBuilder {
     #[cfg(feature = "source")]
     pub(super) declaration_cache: Option<PathBuf>,
     #[cfg(feature = "source")]
+    pub(super) imports: ImportEnvironment,
+    #[cfg(feature = "source")]
     pub(super) source_root: Option<String>,
 }
 
@@ -41,6 +45,8 @@ impl KagariEngineBuilder {
             installation: NativeInstallation::prepare(&[])?,
             #[cfg(feature = "source")]
             declaration_cache: None,
+            #[cfg(feature = "source")]
+            imports: ImportEnvironment::default(),
             #[cfg(feature = "source")]
             source_root: None,
         })
@@ -85,8 +91,25 @@ impl KagariEngineBuilder {
         Ok(())
     }
 
-    /// Materialize immutable declaration files for tooling. Omission keeps all
-    /// declaration views in memory and performs no filesystem IO.
+    /// Set the sealed import selections for registration checking and publication.
+    /// Construction checks the complete scopes of bundled core and registrations
+    /// that do not need project owners. Project importers and registrations that
+    /// depend on them are checked with the project snapshot. Fresh sessions inherit
+    /// all selections; [`KagariEngine::set_import_environment`] replaces them for
+    /// one session.
+    #[cfg(feature = "source")]
+    pub fn import_environment(&mut self, imports: ImportEnvironment) -> &mut Self {
+        self.imports = imports;
+        self
+    }
+
+    /// Publish immutable tooling documents, never compiler inputs.
+    ///
+    /// Building publishes the source-independent registrations. Use
+    /// [`KagariEngine::native_declaration_sources`] with the authored project to
+    /// include registrations that depend on its declarations. Without a cache,
+    /// only an explicit tooling request renders text, with no filesystem IO.
+    /// Publication cannot give a structured program a complete source manifest.
     #[cfg(feature = "source")]
     pub fn declaration_cache(&mut self, path: impl Into<PathBuf>) -> &mut Self {
         self.declaration_cache = Some(path.into());
@@ -118,7 +141,7 @@ fn authoring_catalog(modules: &[NativeModule]) -> NativeResult<DeclarationCatalo
         core_library::verified().map_err(RuntimeError::module_validation)?,
         packaged_modules()
             .iter()
-            .map(|module| module.source.module_identity()),
+            .map(|module| module.module_identity()),
     )?;
     Ok(catalog)
 }

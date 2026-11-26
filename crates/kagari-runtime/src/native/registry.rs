@@ -10,13 +10,14 @@ mod scripts;
 mod tests;
 use crate::{
     error::RuntimeError,
-    host::HostPathAdapter,
+    host::{HostPathAdapter, path_fingerprint::AdmittedPaths},
     metadata::native::MetadataSnapshot,
     module::{VerifiedProgram, admission::DefinitionAdmission},
     native::{
-        binding::{LinkedNativeFunction, NativeBinding, NativeResult},
+        binding::{BindingEntry, LinkedNativeFunction, NativeBinding, NativeResult},
         catalog::{DeclarationCatalog, import::CatalogImports},
         context::{CallableOwner, LinkedCallable, LinkedOperation},
+        host::path::LinkedPathOperation,
         result::LinkedResultAdapter,
         storage::NativeStorage,
     },
@@ -51,7 +52,7 @@ use kagari_types::{
     ty::Ty,
 };
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     slice,
     sync::{Arc, OnceLock},
 };
@@ -95,7 +96,8 @@ pub(crate) struct NativeRegistry {
     scripts: DefinitionMap<scripts::InstalledScript>,
     authored_requirements: BTreeMap<ModuleIdentity, DeclarationCatalog>,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
-    pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
+    pub(super) required_source_traits: DefinitionMap<BTreeSet<DefinitionId>>,
+    pinned_source_traits: DefinitionMap<TraitDef>,
     // Only declarations published by providers, never their foreign requirements.
     pub(crate) owned_traits: HashSet<DefinitionId>,
 }
@@ -120,7 +122,8 @@ impl Default for NativeRegistry {
             entries: DefinitionMap::new(context.clone()),
             declaration_bindings: DefinitionMap::new(context.clone()),
             storage,
-            trait_references: DefinitionMap::new(context.clone()),
+            required_source_traits: DefinitionMap::new(context.clone()),
+            pinned_source_traits: DefinitionMap::new(context.clone()),
             path_bindings: DefinitionMap::new(context),
             catalog,
         }
@@ -157,6 +160,25 @@ impl DependencyValidation {
 }
 
 impl NativeRegistry {
+    pub(super) fn pin_source_trait(
+        &mut self,
+        id: DefinitionId,
+        abi: &TraitDef,
+    ) -> NativeResult<()> {
+        if let Some(prior) = self.pinned_source_traits.get_id(id) {
+            if prior != abi {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting verified source trait contracts",
+                ));
+            }
+        } else {
+            self.pinned_source_traits
+                .insert_id(id, abi.clone())
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
+        Ok(())
+    }
+
     /// Validate carried declarations before publication, including unused entries.
     pub(crate) fn validate_installed_contracts(
         &self,
@@ -170,11 +192,21 @@ impl NativeRegistry {
         let definitions = self.catalog.definitions();
         if let Some(expected) = definitions
             .lookup_root(&module.identity)
-            .and_then(|root| self.trait_references.get_id(root))
+            .and_then(|root| self.required_source_traits.get_id(root))
+            && !expected.is_empty()
         {
-            dependencies::validate_expected_traits(expected, module, admission)?;
+            let required = self
+                .authored_requirements
+                .get(&module.identity)
+                .expect("source pins retain their verified contracts");
+            dependencies::validate_expected_traits(expected, &required.traits, module, admission)?;
         }
-        dependencies::validate_installed_traits(&self.catalog, module, admission)?;
+        dependencies::validate_installed_traits(
+            &self.catalog,
+            &self.pinned_source_traits,
+            module,
+            admission,
+        )?;
         dependencies::validate_installed_values(&self.catalog, module, program, admission)?;
         self.validate_forwarding(module, admission)?;
         self.validate_scripts(module, program, admission)?;
@@ -286,6 +318,13 @@ impl NativeRegistry {
             {
                 return Err(invalid());
             }
+            if matches!(registration.binding.entry, BindingEntry::PathOperation)
+                != declaration.path_operation.is_some()
+            {
+                return Err(RuntimeError::metadata_conflict(
+                    "native path operation requires a bound path service",
+                ));
+            }
             registration.binding.check_policies(&declaration.function)?;
             registration.binding.check(
                 &Signature {
@@ -326,6 +365,7 @@ impl NativeRegistry {
         program: &VerifiedProgram,
         admission: &DefinitionAdmission,
         validated: &mut DependencyValidation,
+        paths: &AdmittedPaths<'_>,
     ) -> NativeResult<Arc<LinkedNativeFunction>> {
         let definitions = program.definitions();
         if !FoundationNative::import_allowed(import, &importer.identity, definitions) {
@@ -446,6 +486,11 @@ impl NativeRegistry {
             .collect::<NativeResult<Vec<_>>>()?;
         Ok(Arc::new(LinkedNativeFunction {
             declaration: import.instance.declaration,
+            path_operation: declaration
+                .path_operation
+                .as_ref()
+                .map(|op| LinkedPathOperation::link(op, paths.for_operation(&op.path)?))
+                .transpose()?,
             binding,
             signature,
             result_adapter: LinkedResultAdapter::link(import, program)?,

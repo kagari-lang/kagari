@@ -166,13 +166,12 @@ fn imported_supertraits_resolve_authored_associated_members_from_source_facts() 
     let declaration = snapshot
         .declaration(&DeclarationId::Definition(*member))
         .unwrap();
-    let authored = &snapshot
-        .inputs()
+    let inputs = snapshot.inputs();
+    let authored = inputs
         .core_modules()
         .iter()
-        .find(|input| *input.source.module_identity() == Protocol::Iterator.module())
-        .unwrap()
-        .source;
+        .find(|input| *input.module_identity() == Protocol::Iterator.module())
+        .unwrap();
     let start = authored.text().find("type Item;").unwrap() + "type ".len();
     let site = authored
         .span(Span::new(start, start + "Item".len()))

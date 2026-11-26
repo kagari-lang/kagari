@@ -2,19 +2,78 @@
 
 use crate::{
     layout::{EnumLayout, LayoutValidationError, StructLayout},
-    types::PublicItem,
+    types::{
+        PublicItem,
+        named::{NamedContract, NamedDeclaration},
+    },
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::{FnDecl, TypeDeclaration},
+    declaration::{FnDecl, NativeDeclaration, TypeDeclaration},
     ty::Ty,
 };
 use std::{collections::BTreeSet, slice};
 
 pub mod external;
+
+/// An unused explicit operation must still be an ordinary declared function or
+/// a method of a concrete inherent impl for the root (never a trait default).
+/// The Native template is the only record that owns its operation.
+pub fn validate_path_operations(
+    declarations: &[NativeDeclaration],
+    named: &[NamedDeclaration],
+    schemas: &[TypeDeclaration],
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<(), LayoutValidationError> {
+    for declaration in declarations {
+        let Some(operation) = &declaration.path_operation else {
+            continue;
+        };
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        declaration
+            .validate_path_operation(schemas, definitions)
+            .map_err(|_| LayoutValidationError::Invalid)?;
+        let lookup = |id| {
+            named
+                .iter()
+                .find(|item| item.declaration == id)
+                .map(|item| &item.contract)
+        };
+        if !matches!(lookup(declaration.declaration), Some(NamedContract::Function(function)) if function == &declaration.function)
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+        let parent = definitions
+            .parent(declaration.declaration)
+            .map_err(|_| LayoutValidationError::Invalid)?
+            .ok_or(LayoutValidationError::Invalid)?;
+        if definitions
+            .resolve(parent)
+            .map_err(|_| LayoutValidationError::Invalid)?
+            .last()
+            .is_some()
+        {
+            let Some(NamedContract::Implementation(header)) = lookup(parent) else {
+                return Err(LayoutValidationError::Invalid);
+            };
+            if header.bridge.is_some()
+                || header.trait_type.is_some()
+                || !header.generic_params.is_empty()
+                || !header.bounds.is_empty()
+                || header.receiver != Ty::Host(operation.path.root)
+            {
+                return Err(LayoutValidationError::Invalid);
+            }
+        }
+    }
+    Ok(())
+}
 
 pub fn references(
     items: &[PublicItem],

@@ -47,7 +47,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 
 
         Ok(())
-    })?;
+    })
+}
+
+pub(super) fn default(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
+    let string = Type::scalar(BuiltinType::String);
     default_impl(
         module,
         string.clone(),

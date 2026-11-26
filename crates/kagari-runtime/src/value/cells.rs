@@ -88,7 +88,8 @@ impl CellObject {
         representation: ValueType,
         value: ScopedValue<'gc>,
     ) -> Result<(), GcError> {
-        if !value.has_representation(representation) || !ValueProperties::of(cx, value)?.storable {
+        if !value.has_representation(representation) || !ValueProperties::of(cx, value)?.retainable
+        {
             return Err(GcError::Representation);
         }
         Ok(())

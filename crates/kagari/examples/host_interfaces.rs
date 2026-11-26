@@ -1,4 +1,4 @@
-//! Explicit private source-trait references and common native interface binding.
+//! Pin a public script trait and bind an independently declared native implementation.
 //! Run with `cargo run -p kagari --example host_interfaces`.
 use kagari::{
     BytecodeArtifact,
@@ -7,7 +7,8 @@ use kagari::{
     program::Program,
 };
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, map::DefinitionContext,
+    metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
     host::{HostError, HostObjectId, HostSchemaEpoch},
@@ -28,8 +29,7 @@ const SOURCE_URI: &str = "mem://host-interface";
 fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     let mut builder = KagariEngine::builder().unwrap();
     let library = StandardLibrary::new(builder.declarations()).unwrap();
-    // Read the trait's checked ABI independently of its host implementation.
-    // The source owns this private trait; Rust does not declare or export it.
+    // Pin the published Reader contract before compiling the application with demo installed.
     builder.install_all(library.modules().unwrap()).unwrap();
     let author = builder.build().unwrap();
     let contract_source = SOURCE
@@ -44,13 +44,15 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
     let contract = author.emit_artifact(&checked, Default::default()).unwrap();
-    let source_module =
-        &contract.records().program.modules[contract.records().program.root.index()];
-    let reader = source_module
-        .trait_contracts
-        .iter()
-        .find(|contract| contract.abi.name == "Reader")
+    let definitions = DefinitionContext::new().unwrap();
+    let baseline = contract
+        .import_into(&definitions, &Default::default())
+        .unwrap()
+        .into_records()
+        .into_verified(&Default::default(), &definitions, &Default::default())
         .unwrap();
+    let bytecode = baseline.bytecode();
+    let source_module = &bytecode.program().modules[bytecode.program().root.index()];
     let path = DefinitionPath {
         module: source_module.identity.clone(),
         path: vec![DefinitionPathSegment {
@@ -59,15 +61,13 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
             occurrence: 0,
         }],
     };
-    let reader = DefinitionMetadata::checked(
-        contract.definitions().clone(),
-        reader.abi.clone(),
-        &Default::default(),
-    )
-    .unwrap();
-    let catalog = library.declarations().catalog();
-    let mut module = ModuleBuilder::new("demo", catalog).unwrap();
-    let reader = module.reference_trait(&path, reader).unwrap();
+    let catalog = library
+        .declarations()
+        .catalog()
+        .with_verified_modules(bytecode, [&path.module])
+        .unwrap();
+    let mut module = ModuleBuilder::new("demo", &catalog).unwrap();
+    let reader = module.reference_trait(&path).unwrap();
     let mut counter = module.define_type("Counter").unwrap();
     counter
         .external(HostTypePolicy {
@@ -79,18 +79,20 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     let counter = counter.finish().unwrap();
     module
         .implement(counter.clone(), |group| {
+            let receiver = group.receiver();
             group.trait_impl(reader.apply([])?, |methods| {
                 methods.associated_type("Item", Type::i32())?;
-                methods.host_policy(
-                    "read",
-                    HostCallPolicy {
-                        passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
-                        effects: Default::default(),
-                    },
-                )?;
-                methods.bind(
-                    "read",
-                    host::callback(|_, args| {
+                let method_policy = HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                    effects: Default::default(),
+                };
+                methods.define_method(
+                    FunctionDecl::new("read")
+                        .parameter("self", receiver)
+                        .parameter("amount", Type::i32())
+                        .returns(Type::i32())
+                        .host_policy(method_policy.clone()),
+                    host::callback(method_policy, |_, args| {
                         let [receiver, amount] = args else {
                             return Err(HostError::new(
                                 "checked Counter receiver and i32 argument",
@@ -108,23 +110,24 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
             })
         })
         .unwrap();
+    let make_policy = HostCallPolicy {
+        passing: vec![],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    };
     let make = module
         .define_function(
             FunctionDecl::new("make")
                 .returns(counter.apply([]).unwrap())
-                .host_policy(HostCallPolicy {
-                    passing: vec![],
-                    effects: HostFunctionEffects {
-                        may_allocate: true,
-                        ..Default::default()
-                    },
-                }),
+                .host_policy(make_policy.clone()),
         )
         .unwrap();
     module
         .bind(
             make,
-            host::callback(|cx, _| {
+            host::callback(make_policy, |cx, _| {
                 let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
                 let value = cx
                     .runtime_mut()

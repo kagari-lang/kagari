@@ -73,6 +73,7 @@ pub fn validate(
         let valid = definitions
             .resolve(declaration.declaration)
             .is_ok_and(|view| view.module() == module)
+            && !matches!(ty.kind, TypeDefKind::Native(_))
             && names.insert(ty.name.as_str())
             && private.insert(declaration.declaration, ty).is_none()
             && (!matches!(ty.kind, TypeDefKind::NativeStorage(_)) || ty.fields.is_empty())

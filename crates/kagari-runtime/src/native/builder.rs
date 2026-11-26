@@ -27,7 +27,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, ModuleIdentity, PackageId,
+        DefinitionKind, DefinitionPath, ModuleIdentity, PackageId,
         map::DefinitionContext,
         mapping::DefinitionMapper,
         metadata::DefinitionMetadata,
@@ -40,7 +40,7 @@ use kagari_types::{
     declaration::module::ModuleDecl,
     declaration::path::HostPathDeclaration,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct ModuleBuilder {
@@ -49,6 +49,7 @@ pub struct ModuleBuilder {
     pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
     pub(crate) storage: BTreeMap<DefinitionId, NativeStorage>,
     pub(crate) path_bindings: Vec<(HostPathDeclaration, HostPathAdapter)>,
+    required_source_traits: BTreeSet<DefinitionPath>,
     function_parameters: BTreeMap<DefinitionId, Vec<String>>,
 }
 
@@ -92,6 +93,7 @@ impl ModuleBuilder {
         Ok(Self {
             declaration,
             providers,
+            required_source_traits: BTreeSet::new(),
             bindings,
             storage: BTreeMap::new(),
             path_bindings: Vec::new(),
@@ -113,6 +115,7 @@ impl ModuleBuilder {
         Ok(Self {
             declaration,
             providers,
+            required_source_traits: BTreeSet::new(),
             bindings: BTreeMap::new(),
             storage: BTreeMap::new(),
             path_bindings: Vec::new(),
@@ -312,6 +315,7 @@ impl ModuleBuilder {
             self.bindings.into_iter().collect(),
             self.storage,
             self.path_bindings,
+            self.required_source_traits,
             &self.providers,
         )
     }

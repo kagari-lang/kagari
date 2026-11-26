@@ -35,6 +35,9 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;
     enumerations::declare(module)?;
     let owner = module.identity().clone();
+    if owner == namespaces::module("alloc", "string_defaults") {
+        string::default(module)?;
+    }
     if owner == namespaces::module("std", "string") {
         string::declare(module)?;
     }

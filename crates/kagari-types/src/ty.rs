@@ -72,10 +72,40 @@ pub enum Ty {
 
 impl Ty {
     pub fn contains_projection(&self) -> bool {
+        self.any_component(|ty| matches!(ty, Self::Projection { .. }))
+    }
+
+    pub(crate) fn contains_parameter(&self) -> bool {
+        self.any_component(|ty| matches!(ty, Self::Parameter { .. }))
+    }
+
+    pub fn is_concrete(&self) -> bool {
+        !self.any_component(|ty| {
+            matches!(
+                ty,
+                Self::Projection { .. } | Self::Parameter { .. } | Self::SelfType(_)
+            )
+        })
+    }
+
+    fn any_component(&self, test: impl Fn(&Ty) -> bool) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
+            if test(ty) {
+                return true;
+            }
             match ty {
-                Self::Projection { .. } => return true,
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                    pending.extend(arguments);
+                }
                 Self::Struct(ty) | Self::NativeObject(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
@@ -91,30 +121,6 @@ impl Ty {
             }
         }
         false
-    }
-
-    pub fn is_concrete(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Projection { .. } | Self::Parameter { .. } | Self::SelfType(_) => {
-                    return false;
-                }
-                Self::Tuple(types) => pending.extend(types),
-                Self::Function { params, result } => {
-                    pending.extend(params);
-                    pending.push(result);
-                }
-                Self::Array(ty) | Self::Range(ty, _) => pending.push(ty),
-
-                Self::Struct(ty) | Self::NativeObject(ty) | Self::Enum(ty) | Self::Trait(ty) => {
-                    pending.extend(&ty.arguments);
-                    pending.extend(ty.associated_types.values());
-                }
-                Self::Host(_) | Self::Builtin(_) => {}
-            }
-        }
-        true
     }
 }
 

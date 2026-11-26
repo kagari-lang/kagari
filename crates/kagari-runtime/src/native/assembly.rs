@@ -26,6 +26,7 @@ use crate::{
         assembly::{
             authoring::{PendingBinding, SealedPreparation, SendPrepare},
             draft::{DraftState, ModuleDraft},
+            references::ReferenceKind,
             seal::seal,
         },
         binding::NativeResult,
@@ -143,6 +144,7 @@ pub struct ModuleAssembly {
 
 struct SealedModule {
     declaration: ModuleDecl,
+    trait_references: BTreeSet<DefinitionId>,
     storage: BTreeMap<DefinitionId, NativeStorage>,
 }
 
@@ -156,6 +158,12 @@ impl From<DraftState> for PendingModule {
         Self {
             module: SealedModule {
                 declaration: draft.declaration,
+                trait_references: draft
+                    .references
+                    .into_iter()
+                    .filter(|r| r.kind == ReferenceKind::Trait)
+                    .map(|r| r.id)
+                    .collect(),
                 storage: draft.storage,
             },
             bindings: draft.bindings,
@@ -274,11 +282,25 @@ fn prepare_modules(
             let binding = pending.prepare(&declaration.function, &preparation)?;
             bindings.push((id, binding));
         }
+        let definitions = catalog.definitions();
+        let required = state
+            .module
+            .trait_references
+            .into_iter()
+            .filter(|id| catalog.is_source_requirement(*id, &state.module.declaration.identity))
+            .map(|id| {
+                definitions
+                    .resolve(id)
+                    .map(|view| view.to_path())
+                    .map_err(conflict)
+            })
+            .collect::<NativeResult<_>>()?;
         modules.push(NativeModule::checked(
             state.module.declaration,
             bindings,
             state.module.storage,
             vec![],
+            required,
             catalog,
         )?);
     }

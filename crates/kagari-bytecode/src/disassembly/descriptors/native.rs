@@ -84,6 +84,7 @@ fn write_declaration(
     declaration: &NativeDeclaration,
 ) -> io::Result<()> {
     let NativeDeclaration {
+        path_operation,
         concrete_result,
         declaration,
         function,
@@ -94,6 +95,16 @@ fn write_declaration(
         "    declaration {}",
         context.definition(*declaration)
     )?;
+    if let Some(op) = path_operation {
+        writeln!(
+            writer,
+            "      path_operation={:?} root={} epoch={} segments={}",
+            op.kind,
+            context.definition(op.path.root),
+            op.path.schema_epoch,
+            op.path.segments.len()
+        )?;
+    }
     match concrete_result {
         None => writeln!(writer, "      concrete_result=none")?,
         Some(ty) => writeln!(writer, "      concrete_result={}", context.ty(ty))?,
@@ -114,13 +125,10 @@ fn write_declaration(
         quoted(name),
         contracts::implementation(context, implementation)
     )?;
-    let MethodPolicy {
-        override_allowed,
-        receiver_access,
-    } = method_policy;
+    let MethodPolicy { receiver_access } = method_policy;
     writeln!(
         writer,
-        "      override_allowed={override_allowed} receiver_access={}",
+        "      receiver_access={}",
         contracts::access(*receiver_access)
     )?;
     contracts::parameters(writer, context, "      ", generic_params)?;

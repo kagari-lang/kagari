@@ -1,0 +1,21 @@
+pub trait Readable<T> {
+    fn get(self) -> T;
+}
+
+pub trait CallableOnly {
+    fn check(self) -> i32;
+}
+
+impl CallableOnly for i32 {
+    fn check(self) -> i32 {
+        self
+    }
+}
+
+pub trait BoundOnly {}
+
+pub trait ReferenceOnly {}
+
+pub trait Unused {}
+
+fn main() {}

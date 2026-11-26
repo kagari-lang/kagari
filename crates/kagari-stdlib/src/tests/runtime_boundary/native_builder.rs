@@ -2,7 +2,7 @@ use crate::namespaces;
 use crate::test_library;
 use kagari_common::identity::{ModuleIdentity, map::DefinitionContext};
 use kagari_hir::analysis::core_source::packaged_modules;
-use kagari_hir::native::render::declaration_source_with_external;
+use kagari_hir::native::render::declaration_source_with_core;
 use kagari_runtime::{
     Runtime,
     native::{
@@ -38,7 +38,7 @@ fn ordinary_rust_binding_keeps_explicit_kagari_signature() {
     module.bind(function, add).unwrap();
     let module = module.finish().unwrap();
     module.install(&mut Runtime::default()).unwrap();
-    let text = declaration_source_with_external(
+    let text = declaration_source_with_core(
         &module.to_declaration(),
         test_library::standard().declarations(),
         packaged_modules(),
@@ -132,7 +132,7 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
     module.install(&mut runtime).unwrap();
     assert!(module.install(&mut runtime).is_err());
     assert!(
-        declaration_source_with_external(
+        declaration_source_with_core(
             &module.to_declaration(),
             test_library::standard().declarations(),
             packaged_modules(),

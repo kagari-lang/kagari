@@ -42,21 +42,22 @@ fn host_fixture() -> (KagariEngine, FileId, ExecutionContext, Arc<Mutex<Vec<i32>
     let recorded = calls.clone();
     let mut builder =
         ModuleBuilder::new("trace", standard_library().declarations().catalog()).unwrap();
+    let record_policy = HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned],
+        effects: Default::default(),
+    };
     let record = builder
         .define_function(
             FunctionDecl::new("record")
                 .parameter("value", Type::i32())
                 .returns(Type::i32())
-                .host_policy(HostCallPolicy {
-                    passing: vec![HostPassingStyle::Owned],
-                    effects: Default::default(),
-                }),
+                .host_policy(record_policy.clone()),
         )
         .unwrap();
     builder
         .bind(
             record,
-            host::callback(move |_, args| {
+            host::callback(record_policy, move |_, args| {
                 let value = args[0]
                     .as_i32()
                     .ok_or_else(|| HostError::new("record expects i32"))?;

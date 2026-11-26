@@ -6,10 +6,15 @@ use crate::{
     semantic::signatures::TypedFunction,
 };
 
+use kagari_types::declaration::module::ModuleDecl;
+use std::sync::Arc;
+
 pub mod exports;
 
 use {
-    kagari_common::identity::{mapping::DefinitionMappingError, table::module::ModuleHandle},
+    kagari_common::identity::{
+        mapping::DefinitionMappingError, metadata::DefinitionMetadata, table::module::ModuleHandle,
+    },
     kagari_source::{
         diagnostic::{Diagnostic, Severity},
         identity::{FileId, Revision},
@@ -73,6 +78,7 @@ pub struct CheckedProgram {
     by_file: HashMap<FileId, usize>,
     dependencies: HashMap<ModuleHandle, Vec<ModuleHandle>>,
     exports: ProgramExports,
+    pub(crate) registrations: HashMap<ModuleHandle, Arc<DefinitionMetadata<ModuleDecl>>>,
 }
 
 impl CheckedProgram {
@@ -263,6 +269,19 @@ impl AnalysisSnapshot {
             return Err(ProgramCheckError::Diagnostics(diagnostics));
         }
         let mut program = CheckedProgram {
+            registrations: self
+                .inputs()
+                .native_modules()
+                .iter()
+                .filter_map(|provider| {
+                    let handle = self
+                        .definitions()
+                        .lookup_module(&provider.records().identity)?;
+                    dependencies
+                        .contains_key(&handle)
+                        .then(|| (handle, provider.clone()))
+                })
+                .collect(),
             root,
             modules,
             by_file,

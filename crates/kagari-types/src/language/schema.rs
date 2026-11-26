@@ -26,7 +26,6 @@ pub fn constructor_shape_valid(
         .is_ok_and(|view| view.last().is_some_and(|part| part.name == actual.name))
         && actual.kind == TypeDefKind::Native(constructor)
         && constructor.shape_valid(actual)
-        && actual.bounds.is_empty()
         && actual
             .generic_params
             .iter()
@@ -76,6 +75,19 @@ impl CoreEnum {
         actual: &TypeDef,
         table: &DefinitionTable,
     ) -> bool {
+        self.declaration_shape_valid(owner, actual, table)
+            && actual.variants.iter().all(|variant| {
+                variant.reports_failure == (self == Self::Result && variant.name == "Err")
+            })
+    }
+
+    /// Check owner, ordered binders and member payloads without trusting origin metadata.
+    pub fn declaration_shape_valid(
+        self,
+        owner: DefinitionId,
+        actual: &TypeDef,
+        table: &DefinitionTable,
+    ) -> bool {
         let path = self.declaration();
         let (arity, variants): (_, &[(&str, Option<usize>)]) = match self {
             Self::Option => (1, &[("Some", Some(0)), ("None", None)]),
@@ -109,7 +121,6 @@ impl CoreEnum {
                 .zip(variants)
                 .all(|(v, &(name, index))| {
                     v.name == name
-                        && v.reports_failure == (self == Self::Result && name == "Err")
                         && v.payload
                             .iter()
                             .eq(index.map(|i| parameter(i).as_type()).iter())

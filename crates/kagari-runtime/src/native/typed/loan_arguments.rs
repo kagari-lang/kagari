@@ -10,7 +10,7 @@ use crate::{
             arguments::{ArgumentValues, FromKagariArguments, KagariArguments, PreparedArguments},
             context::{ConversionContext, native::loans::NativeArgument},
         },
-        rust_type::check_mapping,
+        rust_type::mapped_storage,
         types::Type,
     },
     value::{kind::ObjectKind, view::ValueView},
@@ -34,7 +34,7 @@ impl<T> NativeReceiver<T> {
     }
 }
 
-pub(super) struct LoanArguments<T, A>(pub NativeReceiver<T>, pub A);
+pub(super) struct LoanArguments<T, A, const MUTABLE: bool>(pub NativeReceiver<T>, pub A);
 
 fn receiver<T>(expected: &TypeArgument, value: &ValueView<'_>) -> NativeResult<NativeReceiver<T>> {
     if matches!(expected.ty(), Ty::NativeObject(_)) && value.kind() == Some(ObjectKind::Native) {
@@ -54,7 +54,9 @@ fn receiver<T>(expected: &TypeArgument, value: &ValueView<'_>) -> NativeResult<N
     }
 }
 
-impl<T: Send + 'static, A: KagariArguments> KagariArguments for LoanArguments<T, A> {
+impl<T: Send + 'static, A: KagariArguments, const MUTABLE: bool> KagariArguments
+    for LoanArguments<T, A, MUTABLE>
+{
     fn argument_types(_: &DeclarationCatalog) -> NativeResult<Vec<Type>> {
         Err(RuntimeError::module_validation(
             "borrowed receiver requires its explicit declaration",
@@ -65,12 +67,19 @@ impl<T: Send + 'static, A: KagariArguments> KagariArguments for LoanArguments<T,
         let (receiver, arguments) = expected
             .split_first()
             .ok_or_else(|| RuntimeError::module_validation("missing borrowed receiver"))?;
-        check_mapping::<T>(cx.runtime(), cx.owner(), receiver)?;
+        let storage = mapped_storage::<T>(cx.runtime(), cx.owner(), receiver)?;
+        if MUTABLE && !storage.is_editable_data() {
+            return Err(RuntimeError::module_validation(
+                "storage does not permit direct data editing",
+            ));
+        }
         A::check_types(cx, arguments)
     }
 }
 
-impl<T: Send + 'static, A: FromKagariArguments> FromKagariArguments for LoanArguments<T, A> {
+impl<T: Send + 'static, A: FromKagariArguments, const MUTABLE: bool> FromKagariArguments
+    for LoanArguments<T, A, MUTABLE>
+{
     fn decode_arguments<'call>(
         cx: &mut ConversionContext<'call>,
         prepared: &PreparedArguments<'_, Self>,

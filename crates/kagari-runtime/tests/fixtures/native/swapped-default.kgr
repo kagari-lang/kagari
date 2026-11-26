@@ -1,0 +1,20 @@
+use crate::api::Pair;
+
+struct Digits {}
+
+impl Pair for Digits {}
+
+struct Explicit {}
+
+impl Pair for Explicit {
+    fn swapped(self, combine: fn(i32, i32) -> i32, first: i32, second: i32) -> i32 {
+        combine(first, second)
+    }
+}
+
+fn main() -> i32 {
+    val combine = |tens: i32, ones: i32| tens * 10 + ones;
+    val inherited = Digits {}.swapped(combine, 2, 4);
+    val explicit = Explicit {}.swapped(combine, 2, 4);
+    inherited * 100 + explicit
+}

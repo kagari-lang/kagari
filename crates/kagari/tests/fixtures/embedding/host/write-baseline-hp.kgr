@@ -1,0 +1,6 @@
+use game::player;
+
+fn main() {
+    val target = player();
+    target.baseline.hp += 2;
+}

@@ -68,7 +68,6 @@ impl StructuredLowerer<'_> {
                 methods.push(TraitMethod {
                     origin: NodeOrigin::Structured { declaration: owner },
                     name_span: None,
-                    override_allowed: method.method_policy.override_allowed,
                     id: method_id,
                     name: method.name.clone(),
                     function,
@@ -295,7 +294,6 @@ impl StructuredLowerer<'_> {
                     variants.push(Variant {
                         origin: NodeOrigin::Structured { declaration: owner },
                         name_span: None,
-                        reports_failure: variant.reports_failure,
                         id: member,
                         name: variant.name.clone(),
                         payload,
@@ -327,7 +325,7 @@ impl StructuredLowerer<'_> {
                     .push(NativeTypeDeclaration {
                         origin: NodeOrigin::Structured { declaration },
                         name_span: None,
-                        host: None,
+                        is_host: false,
                         id,
                         visibility: Visibility::Public,
                         name: ty.name.clone(),

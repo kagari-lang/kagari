@@ -3,9 +3,10 @@ use crate::{
     callable::{CallableImplementation, receiver_type_valid},
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind, host::function_policy_valid,
+        native::NativeTypeConstructor,
     },
     decode_limits::MAX_NESTED_RECORDS,
-    language::Protocol,
+    language::{Protocol, schema::CoreEnum},
     range::RangeKind,
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
@@ -133,20 +134,22 @@ pub fn validate_native_declarations(
         let receiver = table
             .parent(*id)
             .map_err(|_| DeclarationValidationError::Invalid)?;
-        let self_owner = receiver.as_ref().filter(|id| {
-            table
-                .resolve(**id)
-                .ok()
-                .and_then(|view| view.last())
-                .is_some_and(|part| part.kind == DefinitionKind::Trait)
-        });
+        let parent_kind =
+            receiver.and_then(|id| table.resolve(id).ok()?.last().map(|part| part.kind));
+        let self_owner = receiver
+            .as_ref()
+            .filter(|_| parent_kind == Some(DefinitionKind::Trait));
         let valid =
             |ty: &Ty| ty.within_wire_limits() && type_valid(ty, &params, self_owner, cancel, table);
         let before = |left: &Ty, right: &Ty| {
             left.canonical_cmp(right, table, cancel)
                 .is_ok_and(|order| order.is_lt())
         };
-        if !receiver_access_valid(function)
+        if declaration
+            .path_operation
+            .as_ref()
+            .is_some_and(|op| !op.template_valid(declaration, table))
+            || !receiver_access_valid(function, parent_kind)
             || !parameter_names_valid(function)
             || !function_policy_valid(function, table)
             || !bounds_with(&function.bounds, &valid, &before)
@@ -321,8 +324,6 @@ pub fn trait_valid(
                 })
                 && ty.methods.iter().all(|method| {
                     methods.insert(&method.name)
-                        && (method.method_policy.override_allowed
-                            || !matches!(method.implementation, CallableImplementation::Required))
                         && table
                             .lookup_child(owner, DefinitionKind::Method, &method.name, 0)
                             .is_some_and(|id| {
@@ -485,12 +486,11 @@ pub fn function_valid(
         CallableImplementation::Script => true,
         CallableImplementation::Native(id) => callable_identity_valid(*id, table),
     };
-    if !receiver_access_valid(function)
+    if !receiver_access_valid(function, parent_kind)
         || !parameter_names_valid(function)
         || !function_policy_valid(function, table)
         || function.name.is_empty()
         || !implementation_valid
-        || (!function.method_policy.override_allowed && parent_kind != Some(DefinitionKind::Trait))
     {
         return false;
     }
@@ -515,12 +515,13 @@ fn parameter_names_valid(function: &FnDecl) -> bool {
         .all(|parameter| !parameter.name.is_empty() && names.insert(&parameter.name))
 }
 
-fn receiver_access_valid(function: &FnDecl) -> bool {
+fn receiver_access_valid(function: &FnDecl, parent: Option<DefinitionKind>) -> bool {
     function.method_policy.receiver_access.is_none()
-        || function.params.first().is_some_and(|receiver| {
-            matches!(receiver.name.as_str(), "self" | "__receiver")
-                && receiver_type_valid(&receiver.ty)
-        })
+        || parent == Some(DefinitionKind::Impl)
+            && matches!(function.implementation, CallableImplementation::Native(_))
+            && function.params.first().is_some_and(|receiver| {
+                receiver.name == "self" && receiver_type_valid(&receiver.ty)
+            })
 }
 
 /// Check scoped type expressions without materializing owned paths.
@@ -697,20 +698,35 @@ pub fn type_definition_valid(
     cancel: &CancellationToken,
     table: &DefinitionTable,
 ) -> bool {
-    let kind = ty.kind.definition_kind();
-    if !table.resolve(owner).is_ok_and(|view| {
-        view.segments().count() == 1
-            && view.last().is_some_and(|part| {
-                part.kind == kind && part.name == ty.name && part.occurrence == 0
-            })
-    }) {
+    let Ok(view) = table.resolve(owner) else {
+        return false;
+    };
+    if view.segments().count() != 1
+        || !view.last().is_some_and(|part| {
+            part.kind == ty.kind.definition_kind() && part.name == ty.name && part.occurrence == 0
+        })
+    {
         return false;
     }
-    aggregate_shape_valid(ty, cancel)
-        && ty
-            .variants
-            .iter()
-            .all(|variant| !variant.reports_failure || variant.payload.len() == 1)
+    // At an exact top-level Native slot, neither its tag nor an alternative
+    // Host/storage representation may contradict the reserved definition.
+    let reserved = || NativeTypeConstructor::reserved_name(view.module(), &ty.name);
+    match ty.kind {
+        TypeDefKind::Native(tag) if reserved() != Some(tag) => return false,
+        TypeDefKind::NativeStorage(_) | TypeDefKind::Host(_) if reserved().is_some() => {
+            return false;
+        }
+        _ => {}
+    }
+    let origin_valid = if ty.kind == TypeDefKind::Enum
+        && table.lookup(&CoreEnum::Result.declaration()) == Some(owner)
+    {
+        CoreEnum::Result.shape_valid(owner, ty, table)
+    } else {
+        ty.variants.iter().all(|variant| !variant.reports_failure)
+    };
+    origin_valid
+        && aggregate_shape_valid(ty, cancel)
         && parameters(&ty.generic_params, &owner, &Parameters::new()).is_some_and(|params| {
             bounds_valid(&ty.bounds, &params, cancel, table)
                 && ty

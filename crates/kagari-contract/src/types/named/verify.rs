@@ -20,6 +20,7 @@ use kagari_common::{
 use kagari_types::{
     declaration::{
         conversion::{is_library_forwarding_trait, library_forwarding_header_valid},
+        ownership::trait_impl_orphan_error,
         verify::{Parameters, bounds_valid, function_valid, parameters, type_valid},
     },
     ty::{GenericParam, Ty, matching::impl_headers_overlap, substitution::TypeSubstitution},
@@ -179,6 +180,14 @@ pub fn validate(
                                     return false;
                                 };
                                 type_valid(ty, &params, None, cancel, definitions)
+                                    && trait_impl_orphan_error(
+                                        module,
+                                        definitions,
+                                        interface.declaration,
+                                        &value.receiver,
+                                        &interface.arguments,
+                                    )
+                                    .is_none()
                                     && (!is_library_forwarding_trait(
                                         definitions,
                                         interface.declaration,

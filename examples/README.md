@@ -96,9 +96,11 @@ host declarations installed by the `offline_nominal` integration test. They are
 not standalone CLI programs.
 
 [host-interfaces.kgr](host-interfaces.kgr) demonstrates associated outputs on a
-host type, qualified projections and static/dynamic interface calls returning
-`42`. Run `cargo run -p kagari --example host_interfaces` to install its
-offline declarations, compile without callbacks, then bind and execute. The
+Host handle, qualified projections and static/dynamic interface calls returning
+`42`. Run `cargo run -p kagari --example host_interfaces`: it installs `demo::Counter`
+with its schema and bindings, compiles without invoking the callbacks, then executes
+the decoded artifact with a registered Host root. The script imports `Counter`;
+redeclaring it as `native host type Counter;` would not supply that schema. The
 `host_interfaces` integration test also covers encoded artifacts, JIT-enabled
 execution, GC, reentry, permissions and hot reload.
 

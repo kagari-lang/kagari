@@ -66,7 +66,6 @@ pub enum FactKind {
     Await,
     Capture,
     Binding,
-    HostAccess,
 }
 
 /// Checked input at a static expression's token range, without executable slots.

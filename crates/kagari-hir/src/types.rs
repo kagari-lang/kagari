@@ -394,29 +394,6 @@ impl TypeId {
         false
     }
 
-    /// Checks represented value components for host types; callable parameter/result types are not stored host values.
-    pub fn contains_host_value(&self) -> bool {
-        let mut pending = vec![self];
-        while let Some(ty) = pending.pop() {
-            match ty {
-                Self::Host(_) => return true,
-                Self::Tuple(items) => pending.extend(items),
-                Self::Function { .. } => {}
-                Self::Array(item) | Self::Range(item, _) => pending.push(item),
-
-                Self::NativeObject(nominal)
-                | Self::Struct(nominal)
-                | Self::Enum(nominal)
-                | Self::Trait(nominal) => {
-                    pending.extend(&nominal.arguments);
-                    pending.extend(nominal.associated_types.values())
-                }
-                _ => {}
-            }
-        }
-        false
-    }
-
     /// Reports whether this type contains an owner-qualified `Self` occurrence.
     pub fn contains_self_type(&self) -> bool {
         let mut pending = vec![self];

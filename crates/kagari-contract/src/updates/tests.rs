@@ -465,6 +465,7 @@ fn native_callback_absence_is_not_sealed_no_reentry_evidence() {
         .requirements
         .push(CallRequirement::Native(Box::new(native.clone())));
     let declaration = NativeDeclaration {
+        path_operation: None,
         concrete_result: None,
         declaration: native.instance.declaration,
         function: FnDecl {

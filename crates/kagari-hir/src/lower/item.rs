@@ -146,7 +146,7 @@ impl Lowerer {
         NativeTypeDeclaration {
             origin: self.origin(syntax_span(declaration)),
             name_span: declaration.name().as_ref().map(token_span),
-            host: None,
+            is_host: declaration.is_host(),
             id,
             visibility: lower_visibility(declaration.visibility()),
             name: declaration.name_text().unwrap_or_default(),
@@ -391,7 +391,6 @@ impl Lowerer {
         TraitMethod {
             origin: self.origin(syntax_span(method)),
             name_span: method.name().as_ref().map(token_span),
-            override_allowed: true,
             has_default: method.is_native() || method.body().is_some(),
             id,
             name: method.name_text().unwrap_or_default(),
@@ -833,7 +832,6 @@ impl Lowerer {
                         Variant {
                             origin: self.origin(syntax_span(&variant)),
                             name_span: variant.name().as_ref().map(token_span),
-                            reports_failure: false,
                             id: variant_id,
                             name: variant.name_text().unwrap_or_default(),
                             payload: variant

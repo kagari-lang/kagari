@@ -110,7 +110,8 @@ explicitly implement PartialEq using `self === other` for an object type.
 | Array / `Vec<T>` | Conditional content comparison when `T: PartialEq`; compare length and then corresponding elements in order. |
 | `HashSet<T>` | Conditional content comparison under `T: Eq + Hash`. |
 | `HashMap<K,V>` | Conditional content comparison under `K: Eq + Hash` and `V: PartialEq`. |
-| Native script object | Applicable registered implementation; no identity fallback. Existing host-handle/path restrictions remain separate. |
+| Opaque native object (`native type Token;`) | Applicable `PartialEq` impl; no identity fallback. |
+| External handle (`native host type Player;`) | Not a `PartialEq` receiver; a handle is not a script equality key. |
 | Trait interface value | Requires an implementation for the interface value type itself; hidden receiver implementations are not automatically exposed. |
 | Generic T | Requires PartialEq evidence in the checked generic context. |
 | Function / closure | No automatic comparison. |
@@ -154,6 +155,11 @@ Different concrete object types may be compared without a common interface,
 boxing or PartialEq selection. The result tests the same underlying object;
 distinct objects compare unequal. `!==` negates that result. Neither operator
 is overloadable or invokes user comparison code.
+
+For two values of an opaque `native type Token;`, `a === b` tests whether they
+refer to the same native object. For two values of `native host type Player;`,
+the same expression is a type error: a registry handle does not expose script
+object identity. `!==` has the same operand rule.
 
 Reject either operator at compile time if either operand is a trait interface,
 a value type, a function/closure or a bare generic parameter whose object category
@@ -218,7 +224,7 @@ PartialEq and remains stable through mutation and GC relocation.
 
 | Type | Supplied comparison | Supplied hash | Implementation owner |
 | --- | --- | --- | --- |
-| User Struct / enum | None | None | Explicit implementation in defining module |
+| User Struct / enum | None | None | Explicit implementation under package orphan rules |
 | Tuple | Conditional corresponding members | Conditional member hashes | Builtin |
 | Core Option / Result / Ordering / Bound / ControlFlow | Conditional variant/member comparison | Conditional variant/member hashes | Core library |
 | Array | Conditional ordered contents, PartialEq only | None | Standard library |
@@ -235,9 +241,9 @@ or hashing; this does not open host equality implementations.
 ### Explicit Struct and enum implementations
 
 Struct and user enum declarations permit the same explicit implementations.
-Implementations of these canonical protocols must be in the type's defining
-module. This prevents a downstream import from changing equality for values
-already stored by a dependency. Generic implementations are selected for each
+The [package orphan rule](traits.md#coherence-guidance) prevents an unrelated
+downstream package from adding equality for a foreign type. Sibling modules of
+the type’s package share ownership; overlapping impls still conflict. Generic implementations are selected for each
 concrete instantiation under their declared bounds:
 
 
