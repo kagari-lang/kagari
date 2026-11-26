@@ -175,25 +175,11 @@ impl AggregateCatalog {
             let DeclarationId::Definition(id) = &declaration.id else {
                 unreachable!("nominal trait");
             };
-            let mut generic_params = Vec::new();
-            let mut bounds = GenericBounds::default();
-            for param in &item.generic_params {
-                cancel.check()?;
-                let identity = declarations
-                    .generic_type(*param)
-                    .expect("trait parameter identity");
-                let constraints = lowered
-                    .module
-                    .generic_parameter(*param)
-                    .bounds
-                    .iter()
-                    .filter_map(|reference| signatures.type_table().constraint(reference.ty))
-                    .collect::<Vec<_>>();
-                if !constraints.is_empty() {
-                    bounds.insert(TypeId::Generic(identity.clone()), constraints);
-                }
-                generic_params.push(identity);
-            }
+            let generic_params = declarations.parameters_of(id);
+            let bounds = signatures
+                .type_bounds(id)
+                .expect("checked trait constraints")
+                .clone();
             let mut methods = Vec::new();
             for (slot, method) in item.methods.iter().enumerate() {
                 cancel.check()?;

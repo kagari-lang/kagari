@@ -178,6 +178,25 @@ test('module type aliases retain targets and bounds separately from associated t
   assert.ok(nodes(broken.rootNode, 'function_item').some(node => node.childForFieldName('name')?.text === 'after'));
 });
 
+test('where clauses belong to ordinary headers, after trait parents', () => {
+  const tree = valid('struct Box<T> where T: Show { val item: T }\n'
+    + 'enum Choice<T> where Box<T>: Show, { Some { value: T, }, Empty {} }\n'
+    + 'trait Reader<T>: Base where Box<T>: Show { fn read(self); }');
+  for (const item of tree.rootNode.namedChildren) {
+    assert.equal(item.namedChildren.find(child => child.type === 'where_clause')?.firstNamedChild.type, 'where_predicate');
+  }
+});
+
+test('visible inherent constants are definitions, not trait requirements', () => {
+  const tree = valid('impl Limits { pub(crate) const MAX: i32 = Self::BASE; }');
+  const [member] = nodes(tree.rootNode, 'associated_const');
+  assert.equal(member.parent.type, 'impl_item');
+  assert.equal(member.firstNamedChild.text, 'pub(crate)');
+  assert.equal(member.childForFieldName('value').text, 'Self::BASE');
+  for (const source of ['impl Limits { const MAX: i32; }', 'trait Limit { pub const MAX: i32; }',
+    'impl Limit for T { pub const MAX: i32 = 1; }']) assert.ok(parse(source).rootNode.hasError, source);
+});
+
 test('persistent statics have named typed initializers only at module scope', () => {
   const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));
@@ -241,6 +260,29 @@ test('ordinary declarations retain complete patterns from the shared binding exa
   assert.equal(nodes(struct, 'rest_pattern')[0].text, '..');
 });
 
+test('binding else owns its block, not the initializer’s else or the following statement', () => {
+  const tree = valid('fn run() { var Step::More(x) = if ready { first } else { next } else { return; }; val y = x; }');
+  const [binding, next] = nodes(tree.rootNode, 'binding_statement');
+  assert.equal(binding.childForFieldName('value').childForFieldName('alternative').text, '{ next }');
+  assert.equal(binding.childForFieldName('alternative').text, '{ return; }');
+  assert.equal(next.childForFieldName('pattern').text, 'y');
+  for (const stmt of ['val x else { return; };', 'val x = v else return;', 'val x = v else { return; }']) {
+    assert.ok(parse(`fn run() { ${stmt} }`).rootNode.hasError, stmt);
+  }
+});
+
+test('braced construction and destructuring keep the applied path with its member', () => {
+  const tree = valid('fn run() { val Event::<T>::Hit { amount: n, .. } = Event<T>::Hit { amount } else { return; }; }');
+  const [binding] = nodes(tree.rootNode, 'binding_statement');
+  const pattern = binding.childForFieldName('pattern');
+  const value = binding.childForFieldName('value');
+  for (const record of [pattern, value]) {
+    assert.equal(record.childForFieldName('type').childForFieldName('name').text, 'Hit');
+  }
+  assert.equal(nodes(pattern, 'field_pattern')[0].childForFieldName('pattern').text, 'n');
+  assert.equal(nodes(value, 'field_initializer')[0].childForFieldName('name').text, 'amount');
+});
+
 test('struct rest is final and shared by declarations, matches, loops and conditions', () => {
   valid(`fn main() {
     val Point { x, child: Point { y: renamed, .., }, .. } = value;
@@ -252,9 +294,22 @@ test('struct rest is final and shared by declarations, matches, loops and condit
     match value { Point { child: Point { .. }, .. } => x, _ => 0 }
   }`);
   for (const pattern of ['Point { .., x }', 'Point { .., .. }', 'Point { x, ..= }',
-    '(first, ..)', '[first, ..]', 'left | right']) {
+    '[first, ..]', 'left | right']) {
     assert.ok(parse(`fn main() { val ${pattern} = value; }`).rootNode.hasError, pattern);
   }
+});
+
+test('positional rest is unique per list and signed numbers remain pattern bounds', () => {
+  const tree = valid('fn run() { match v { V((..), -4..=-1, .., (head, .., -0.5)) => 1, _ => 0 } }');
+  const arm = nodes(tree.rootNode, 'match_arm')[0];
+  assert.deepEqual(nodes(arm, 'rest_pattern').map(n => n.parent.type), ['tuple_pattern', 'tuple_struct_pattern', 'tuple_pattern']);
+  assert.deepEqual(nodes(arm, 'negative_literal_pattern').map(n => [n.text, n.parent.type]), [
+    ['-4', 'range_pattern'], ['-1', 'range_pattern'], ['-0.5', 'tuple_pattern'],
+  ]);
+  for (const pattern of ['V(.., x, ..)', '(.., ..)', '..', '-name', '-true']) {
+    assert.ok(parse(`fn run() { match v { ${pattern} => 1 } }`).rootNode.hasError, pattern);
+  }
+  assert.ok(parse('enum Event { Hit { val amount: i32 } }').rootNode.hasError);
 });
 
 for (const [name, operand, type] of [

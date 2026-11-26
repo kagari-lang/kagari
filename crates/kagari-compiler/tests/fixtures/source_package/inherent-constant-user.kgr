@@ -1,0 +1,5 @@
+use pkg::limits::Limits as L;
+
+pub fn read() -> i64 {
+    L::MAX
+}

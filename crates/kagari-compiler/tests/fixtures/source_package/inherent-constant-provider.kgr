@@ -1,0 +1,8 @@
+pub struct Limits {}
+
+type Count = i64;
+
+impl Limits {
+    const BASE: Count = 4294967296;
+    pub const MAX: Count = Self::BASE + 3i64;
+}

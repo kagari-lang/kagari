@@ -2,7 +2,10 @@
 
 use crate::ast::{
     borrow::Ast,
-    expr::{Literal, PathExpr, Pattern, PatternBound, PatternField, RangeOp},
+    expr::{
+        Literal, PathExpr, Pattern, PatternBound, PatternField, PatternLiteral, PositionalPattern,
+        RangeOp,
+    },
     misc::Name,
     views::PatternBoundView,
 };
@@ -30,6 +33,7 @@ impl<'a> Ast<'a, Pattern> {
 
     pub fn has_rest(self) -> bool {
         matches!(self.node, Pattern::Struct(pattern) if pattern.rest.is_some())
+            || self.rest_index().is_some()
     }
 
     pub fn is_wildcard(self) -> bool {
@@ -49,11 +53,25 @@ impl<'a> Ast<'a, Pattern> {
         }
     }
 
-    pub fn literal(self) -> Option<Ast<'a, Literal>> {
+    pub fn literal(self) -> Option<Ast<'a, PatternLiteral>> {
         match self.node {
             Pattern::Literal(literal) => Some(self.with(literal)),
             _ => None,
         }
+    }
+
+    /// Number of explicit positional children before `..`; nested rests do not count.
+    pub fn rest_index(self) -> Option<usize> {
+        let entries = match self.node {
+            Pattern::Tuple(pattern) => &pattern.elements,
+            Pattern::TupleStruct(pattern) => &pattern.elements,
+            _ => return None,
+        };
+        entries
+            .entries
+            .iter()
+            .filter_map(|entry| entry.element.as_ref())
+            .position(|entry| matches!(entry, PositionalPattern::Rest(_)))
     }
 
     pub fn elements(self) -> impl Iterator<Item = Ast<'a, Pattern>> {
@@ -70,7 +88,14 @@ impl<'a> Ast<'a, Pattern> {
         };
         first
             .into_iter()
-            .chain(entries.iter().filter_map(|entry| entry.element.as_ref()))
+            .chain(
+                entries
+                    .iter()
+                    .filter_map(|entry| match entry.element.as_ref()? {
+                        PositionalPattern::Pattern(pattern) => Some(pattern),
+                        PositionalPattern::Rest(_) => None,
+                    }),
+            )
             .chain(
                 alternatives
                     .iter()
@@ -107,6 +132,16 @@ impl<'a> Ast<'a, Pattern> {
                 PatternBound::Path(path) => PatternBoundView::Path(self.with(path)),
             })
         })
+    }
+}
+
+impl<'a> Ast<'a, PatternLiteral> {
+    pub fn is_negative(self) -> bool {
+        self.node.minus.is_some()
+    }
+
+    pub fn magnitude(self) -> Ast<'a, Literal> {
+        self.with(&self.node.value)
     }
 }
 

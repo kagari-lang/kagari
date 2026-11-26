@@ -1,7 +1,7 @@
 //! Canonical lexical bindings and node-keyed facts, separate from checked type/call facts.
 
 use crate::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     hir::{
         ids::{
             BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, NativeTypeId,
@@ -110,6 +110,7 @@ pub struct ResolvedNames {
     exprs: HashMap<ExprId, ResolvedName>,
     places: HashMap<PlaceId, ResolvedName>,
     qualified_members: HashMap<ExprId, QualifiedMember>,
+    pub(crate) struct_patterns: HashSet<PatternId>,
     pub(crate) pattern_variants: HashMap<PatternId, ResolvedName>,
     closure_captures: HashMap<ExprId, Vec<ResolvedName>>,
 }
@@ -121,11 +122,15 @@ impl ResolvedNames {
             PatternKind::Wildcard => true,
             PatternKind::Name { .. } => !self.pattern_variants.contains_key(&id),
             PatternKind::Tuple(elements) => elements
+                .elements
                 .iter()
                 .all(|element| self.pattern_is_irrefutable(body, *element)),
-            PatternKind::Struct { fields, .. } => fields
-                .iter()
-                .all(|field| self.pattern_is_irrefutable(body, field.pattern)),
+            PatternKind::Struct { fields, .. } => {
+                self.struct_patterns.contains(&id)
+                    && fields
+                        .iter()
+                        .all(|field| self.pattern_is_irrefutable(body, field.pattern))
+            }
             PatternKind::Or(alternatives) => alternatives
                 .iter()
                 .any(|alternative| self.pattern_is_irrefutable(body, *alternative)),
@@ -148,6 +153,7 @@ impl ResolvedNames {
             exprs: HashMap::default(),
             places: HashMap::default(),
             qualified_members: HashMap::default(),
+            struct_patterns: HashSet::default(),
             pattern_variants: HashMap::default(),
             closure_captures: HashMap::default(),
         }

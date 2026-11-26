@@ -2,22 +2,23 @@
 //! Uses the resolved variant and expected enum type to assign child pattern types.
 
 use crate::{
+    aggregates::VariantSignature,
     declarations::DeclarationId,
-    hir::ids::PatternId,
+    hir::{
+        ids::PatternId,
+        pattern::{PatternField, PositionalPatterns},
+    },
     typeck::{BodyTypeEnv, body::BodyChecker},
     types::TypeId,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl BodyChecker<'_> {
-    pub(super) fn check_enum_pattern(
-        &mut self,
+    pub(super) fn pattern_variant_signature(
+        &self,
         pattern: PatternId,
         path: &str,
-        fields: &[PatternId],
-        expected: &TypeId,
-        env: &mut BodyTypeEnv,
-    ) {
+    ) -> Option<&VariantSignature> {
         let imported = self
             .names
             .pattern_variants
@@ -27,16 +28,92 @@ impl BodyChecker<'_> {
                 DeclarationId::Definition(id) => self.aggregates.variant(id),
                 _ => None,
             });
-        let variant = imported
-            .or_else(|| {
-                let (owner, name) = path.rsplit_once("::")?;
-                let owner = self.resolve_enum_id(owner)?;
-                self.aggregates
-                    .enumeration(&owner)?
-                    .variants
-                    .iter()
-                    .find(|variant| variant.name == name)
-            })
+        imported.or_else(|| {
+            let (owner, name) = path.rsplit_once("::")?;
+            let owner = self.resolve_enum_id(owner)?;
+            self.aggregates
+                .enumeration(&owner)?
+                .variants
+                .iter()
+                .find(|variant| variant.name == name)
+        })
+    }
+
+    pub(super) fn check_named_pattern(
+        &mut self,
+        pattern: PatternId,
+        path: &str,
+        fields: &[PatternField],
+        rest: bool,
+        expected: &TypeId,
+        env: &mut BodyTypeEnv,
+    ) {
+        let checked = (|| {
+            let variant = self
+                .pattern_variant_signature(pattern, path)
+                .ok_or_else(|| format!("unknown variant `{path}`"))?;
+            let TypeId::Enum(owner) = expected else {
+                return Err(format!("expected enum for `{path}`"));
+            };
+            if owner.declaration != variant.owner
+                || path
+                    .rsplit_once("::")
+                    .is_some_and(|(p, _)| !self.alias_pattern_matches(p, expected))
+            {
+                return Err(format!("wrong enum owner for `{path}`"));
+            }
+            let slots = variant.named_slots(fields.iter().map(|f| f.name.as_str()), rest)?;
+            let enumeration = self
+                .aggregates
+                .enumeration(&owner.declaration)
+                .expect("checked enum owner");
+            let substitution = enumeration
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(owner.arguments.iter().cloned())
+                .collect();
+            let types: Vec<_> = slots
+                .iter()
+                .map(|&slot| variant.payload[slot].instantiate(&substitution))
+                .collect();
+            Ok((variant.id, slots, types))
+        })();
+        match checked {
+            Ok((variant, slots, types)) => {
+                self.type_table.insert_pattern_variant(pattern, variant);
+                self.type_table.insert_pattern_slots(pattern, slots);
+                for (field, ty) in fields.iter().zip(types) {
+                    self.check_pattern(field.pattern, &ty, env);
+                }
+            }
+            Err(reason) => self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                    expected: expected.display_name(self.declarations.definitions()),
+                    found: reason,
+                })
+                .with_span(
+                    self.lowered
+                        .module
+                        .pattern(pattern)
+                        .origin
+                        .diagnostic_span(),
+                ),
+            ),
+        }
+    }
+
+    pub(super) fn check_enum_pattern(
+        &mut self,
+        pattern: PatternId,
+        path: &str,
+        fields: &PositionalPatterns,
+        expected: &TypeId,
+        env: &mut BodyTypeEnv,
+    ) {
+        let variant = self
+            .pattern_variant_signature(pattern, path)
+            .filter(|v| v.shape.labels().is_none())
             .cloned();
         let span = self
             .lowered
@@ -77,16 +154,16 @@ impl BodyChecker<'_> {
             self.diagnostics.push(mismatch());
             return;
         }
-        if variant.payload.len() != fields.len() {
+        let Some(slots) = fields.slots(variant.payload.len()) else {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                     expected: format!("{} payload fields", variant.payload.len()),
-                    found: format!("{} payload fields", fields.len()),
+                    found: format!("{} payload fields", fields.elements.len()),
                 })
                 .with_span(span),
             );
             return;
-        }
+        };
         let substitution = enumeration
             .generic_params
             .iter()
@@ -94,8 +171,13 @@ impl BodyChecker<'_> {
             .zip(arguments.iter().cloned())
             .collect();
         self.type_table.insert_pattern_variant(pattern, variant.id);
-        for (field, ty) in fields.iter().copied().zip(variant.payload) {
-            self.check_pattern(field, &ty.instantiate(&substitution), env);
+        for (&field, &slot) in fields.elements.iter().zip(&slots) {
+            self.check_pattern(
+                field,
+                &variant.payload[slot].instantiate(&substitution),
+                env,
+            );
         }
+        self.type_table.insert_pattern_slots(pattern, slots);
     }
 }

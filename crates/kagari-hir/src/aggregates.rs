@@ -17,10 +17,11 @@ use crate::{
     lower::LoweredModule,
     resolver::resolved::ResolvedName,
     semantic::signatures::TypedFunction,
-    typeck::{GenericBounds, ModuleSignatures},
+    typeck::{GenericBounds, ModuleSignatures, constraints},
     types::{GenericParameterType, NominalType, TypeId},
 };
 use kagari_types::{
+    declaration::VariantShape,
     language::{Protocol, role::LangRole},
     visibility::Visibility,
 };
@@ -54,6 +55,19 @@ pub struct FieldSignature {
     pub ty: TypeId,
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
+}
+
+/// An inherent constant selected by its receiver pattern and impl requirements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InherentConstSignature {
+    /// Exact declaring lowering and initializer slot used to project the owner's checked value.
+    pub(crate) source: SourceDeclRef,
+    pub(crate) site: Declaration,
+    pub(crate) owner: TypeId,
+    pub(crate) generic_params: Vec<GenericParameterType>,
+    pub(crate) bounds: GenericBounds,
+    pub(crate) visibility: Visibility,
+    pub(crate) ty: TypeId,
 }
 
 /// A canonical inherent method, its receiver pattern and typed callable contract.
@@ -110,6 +124,7 @@ pub struct NativeTypeSignature {
 pub struct VariantSignature {
     /// True only for the checked canonical `Result::Err` variant.
     pub reports_failure: bool,
+    pub shape: VariantShape,
     /// Canonical semantic definition identity used as the catalog key.
     pub id: DefinitionId,
     /// Canonical definition identity of the enclosing declaration.
@@ -122,6 +137,40 @@ pub struct VariantSignature {
     pub payload: Vec<TypeId>,
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
+}
+
+impl VariantSignature {
+    pub(crate) fn named_slots<'a>(
+        &self,
+        written: impl Iterator<Item = &'a str>,
+        rest: bool,
+    ) -> Result<Vec<usize>, String> {
+        let labels = self
+            .shape
+            .labels()
+            .ok_or("variant does not have named fields")?;
+        let by_name: BTreeMap<_, _> = labels
+            .iter()
+            .enumerate()
+            .map(|(slot, label)| (label.as_str(), slot))
+            .collect();
+        let mut seen = vec![false; labels.len()];
+        let mut slots = Vec::new();
+        for name in written {
+            let slot = *by_name
+                .get(name)
+                .ok_or_else(|| format!("unknown field `{name}`"))?;
+            if seen[slot] {
+                return Err(format!("duplicate field `{name}`"));
+            }
+            seen[slot] = true;
+            slots.push(slot);
+        }
+        if !rest && let Some(slot) = seen.iter().position(|v| !v) {
+            return Err(format!("missing field `{}`", labels[slot]));
+        }
+        Ok(slots)
+    }
 }
 
 /// Shared nominal enum contract with typed payloads and generic requirements.
@@ -164,6 +213,7 @@ pub struct AggregateCatalog {
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
     /// Inherent method ID → receiver type and method signature.
     inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
+    inherent_consts: BTreeMap<DefinitionId, Arc<InherentConstSignature>>,
     /// Native type ID → declared type signature and fields.
     native_types: BTreeMap<DefinitionId, Arc<NativeTypeSignature>>,
     /// Struct ID → struct signature with fields in declaration order.
@@ -298,6 +348,7 @@ impl AggregateCatalog {
                 self.variants.insert(*variant_id, (*id, variants.len()));
                 variants.push(VariantSignature {
                     reports_failure: false,
+                    shape: variant.shape.clone(),
                     id: *variant_id,
                     owner: *id,
                     slot: variant.id.slot(),
@@ -360,6 +411,45 @@ impl AggregateCatalog {
             else {
                 continue;
             };
+            for member in &implementation.associated_consts {
+                cancel.check()?;
+                let Some(id) = member.initializer else {
+                    continue;
+                };
+                let Some(site) = declarations.target(ResolvedName::Const(id)) else {
+                    continue;
+                };
+                let DeclarationId::Definition(key) = site.id else {
+                    continue;
+                };
+                let Some(ty) = signatures.type_table().type_ref(member.ty) else {
+                    continue;
+                };
+                self.inherent_consts.insert(
+                    key,
+                    Arc::new(InherentConstSignature {
+                        source: SourceDeclRef {
+                            unit: SourceUnit::of(lowered, declarations.definitions()),
+                            item: SourceItem::Const(id),
+                        },
+                        site: site.clone(),
+                        owner: owner.clone(),
+                        ty: ty.ty.clone(),
+                        generic_params: implementation
+                            .generic_params
+                            .iter()
+                            .filter_map(|id| declarations.generic_type(*id))
+                            .collect(),
+                        bounds: constraints::implementation_bounds(
+                            &lowered.module,
+                            implementation,
+                            declarations,
+                            signatures.type_table(),
+                        ),
+                        visibility: lowered.module.constant(id).visibility,
+                    }),
+                );
+            }
             for method in &implementation.methods {
                 cancel.check()?;
                 let Some(function) = signatures
@@ -485,6 +575,16 @@ impl AggregateCatalog {
                     .insert(*id, constants.clone());
             }
         }
+        for (id, constant) in &self.inherent_consts {
+            cancel.check()?;
+            if reachable.contains(
+                &definitions
+                    .module_of(*id)
+                    .expect("scoped constant identity"),
+            ) {
+                result.inherent_consts.insert(*id, constant.clone());
+            }
+        }
         for (id, method) in &self.inherent_methods {
             cancel.check()?;
             if reachable.contains(&definitions.module_of(*id).expect("scoped method identity")) {
@@ -555,6 +655,20 @@ impl AggregateCatalog {
                     .and_then(|contract| contract.associated_consts.get(member))
                     .and_then(|member| member.initializer.as_ref())
             })
+    }
+
+    /// Inherent constant definitions reachable from this module; access still requires visibility and a matching receiver.
+    pub(crate) fn inherent_consts(
+        &self,
+    ) -> impl Iterator<Item = (DefinitionId, &InherentConstSignature)> {
+        self.inherent_consts
+            .iter()
+            .map(|(id, item)| (*id, item.as_ref()))
+    }
+
+    /// Original declaration site of a directly selected inherent constant.
+    pub fn inherent_const_site(&self, id: DefinitionId) -> Option<&Declaration> {
+        Some(&self.inherent_consts.get(&id)?.site)
     }
 
     /// Visits inherent method contracts in definition-key order.

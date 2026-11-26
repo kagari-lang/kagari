@@ -12,6 +12,7 @@ use crate::{
         item::{
             Module,
             function::{Function, FunctionImplementation as HirImplementation, FunctionKind},
+            storage::ConstOwner,
         },
         writeability::Writeability,
     },
@@ -108,31 +109,44 @@ pub(crate) fn check_signatures(
     );
 
     let mut type_bounds = HashMap::default();
-    for (target, params) in lowered
+    for (target, params, predicates) in lowered
         .module
         .structs
         .iter()
-        .map(|s| (ResolvedName::Struct(s.id), &s.generic_params))
+        .map(|s| (ResolvedName::Struct(s.id), &s.generic_params, &s.bounds))
         .chain(
             lowered
                 .module
                 .enums
                 .iter()
-                .map(|e| (ResolvedName::Enum(e.id), &e.generic_params)),
+                .map(|e| (ResolvedName::Enum(e.id), &e.generic_params, &e.bounds)),
         )
-        .chain(
-            lowered
-                .module
-                .native_types
-                .iter()
-                .map(|item| (ResolvedName::NativeType(item.id), &item.generic_params)),
-        )
+        .chain(lowered.module.native_types.iter().map(|item| {
+            (
+                ResolvedName::NativeType(item.id),
+                &item.generic_params,
+                &item.bounds,
+            )
+        }))
+        .chain(lowered.module.traits.iter().map(|item| {
+            (
+                ResolvedName::Trait(item.id),
+                &item.generic_params,
+                &item.bounds,
+            )
+        }))
     {
         cancel.check()?;
         let id = *declarations.definition(target).expect("type declaration");
         type_bounds.insert(
             id,
-            constraints::parameter_bounds(&lowered.module, params, declarations, &type_table),
+            constraints::owner_bounds(
+                &lowered.module,
+                params,
+                predicates,
+                declarations,
+                &type_table,
+            ),
         );
     }
 
@@ -187,6 +201,20 @@ pub(crate) fn check_signatures(
 
     for enumeration in &lowered.module.enums {
         for variant in &enumeration.variants {
+            if let Some(labels) = variant.shape.labels() {
+                let mut seen = HashSet::default();
+                for label in labels {
+                    if !seen.insert(label) {
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::DuplicateField {
+                                struct_name: format!("{}::{}", enumeration.name, variant.name),
+                                name: label.clone(),
+                            })
+                            .with_span(variant.origin.diagnostic_span()),
+                        );
+                    }
+                }
+            }
             for payload in &variant.payload {
                 cancel.check()?;
                 let ty = resolve_type_in(
@@ -250,8 +278,7 @@ pub(crate) fn check_signatures(
         };
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
-        let bounds =
-            constraints::function_bounds(&lowered.module, function, declarations, &type_table);
+        let bounds = constraints::function_bounds(&lowered.module, function, context, &type_table);
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -544,6 +571,22 @@ pub(crate) fn check_bodies_controlled(
                 };
                 if const_item.ty.is_some() {
                     let mut env = BodyTypeEnv::default();
+                    if let Some(ConstOwner::Impl(id)) = const_item.owner {
+                        let header = &lowered.module.impls[id.index()];
+                        if header.trait_ref.is_none() {
+                            env.self_type = header
+                                .for_type
+                                .and_then(|ty| type_table.type_ref(ty))
+                                .map(|ty| ty.ty.clone());
+                            env.generics = header.generic_params.clone();
+                            env.generic_bounds = constraints::implementation_bounds(
+                                &lowered.module,
+                                header,
+                                declarations,
+                                &type_table,
+                            );
+                        }
+                    }
                     let mut checker = BodyChecker::new(
                         lowered,
                         names,
@@ -574,7 +617,7 @@ pub(crate) fn check_bodies_controlled(
             let mut const_budget = ConstBudget::new(const_limits);
             validate_const_initializers(
                 ConstValidationInputs {
-                    definitions: declarations.definitions(),
+                    declarations,
                     lowered,
                     names,
                     top_level_index: &top_level_index,
@@ -587,6 +630,7 @@ pub(crate) fn check_bodies_controlled(
 
             const_eval::evaluate_constants(
                 lowered,
+                declarations,
                 names,
                 &type_table,
                 cancel,

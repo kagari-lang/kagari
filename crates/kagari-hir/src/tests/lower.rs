@@ -531,6 +531,7 @@ fn lowers_function_body_expressions_and_statements() {
             writeability,
             ty,
             initializer,
+            else_block: None,
         } => {
             assert_eq!(*writeability, Writeability::Val);
             assert!(matches!(

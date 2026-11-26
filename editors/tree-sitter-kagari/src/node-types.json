@@ -878,6 +878,10 @@
         {
           "type": "attribute",
           "named": true
+        },
+        {
+          "type": "visibility",
+          "named": true
         }
       ]
     }
@@ -1724,6 +1728,10 @@
             "named": true
           },
           {
+            "type": "negative_literal_pattern",
+            "named": true
+          },
+          {
             "type": "or_pattern",
             "named": true
           },
@@ -1913,6 +1921,16 @@
     "type": "binding_statement",
     "named": true,
     "fields": {
+      "alternative": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "block",
+            "named": true
+          }
+        ]
+      },
       "pattern": {
         "multiple": false,
         "required": true,
@@ -1939,6 +1957,10 @@
           },
           {
             "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "negative_literal_pattern",
             "named": true
           },
           {
@@ -3359,6 +3381,10 @@
         {
           "type": "visibility",
           "named": true
+        },
+        {
+          "type": "where_clause",
+          "named": true
         }
       ]
     }
@@ -3412,6 +3438,10 @@
         },
         {
           "type": "type_path",
+          "named": true
+        },
+        {
+          "type": "variant_field",
           "named": true
         }
       ]
@@ -4002,6 +4032,10 @@
             "named": true
           },
           {
+            "type": "negative_literal_pattern",
+            "named": true
+          },
+          {
             "type": "or_pattern",
             "named": true
           },
@@ -4089,6 +4123,10 @@
           },
           {
             "type": "integer_literal",
+            "named": true
+          },
+          {
+            "type": "negative_literal_pattern",
             "named": true
           },
           {
@@ -5142,6 +5180,10 @@
             "named": true
           },
           {
+            "type": "negative_literal_pattern",
+            "named": true
+          },
+          {
             "type": "or_pattern",
             "named": true
           },
@@ -5871,6 +5913,25 @@
     }
   },
   {
+    "type": "negative_literal_pattern",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "float_literal",
+          "named": true
+        },
+        {
+          "type": "integer_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "never_type",
     "named": true,
     "fields": {}
@@ -5905,6 +5966,10 @@
         },
         {
           "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "negative_literal_pattern",
           "named": true
         },
         {
@@ -6200,6 +6265,10 @@
         },
         {
           "type": "integer_literal",
+          "named": true
+        },
+        {
+          "type": "negative_literal_pattern",
           "named": true
         },
         {
@@ -6827,7 +6896,7 @@
           "named": true
         },
         {
-          "type": "parenthesized_pattern",
+          "type": "negative_literal_pattern",
           "named": true
         },
         {
@@ -6843,23 +6912,7 @@
           "named": true
         },
         {
-          "type": "struct_pattern",
-          "named": true
-        },
-        {
-          "type": "tuple_pattern",
-          "named": true
-        },
-        {
-          "type": "tuple_struct_pattern",
-          "named": true
-        },
-        {
           "type": "unterminated_raw_string",
-          "named": true
-        },
-        {
-          "type": "wildcard_pattern",
           "named": true
         }
       ]
@@ -7373,6 +7426,10 @@
         "required": true,
         "types": [
           {
+            "type": "generic_path",
+            "named": true
+          },
+          {
             "type": "path",
             "named": true
           }
@@ -7433,6 +7490,10 @@
         },
         {
           "type": "visibility",
+          "named": true
+        },
+        {
+          "type": "where_clause",
           "named": true
         }
       ]
@@ -7666,6 +7727,10 @@
         {
           "type": "visibility",
           "named": true
+        },
+        {
+          "type": "where_clause",
+          "named": true
         }
       ]
     }
@@ -7873,6 +7938,10 @@
           "named": true
         },
         {
+          "type": "negative_literal_pattern",
+          "named": true
+        },
+        {
           "type": "or_pattern",
           "named": true
         },
@@ -7890,6 +7959,10 @@
         },
         {
           "type": "raw_string_literal",
+          "named": true
+        },
+        {
+          "type": "rest_pattern",
           "named": true
         },
         {
@@ -7952,6 +8025,10 @@
           "named": true
         },
         {
+          "type": "negative_literal_pattern",
+          "named": true
+        },
+        {
           "type": "or_pattern",
           "named": true
         },
@@ -7969,6 +8046,10 @@
         },
         {
           "type": "raw_string_literal",
+          "named": true
+        },
+        {
+          "type": "rest_pattern",
           "named": true
         },
         {
@@ -8444,6 +8525,60 @@
           "named": true
         }
       ]
+    }
+  },
+  {
+    "type": "variant_field",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "array_type",
+            "named": true
+          },
+          {
+            "type": "function_type",
+            "named": true
+          },
+          {
+            "type": "generic_type",
+            "named": true
+          },
+          {
+            "type": "never_type",
+            "named": true
+          },
+          {
+            "type": "parenthesized_type",
+            "named": true
+          },
+          {
+            "type": "qualified_type",
+            "named": true
+          },
+          {
+            "type": "tuple_type",
+            "named": true
+          },
+          {
+            "type": "type_path",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {

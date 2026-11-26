@@ -185,6 +185,7 @@ impl RemapDefinitions for VariantDef {
         mapper.check()?;
         Ok(VariantDef {
             reports_failure: self.reports_failure,
+            shape: self.shape.clone(),
             name: self.name.clone(),
             payload: map_sequence(&self.payload, |value| (value).remap_definitions(mapper))?,
         })

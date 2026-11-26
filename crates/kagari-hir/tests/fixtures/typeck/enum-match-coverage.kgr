@@ -1,0 +1,110 @@
+enum State {
+    Ready,
+    Waiting,
+    Finished
+}
+
+use self::State::Ready;
+
+enum Message<T> {
+    Empty,
+    Data(T)
+}
+
+struct Flags {
+    val left: bool,
+    val right: bool
+}
+
+fn state(s: State) -> i32 {
+    match s {
+        Ready => 1
+    }
+}
+
+fn needs_waiting(s: State, enabled: bool) -> i32 {
+    match s {
+        Ready | State::Finished => 0,
+        State::Waiting if enabled => 1,
+        _ if enabled => 2,
+    }
+}
+
+fn diagonal(pair: Message<(bool, bool)>) -> i32 {
+    match pair {
+        Message::Empty => 0,
+        Message::Data((true, true)) | Message::Data((false, false)) => 1,
+    }
+}
+
+fn nested(msg: Message<(State, Flags)>) -> i32 {
+    match msg {
+        Message::Empty => 0,
+        Message::Data((Ready | State::Finished, _)) => 1,
+        Message::Data((State::Waiting, Flags { right: true, .. })) => 2,
+        Message::Data((_, Flags { right: false, left: _ })) => 3,
+    }
+}
+
+fn guard_then_bind(s: State, enabled: bool) -> i32 {
+    match s {
+        Ready if enabled => 0,
+        rest => {
+            return 1;
+        }
+    }
+}
+
+fn stop_on_waiting(s: State) -> i32 {
+    match s {
+        Ready | State::Finished => 0,
+        State::Waiting if {
+            return 1;
+        } => 2,
+    }
+}
+
+fn fallback(s: State) -> i32 {
+    match s {
+        Ready | _ => 0
+    }
+}
+
+fn no_value(msg: Message<!>) -> i32 {
+    match msg {
+        Message::Empty => 1
+    }
+}
+
+fn range_gap(gap: Message<char>) -> i32 {
+    match gap {
+        Message::Data('\0'..'m') | Message::Data('n'..='\u{10ffff}') => 1,
+        Message::Empty => 0,
+    }
+}
+
+enum Triple {
+    Fields(i32, bool, i32)
+}
+
+fn mixed_slots(ends: Triple) -> i32 {
+    match ends {
+        Triple::Fields(- 2147483648..=- 1, ..) => 1,
+        Triple::Fields(.., 0..=2147483647) => 2,
+    }
+}
+
+fn partition(value: Triple) -> i32 {
+    match value {
+        Triple::Fields(.., - 2147483648..=- 1) => 1,
+        Triple::Fields(.., 0..=2147483647) => 2,
+    }
+}
+
+fn ranges(msg: Message<char>) -> i32 {
+    match msg {
+        Message::Data('\0'..'m') => 1,
+        Message::Data('m'..='\u{10ffff}') => 2,
+        Message::Empty => 0,
+    }
+}

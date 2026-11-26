@@ -123,6 +123,8 @@ pub struct ResolvedStructInit {
 /// Known enum owner and optional selected variant for construction/recovery.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedEnumConstructor {
+    /// For braced construction, payload slot of each initializer in written order.
+    pub field_slots: Option<Vec<usize>>,
     /// Canonical enum definition identity.
     pub enumeration: DefinitionId,
     /// Missing members keep their known enum owner for error recovery.
@@ -207,6 +209,7 @@ pub struct TypeTable {
     scalars: HashMap<ExprId, ScalarValue>,
     pattern_scalars: HashMap<PatternId, ScalarValue>,
     pattern_ranges: HashMap<PatternId, (ScalarValue, ScalarValue)>,
+    pattern_slots: HashMap<PatternId, Vec<usize>>,
     pattern_fields: HashMap<PatternId, Vec<DefinitionId>>,
     pattern_variants: HashMap<PatternId, DefinitionId>,
 }
@@ -216,8 +219,8 @@ pub struct TypeTable {
 pub struct ResolvedAssociatedConst {
     /// Type selecting the implementation.
     pub receiver: TypeId,
-    /// Applied trait containing the constant.
-    pub interface: NominalType,
+    /// Applied trait for implementation dispatch, absent for a direct inherent definition.
+    pub interface: Option<NominalType>,
     /// Canonical associated constant definition.
     pub member: DefinitionId,
 }
@@ -416,6 +419,15 @@ impl TypeTable {
         end: ScalarValue,
     ) {
         self.pattern_ranges.insert(id, (start, end));
+    }
+
+    pub(crate) fn insert_pattern_slots(&mut self, id: PatternId, slots: Vec<usize>) {
+        self.pattern_slots.insert(id, slots);
+    }
+
+    /// Field slots in written child order, after checking the tuple or variant arity.
+    pub(crate) fn pattern_slots(&self, id: PatternId) -> Option<&[usize]> {
+        self.pattern_slots.get(&id).map(Vec::as_slice)
     }
 
     /// Records/replaces the field definitions in pattern field order under the matching node ID.

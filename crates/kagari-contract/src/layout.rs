@@ -9,7 +9,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::{TypeDef, TypeDefKind, verify::DeclarationValidationError},
+    declaration::{TypeDef, TypeDefKind, VariantShape, verify::DeclarationValidationError},
     language::binding,
     ty::{Ty, substitution::TypeSubstitution},
     visibility::Visibility,
@@ -30,6 +30,7 @@ pub struct EnumLayout {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EnumVariantLayout {
     pub reports_failure: bool,
+    pub shape: VariantShape,
     pub declaration: DefinitionId,
     pub payload: Vec<Ty>,
 }
@@ -110,6 +111,7 @@ pub fn enum_abi_matches(
                 .ok()
                 .and_then(|view| view.last())
                 .is_some_and(|part| part.name == abi.name)
+                || variant.shape != abi.shape
                 || variant.payload.len() != abi.payload.len()
                 || variant.reports_failure != abi.reports_failure
             {
@@ -257,7 +259,9 @@ pub fn validate_enum_layouts(
                 .check()
                 .map_err(|_| LayoutValidationError::Cancelled)?;
             let child = &variant.declaration;
-            if variant.reports_failure != (is_result && slot == 1)
+            if !variant.shape.valid_for(variant.payload.len())
+                || (is_result && variant.shape.labels().is_some())
+                || variant.reports_failure != (is_result && slot == 1)
                 || definitions.parent(*child) != Ok(Some(*id))
                 || !definitions
                     .resolve(*child)

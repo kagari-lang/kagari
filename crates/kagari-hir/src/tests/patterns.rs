@@ -1,5 +1,5 @@
 use crate::tests::standard::standard_modules;
-use crate::{analysis::FileAnalysis, tests::test_analysis};
+use crate::{analysis::FileAnalysis, tests::test_analysis, types::TypeId};
 use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
@@ -8,10 +8,13 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::declaration::{
-    TypeDef, TypeDefKind,
-    host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
-    module::ModuleDecl,
+use kagari_types::{
+    declaration::{
+        TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
+    },
+    scalar::BuiltinType,
 };
 use std::sync::Arc;
 
@@ -220,6 +223,37 @@ fn declaration_pattern_accepts_nested_generic_and_ignored_values() {
 }
 
 #[test]
+fn positional_rest_requires_room_for_all_explicit_children() {
+    assert_pattern_diagnostics(
+        "fn f(t: (bool,)) { val (_, .., _) = t; }",
+        &["tuple of 2 elements"],
+    );
+    assert_pattern_diagnostics(
+        "enum E { V(i32) } fn f(e: E) { match e { E::V(_, .., _) => () } }",
+        &["2 payload fields"],
+    );
+}
+
+#[test]
+fn negative_patterns_check_the_signed_value_in_the_scrutinee_domain() {
+    for (ty, pattern, reason) in [
+        (
+            "i8",
+            "-129",
+            "integer literal is outside the target type range",
+        ),
+        ("u64", "-0", "unsigned integers do not support negation"),
+    ] {
+        let source = format!("fn f(x: {ty}) {{ match x {{ {pattern} => (), _ => () }} }}");
+        let diagnostics = check_source(&source);
+        assert!(
+            matches!(&diagnostics[..], [diagnostic] if matches!(&diagnostic.kind, DiagnosticKind::InvalidLiteral { reason: found } if found == reason)),
+            "{diagnostics:?}"
+        );
+    }
+}
+
+#[test]
 fn declaration_pattern_duplicate_names_are_checked_across_nested_fields() {
     assert_pattern_diagnostics(
         &format!(
@@ -246,12 +280,126 @@ fn declaration_pattern_duplicate_names_are_checked_across_nested_fields() {
 }
 
 #[test]
+fn declaration_pattern_else_requires_divergence_without_success_bindings() {
+    for (body, expected) in [
+        (
+            "if flag { return; }",
+            DiagnosticKind::BindingElseMustDiverge,
+        ),
+        (
+            "value; return;",
+            DiagnosticKind::UnknownName {
+                name: "value".into(),
+            },
+        ),
+    ] {
+        let source = format!(
+            "fn f(flag: bool) {{ val (true, value) = (flag, 1) else {{ {body} }}; value; }}"
+        );
+        let diagnostics = check_source(&source);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics[0].kind, expected);
+    }
+}
+
+#[test]
+fn declaration_pattern_else_unreachable_breaks_do_not_join_the_enclosing_loop() {
+    // A non-completing initializer and an irrefutable pattern each exclude the failure edge.
+    for statement in ["val true: bool = { break 42; }", "val _ = 0"] {
+        let source = format!(
+            "fn f() -> i32 {{ val n = loop {{ {statement} else {{ break false; }}; break 42; }}; n }}"
+        );
+        assert_pattern_diagnostics(&source, &[]);
+    }
+    let diagnostics = check_source("fn f() { loop { val _ = 0 else { break 1; }; break; } }");
+    assert!(
+        matches!(diagnostics.as_slice(), [d] if d.kind == DiagnosticKind::BreakValueOutsideLoopExpression),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn declaration_pattern_diverging_variant_retains_payload_type_and_checks_shape() {
+    let header = "enum E<T> { P(T, i32), N { first: T, second: i32 } } type Flag = E<bool>;";
+    for (pattern, expected) in [
+        ("E::P(_, x)", BuiltinType::I32),
+        ("Flag::P(x, _)", BuiltinType::Bool),
+        ("Flag::N { first: x, .. }", BuiltinType::Bool),
+    ] {
+        let source = format!(
+            "{header} fn f() -> i32 {{ val {pattern} = {{ return 42; }} else {{ return 1; }}; x }}"
+        );
+        let file = analyze_source(&source);
+        let analysis = file.result();
+        assert!(
+            analysis.diagnostics().is_empty(),
+            "{source}: {:?}",
+            analysis.diagnostics()
+        );
+        let facts = analysis.facts();
+        let module = &facts.lowered.module;
+        let body = module.functions[0].implementation.script_body().unwrap();
+        let tail = module.block(body).tail_expr.unwrap();
+        assert_eq!(
+            facts.typed.type_table.expr_type(tail),
+            Some(TypeId::Builtin(expected))
+        );
+    }
+    assert_pattern_diagnostics(
+        &format!("{header} fn f() {{ val E::P(_) = {{ return; }} else {{ return; }}; }}"),
+        &["1 payload fields"],
+    );
+}
+
+#[test]
+fn named_variant_field_lists_require_declared_labels_and_shape() {
+    let header = "enum E { Hit { x: i32, y: bool }, Tuple(i32), End }";
+    for (expr, reason) in [
+        ("E::Hit { x: 1 }", "missing field `y`"),
+        ("E::Hit { x: 1, x: 2 }", "duplicate field `x`"),
+        ("E::Hit { other: 1 }", "unknown field `other`"),
+        ("E::Tuple { x: 1 }", "variant does not have named fields"),
+        (
+            "E::Hit { x: 1, y: true, ..e }",
+            "enum variants do not support struct update",
+        ),
+    ] {
+        let diagnostics = check_source(&format!("{header} fn f(e: E) -> E {{ {expr} }}"));
+        assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidStructInitializer { reason: r, .. } if r == reason)), "{expr}: {diagnostics:?}");
+    }
+    for (pattern, reason) in [
+        ("E::Hit { x }", "missing field `y`"),
+        ("E::Hit { x, x: _, .. }", "duplicate field `x`"),
+        ("E::Hit { z: _, .. }", "unknown field `z`"),
+        ("E::End {}", "variant does not have named fields"),
+    ] {
+        let diagnostics = check_source(&format!(
+            "{header} fn f(e: E) {{ match e {{ {pattern} => (), _ => () }} }}"
+        ));
+        assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::PatternTypeMismatch {found, ..} if found == reason)), "{pattern}: {diagnostics:?}");
+    }
+    let positional = check_source(&format!("{header} fn f() -> E {{ E::Hit(1, true) }}"));
+    assert!(positional.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidCallTarget { type_name } if type_name.contains("use braces"))));
+    let missing = check_source(&format!(
+        "{header} fn f(e: E) {{ match e {{ E::Hit {{ y: true, .. }} | E::Tuple(_) | E::End => () }} }}"
+    ));
+    assert!(missing.iter().any(|d| matches!(&d.kind, DiagnosticKind::NonExhaustiveEnumMatch {uncovered_variants, ..} if uncovered_variants == &["Hit"])));
+    let duplicate = check_source("enum E { Hit { x: i32, x: bool } }");
+    assert!(
+        duplicate
+            .iter()
+            .any(|d| matches!(&d.kind, DiagnosticKind::DuplicateField {name, ..} if name == "x"))
+    );
+}
+
+#[test]
 fn declaration_pattern_refutable_forms_remain_rejected() {
     for source in [
         "fn bad() { val 1 = 1; }",
         "fn bad() { val 0..=2 = 1; }",
         "fn bad(input: Option<i32>) { val Some(value) = input; }",
         "fn bad(input: Option<i32>) { val Option::None = input; }",
+        "enum E { Hit { x: i32 }, End } fn bad(e: E) { val E::Hit { x } = e; }",
         "enum Only { One(i32) } fn bad(input: Only) { val Only::One(value) = input; }",
         "fn bad(input: (Option<i32>, i32)) { val (Some(value), other) = input; }",
     ] {

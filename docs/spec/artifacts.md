@@ -79,8 +79,13 @@ development artifacts and caches instead of loading their obsolete schema.
 
 Ordinary nominal enum nodes and layouts now cover source, standard and registered
 native enums. Layouts carry full declaration/member identities, applied arguments,
-ordered payload types and the explicit variant reporting fact. Generic enum
-instructions validate those layouts. Library-authored native methods transfer
+ordered payload types and the explicit variant reporting fact. Declarations and
+layouts distinguish positional payloads from named payloads. A named variant
+carries one nonempty, unique label per slot in declaration order. Source-free
+verification checks the shape and labels against the declared ABI, not just the
+slot types. Renaming a label on a public variant changes its ABI fingerprint
+and rejects an incompatible reload before publication. Generic enum instructions
+validate those layouts. Library-authored native methods transfer
 optional diagnostic metadata between checked live enum values. Linked validation checks nominal
 kind and arity from declarations or validated private layouts. Fixed standard tags,
 standard type nodes and MapResultError are removed. This unpublished replacement

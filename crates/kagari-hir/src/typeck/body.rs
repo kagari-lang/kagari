@@ -52,6 +52,8 @@ mod standard;
 enum LoopResult {
     Statement,
     Expression(Box<LoopValue>),
+    /// A break here targets a value loop but cannot contribute a result to it.
+    UnreachableExpression,
 }
 
 #[derive(Clone)]
@@ -588,15 +590,33 @@ impl<'a> BodyChecker<'a> {
                 base,
                 explicit_type,
             } => {
-                let explicit = explicit_type.map(|ty| self.resolve_constructor_type(ty, env));
-                self.infer_struct_init_type(
-                    path,
-                    fields,
-                    *base,
-                    expr_id,
-                    env,
-                    explicit.as_ref().or(expected),
-                )
+                if self.enum_member(expr_id).is_some() {
+                    let args: Vec<_> = fields.iter().map(|field| field.value).collect();
+                    let result = self
+                        .infer_enum_constructor(expr_id, expr_id, &args, env, expected)
+                        .unwrap_or(TypeId::Error);
+                    if let Some(base) = base {
+                        self.infer_expr_type(*base, env);
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                                struct_name: path.clone(),
+                                reason: "enum variants do not support struct update".into(),
+                            })
+                            .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
+                        );
+                    }
+                    result
+                } else {
+                    let explicit = explicit_type.map(|ty| self.resolve_constructor_type(ty, env));
+                    self.infer_struct_init_type(
+                        path,
+                        fields,
+                        *base,
+                        expr_id,
+                        env,
+                        explicit.as_ref().or(expected),
+                    )
+                }
             }
             ExprKind::Tuple(elements) => {
                 if elements.is_empty() {

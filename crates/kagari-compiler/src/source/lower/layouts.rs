@@ -334,6 +334,7 @@ impl Layouts {
                         let payload = types.iter().map(|ty| planner.encode_type(ty)).collect();
                         variants.push(EnumVariantLayout {
                             reports_failure: variant.reports_failure,
+                            shape: variant.shape.clone(),
                             declaration: variant.id,
                             payload,
                         });

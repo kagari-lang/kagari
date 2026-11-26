@@ -10,9 +10,10 @@ use crate::{
         item::{Visibility, VisibilityKind},
         misc::{
             AssociatedTypeBinding, CallableTrait, Field, FieldList, GenericArgList,
-            GenericArgument, GenericParam, GenericParamList, Name, Param, ParamList, ParameterType,
-            Path, TraitApplication, TraitBoundList, TraitRef, TuplePayload, Variant, VariantList,
-            WhereClause, WherePredicate, Writeability,
+            GenericArgument, GenericParam, GenericParamList, Name, NamedPayload, Param, ParamList,
+            ParameterType, Path, PayloadField, TraitApplication, TraitBoundList, TraitRef,
+            TuplePayload, Variant, VariantList, VariantPayload, WhereClause, WherePredicate,
+            Writeability,
         },
         site::Required,
         tokens::Token,
@@ -312,11 +313,34 @@ impl<'a> Ast<'a, VariantList> {
 
 impl<'a> Ast<'a, Variant> {
     required_child!(name, Name, name);
-    optional_child!(payload_types, TuplePayload, payload);
+    pub fn payload_types(self) -> Option<Ast<'a, TuplePayload>> {
+        match self.node.payload.as_ref()? {
+            VariantPayload::Tuple(payload) => Some(self.with(payload)),
+            VariantPayload::Named(_) => None,
+        }
+    }
+
+    pub fn named_payload(self) -> Option<Ast<'a, NamedPayload>> {
+        match self.node.payload.as_ref()? {
+            VariantPayload::Named(payload) => Some(self.with(payload)),
+            VariantPayload::Tuple(_) => None,
+        }
+    }
 
     pub fn name_text(self) -> Option<String> {
         self.name()?.text()
     }
+}
+
+impl<'a> Ast<'a, NamedPayload> {
+    pub fn fields(self) -> impl Iterator<Item = Ast<'a, PayloadField>> {
+        self.list(&self.node.fields)
+    }
+}
+
+impl<'a> Ast<'a, PayloadField> {
+    required_child!(name, Name, name);
+    required_child!(ty, TypeSyntax, ty);
 }
 
 impl<'a> Ast<'a, TuplePayload> {

@@ -6,8 +6,8 @@ use crate::{
     ast::{
         expr::{
             FieldPattern, GroupedPattern, OrPattern, PathExpr, Pattern, PatternAlternative,
-            PatternBound, PatternField, PatternRest, RangeOp, RangePattern, StructPattern,
-            TuplePattern, TupleStructPattern,
+            PatternBound, PatternField, PatternLiteral, PatternRest, PositionalPattern, RangeOp,
+            RangePattern, StructPattern, TuplePattern, TupleStructPattern,
         },
         site::{ListEntry, Required},
     },
@@ -17,9 +17,12 @@ use crate::{
 
 impl Parser<'_> {
     pub(crate) fn pattern_starts(&self) -> bool {
-        self.path_starts()
+        self.path_starts() || self.at(TokenKind::LParen) || self.pattern_literal_starts()
+    }
+
+    fn pattern_literal_starts(&self) -> bool {
+        self.negative_literal_starts()
             || self.at_any(&[
-                TokenKind::LParen,
                 TokenKind::Number,
                 TokenKind::Float,
                 TokenKind::String,
@@ -28,6 +31,43 @@ impl Parser<'_> {
                 TokenKind::TrueKw,
                 TokenKind::FalseKw,
             ])
+    }
+
+    fn negative_literal_starts(&self) -> bool {
+        self.at(TokenKind::Minus)
+            && matches!(
+                self.nth_nontrivia_kind(1),
+                Some(TokenKind::Number | TokenKind::Float)
+            )
+    }
+
+    fn parse_pattern_literal(&mut self) -> PatternLiteral {
+        PatternLiteral {
+            minus: self.eat(TokenKind::Minus),
+            value: self.parse_literal(),
+        }
+    }
+
+    fn positional_starts(&self) -> bool {
+        self.at(TokenKind::DotDot) || self.pattern_starts()
+    }
+
+    fn parse_positional(&mut self, saw_rest: &mut bool) -> Built<PositionalPattern> {
+        if self.at(TokenKind::DotDot) {
+            if *saw_rest {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
+            *saw_rest = true;
+            let dots = self.take();
+            self.account_depth(1);
+            Built::present(PositionalPattern::Rest(dots), self.completed_depth)
+        } else {
+            let pattern = self.parse_match_pattern();
+            Built {
+                node: pattern.node.map(PositionalPattern::Pattern),
+                depth: pattern.depth,
+            }
+        }
     }
 
     pub(crate) fn parse_binding_pattern(&mut self) -> Built<Pattern> {
@@ -79,10 +119,11 @@ impl Parser<'_> {
                 if self.at(TokenKind::LParen) {
                     let mark = self.begin_at(self.first(&path, self.cursor()), path.depth);
                     let open = self.take();
+                    let mut saw_rest = false;
                     let (elements, _) = self.list(
                         TokenKind::RParen,
-                        Self::pattern_starts,
-                        Self::parse_match_pattern,
+                        Self::positional_starts,
+                        |parser| parser.parse_positional(&mut saw_rest),
                         2,
                         0,
                     );
@@ -118,15 +159,9 @@ impl Parser<'_> {
                     }
                 }
             }
-            TokenKind::Number
-            | TokenKind::Float
-            | TokenKind::String
-            | TokenKind::Char
-            | TokenKind::ByteChar
-            | TokenKind::TrueKw
-            | TokenKind::FalseKw => {
+            _ if self.pattern_literal_starts() => {
                 let mark = self.begin();
-                let literal = self.parse_literal();
+                let literal = self.parse_pattern_literal();
                 self.end(mark);
                 Built::present(Pattern::Literal(literal), self.completed_depth)
             }
@@ -169,16 +204,8 @@ impl Parser<'_> {
                 Required::Present(value) => Required::Present(PatternBound::Path(value)),
                 Required::Missing { at } => Required::Missing { at },
             }
-        } else if self.at_any(&[
-            TokenKind::Number,
-            TokenKind::Float,
-            TokenKind::String,
-            TokenKind::Char,
-            TokenKind::ByteChar,
-            TokenKind::TrueKw,
-            TokenKind::FalseKw,
-        ]) {
-            Required::Present(PatternBound::Literal(self.parse_literal()))
+        } else if self.pattern_literal_starts() {
+            Required::Present(PatternBound::Literal(self.parse_pattern_literal()))
         } else {
             self.error_here(DiagnosticKind::ExpectedMatchPattern);
             Required::Missing { at: self.anchor() }
@@ -198,8 +225,9 @@ impl Parser<'_> {
     fn parse_tuple_pattern(&mut self) -> Built<Pattern> {
         let mark = self.begin();
         let open = self.take();
-        let first = (!self.at(TokenKind::RParen)).then(|| self.parse_match_pattern());
-        match (first, self.at(TokenKind::Comma)) {
+        let mut saw_rest = false;
+        let first = (!self.at(TokenKind::RParen)).then(|| self.parse_positional(&mut saw_rest));
+        match (first, self.at(TokenKind::Comma) || saw_rest) {
             (Some(first), false) => {
                 let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
                 let site = self.end(mark);
@@ -207,7 +235,10 @@ impl Parser<'_> {
                     Pattern::Grouped(Box::new(GroupedPattern {
                         site,
                         open,
-                        pattern: first.node,
+                        pattern: first.node.map(|entry| match entry {
+                            PositionalPattern::Pattern(pattern) => pattern,
+                            PositionalPattern::Rest(_) => unreachable!("rest selects tuple syntax"),
+                        }),
                         close,
                     })),
                     self.completed_depth,
@@ -216,15 +247,25 @@ impl Parser<'_> {
             (first, _) => {
                 let mut elements = Vec::new();
                 if let Some(first) = first {
-                    let separator = self.eat(TokenKind::Comma).map(Required::Present);
+                    let separator =
+                        self.eat(TokenKind::Comma)
+                            .map(Required::Present)
+                            .or_else(|| {
+                                if self.positional_starts() {
+                                    self.error_here(DiagnosticKind::UnexpectedToken);
+                                    Some(Required::Missing { at: self.anchor() })
+                                } else {
+                                    None
+                                }
+                            });
                     elements.push(ListEntry {
                         element: first.node,
                         separator,
                     });
                     let (rest, _) = self.list(
                         TokenKind::RParen,
-                        Self::pattern_starts,
-                        Self::parse_match_pattern,
+                        Self::positional_starts,
+                        |parser| parser.parse_positional(&mut saw_rest),
                         1,
                         1,
                     );

@@ -23,6 +23,7 @@ impl Parser<'_> {
             colon,
             bounds: self.parse_trait_bound_list().node,
         });
+        let where_clause = self.parse_where_clause();
         let open = self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedStructBodyStart);
         let members = self.parse_members(false);
         let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
@@ -35,6 +36,7 @@ impl Parser<'_> {
             name,
             generics,
             supertraits,
+            where_clause,
             open,
             members,
             close,

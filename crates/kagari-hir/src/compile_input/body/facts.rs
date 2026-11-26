@@ -79,6 +79,8 @@ pub struct PatternFacts<'a> {
     pub scalar: Option<&'a ScalarValue>,
     /// Evaluated lower/upper range endpoints; inclusivity stays on the pattern node.
     pub range: Option<&'a (ScalarValue, ScalarValue)>,
+    /// Checked positional projections aligned with explicit tuple or variant children.
+    pub slots: Option<&'a [usize]>,
     /// Canonical struct fields aligned with source pattern-field order.
     pub fields: Option<&'a [DefinitionId]>,
     /// Selected variant, including a bare name that does not introduce a binding.
@@ -127,6 +129,7 @@ impl<'a> CheckedBodyInput<'a> {
         Some(PatternFacts {
             scalar: self.types.pattern_scalar_value(id),
             range: self.types.pattern_range(id),
+            slots: self.types.pattern_slots(id),
             fields: self.types.pattern_fields(id),
             variant: self.types.pattern_variant(id),
             irrefutable: self.names.pattern_is_irrefutable(self.nodes, id),

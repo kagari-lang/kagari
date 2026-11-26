@@ -496,6 +496,47 @@ fn conditional_application_proves_forwarded_outputs_after_substitution() {
 }
 
 #[test]
+fn declaration_header_predicates_preserve_applied_receivers() {
+    let text = include_str!("../../../tests/fixtures/typeck/traits/header-predicates.kgr");
+    let source = SourceFile::new("header-predicates.kgr", text);
+    let analysis = crate::analyze_source(&source, vec![]).unwrap();
+    let mut sites = analysis
+        .diagnostics()
+        .iter()
+        .map(|diagnostic| {
+            let DiagnosticKind::GenericBoundNotSatisfied {
+                type_name,
+                trait_name,
+            } = &diagnostic.kind
+            else {
+                panic!("{diagnostic:?}")
+            };
+            assert_eq!(trait_name, "Marker");
+            let span = diagnostic.span.unwrap();
+            (span.start, &text[span.start..span.end], type_name.as_str())
+        })
+        .collect::<Vec<_>>();
+    sites.sort_unstable();
+    let site = |prefix: &str, token, ty| (text.find(prefix).unwrap() + prefix.len(), token, ty);
+    assert_eq!(
+        sites,
+        [
+            site("fn bad(", "x", "Box<bool>"),
+            site("fn bad(x: Wrap<bool>, ", "y", "Box<bool>"),
+            site("fn bad(x: Wrap<bool>, y: Choice<bool>, ", "z", "Box<bool>"),
+            (
+                text.find("Reader<bool> for Number").unwrap(),
+                "Reader<bool>",
+                "Box<bool>"
+            ),
+            site("struct Impossible where Box<bool>: ", "Marker", "Box<bool>"),
+            site("fn probe<U: ", "Reader<bool>", "Box<bool>"),
+            site("fn unproven<T, U>() where U: ", "Reader<T>", "Box<T>"),
+        ]
+    );
+}
+
+#[test]
 fn unused_trait_method_checks_closed_where_bound_on_trait_name() {
     let source = SourceFile::new(
         "where-bound-trait-name.kgr",

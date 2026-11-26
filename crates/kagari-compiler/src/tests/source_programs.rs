@@ -30,7 +30,7 @@ use kagari_hir::{
 };
 use kagari_mir::{
     codec::{decode_program, encode_program},
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, Constant, Instruction},
     program::{ProgramErrorKind, VerifiedMirProgram, verify_program},
     verify::{MirVerificationError, MirVerificationErrorKind},
 };
@@ -128,6 +128,31 @@ fn source_products_ignore_prior_module_registration_order() {
     );
     assert_eq!(products[0], products[1]);
     assert_eq!(products[0], products[2]);
+}
+
+#[test]
+fn imported_inherent_constant_lowers_the_providers_typed_value() {
+    let mut sources = SourceDatabase::default();
+    insert(
+        &mut sources,
+        "limits",
+        include_str!("../../tests/fixtures/source_package/inherent-constant-provider.kgr"),
+    );
+    let root = insert(
+        &mut sources,
+        "root",
+        include_str!("../../tests/fixtures/source_package/inherent-constant-user.kgr"),
+    );
+    let program = checked(&sources, root);
+    let module = common::lower_root(&program, &Default::default()).unwrap();
+    let read = module.functions.iter().find(|f| f.name == "read").unwrap();
+    assert!(read.blocks[0].instructions.iter().any(|i| matches!(
+        i,
+        Instruction::LoadConst {
+            constant: Constant::I64(4_294_967_299),
+            ..
+        }
+    )));
 }
 
 #[test]

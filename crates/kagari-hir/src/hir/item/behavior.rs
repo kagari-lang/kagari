@@ -55,6 +55,8 @@ pub struct TraitDef {
     pub name: String,
     /// Declared generic binders.
     pub generic_params: Vec<GenericParamId>,
+    /// Where predicates on this declaration, distinct from its parent traits.
+    pub bounds: Vec<TraitBound>,
     /// Unresolved parent trait requirements.
     pub supertraits: Vec<TraitRef>,
     /// Inline method surfaces pointing to function slots.

@@ -5,7 +5,7 @@
 use crate::{
     hir::{
         expr::{Condition, ops::BinaryOp},
-        ids::StmtId,
+        ids::{BlockId, StmtId},
         stmt::StmtKind,
     },
     typeck::{
@@ -19,6 +19,7 @@ use crate::{
 use kagari_common::span::Span;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
+use std::mem;
 
 impl<'a> BodyChecker<'a> {
     pub(super) fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {
@@ -33,6 +34,7 @@ impl<'a> BodyChecker<'a> {
                 writeability,
                 ty,
                 initializer,
+                else_block,
             } => {
                 let annotation = ty.map(|ty| {
                     self.prepare_annotation_holes(ty);
@@ -130,7 +132,20 @@ impl<'a> BodyChecker<'a> {
                         ),
                     );
                 }
-                self.check_declaration_pattern(*pattern, &local_ty, *writeability, env);
+                if let Some(block) = else_block {
+                    let reachable = completes
+                        && !self
+                            .names
+                            .pattern_is_irrefutable(&self.lowered.module.nodes, *pattern);
+                    self.check_binding_else(*block, env, reachable);
+                }
+                self.check_declaration_pattern(
+                    *pattern,
+                    &local_ty,
+                    *writeability,
+                    else_block.is_none(),
+                    env,
+                );
             }
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);
@@ -361,6 +376,26 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
+    fn check_binding_else(&mut self, block: BlockId, env: &BodyTypeEnv, reachable: bool) {
+        // Isolate just the enclosing value loop. Loops introduced inside the block
+        // still infer their own results, and statement-loop restrictions still apply.
+        let enclosing = self
+            .loop_results
+            .last_mut()
+            .filter(|target| !reachable && matches!(target, LoopResult::Expression(_)))
+            .map(|target| mem::replace(target, LoopResult::UnreachableExpression));
+        let result = self.infer_block_types(block, &mut env.clone());
+        if let Some(enclosing) = enclosing {
+            *self.loop_results.last_mut().expect("enclosing value loop") = enclosing;
+        }
+        if !self.stopped && !result.is_never() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::BindingElseMustDiverge)
+                    .with_span(self.lowered.module.block(block).origin.diagnostic_span()),
+            );
+        }
+    }
+
     pub(super) fn record_loop_break_type(&mut self, ty: TypeId, has_value: bool, span: Span) {
         match self.loop_results.last().cloned() {
             Some(LoopResult::Statement) => {
@@ -391,7 +426,7 @@ impl<'a> BodyChecker<'a> {
                     }
                 }
             }
-            None => {}
+            Some(LoopResult::UnreachableExpression) | None => {}
         }
     }
 }

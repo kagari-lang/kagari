@@ -2,19 +2,25 @@
 
 use crate::{
     DiagnosticBuffer,
-    aggregates::AggregateCatalog,
-    collections::HashSet,
+    aggregates::{AggregateCatalog, InherentConstSignature},
+    collections::{HashMap, HashSet},
     declarations::Declarations,
     lower::LoweredModule,
     typeck::{
+        inference,
+        members::MemberQuery,
         state::TypeCheckState,
         table::TypeTable,
         ty::{TypeContext, resolve_type_in},
     },
-    types::TypeId,
+    types::{TypeId, TypeSubstitution, semantic::ImplHeader},
 };
 
-use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind, span::Span};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, ModuleIdentity, table::DefinitionId},
+    span::Span,
+};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 
@@ -118,6 +124,61 @@ pub(super) fn prepare(
     }
 }
 
+/// Select a direct definition only after checking its typed receiver, requirements and visibility.
+pub(super) fn select_inherent<'a>(
+    query: &MemberQuery<'a>,
+    name: &str,
+    importer: &ModuleIdentity,
+) -> Result<Option<(DefinitionId, &'a InherentConstSignature)>, &'static str> {
+    let mut selected = None;
+    let mut hidden = false;
+    for (id, item) in query.aggregates.inherent_consts() {
+        query.cancel.check().map_err(|_| "selection cancelled")?;
+        if item.site.name != name {
+            continue;
+        }
+        let mut substitution = TypeSubstitution::default();
+        inference::infer(
+            &item.owner,
+            query.receiver,
+            &item.generic_params,
+            &mut substitution,
+            query.cancel,
+            None,
+        )
+        .map_err(|_| "selection cancelled")?;
+        if item.owner.instantiate(&substitution) != *query.receiver
+            || !item
+                .generic_params
+                .iter()
+                .all(|p| substitution.contains_key(p))
+            || !query.bounds_allow(&item.bounds, &substitution, None, false)
+        {
+            continue;
+        }
+        if !item.visibility.allows(
+            query
+                .definitions
+                .resolve(id)
+                .expect("scoped inherent constant")
+                .module(),
+            importer,
+        ) {
+            hidden = true;
+            continue;
+        }
+        if selected.is_some() {
+            return Err("ambiguous inherent constant");
+        }
+        selected = Some((id, item));
+    }
+    if selected.is_none() && hidden {
+        Err("constant is not visible in this module")
+    } else {
+        Ok(selected)
+    }
+}
+
 pub(crate) fn validate(
     lowered: &LoweredModule,
     declarations: &Declarations,
@@ -126,9 +187,34 @@ pub(crate) fn validate(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    let mut inherent_headers: HashMap<&str, Vec<ImplHeader>> = HashMap::default();
     for item in &lowered.module.impls {
         if cancel.check().is_err() {
             return;
+        }
+        if item.trait_ref.is_none() {
+            if let Some(receiver) = item
+                .for_type
+                .and_then(|ty| table.type_ref(ty))
+                .filter(|ty| !ty.ty.is_unresolved())
+            {
+                for member in &item.associated_consts {
+                    if cancel.check().is_err() {
+                        return;
+                    }
+                    let header = ImplHeader::lower(&receiver.ty, &[]);
+                    let previous = inherent_headers.entry(&member.name).or_default();
+                    if previous.iter().any(|other| header.overlaps(other)) {
+                        diagnostics.push(error(
+                            &member.name,
+                            "duplicate inherent constant on overlapping receivers",
+                            member.origin.diagnostic_span(),
+                        ));
+                    }
+                    previous.push(header);
+                }
+            }
+            continue;
         }
         let contract = declarations
             .impl_identity(item.id)

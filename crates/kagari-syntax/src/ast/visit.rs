@@ -370,6 +370,8 @@ node_refs! {
     Field: misc::Field => Field,
     VariantList: misc::VariantList => VariantList,
     Variant: misc::Variant => Variant,
+    NamedPayload: misc::NamedPayload => FieldList,
+    PayloadField: misc::PayloadField => Field,
     TuplePayload: misc::TuplePayload => TypeList,
     Type: ty::TypeSyntax => TypeSyntax,
     QualifiedType: ty::QualifiedType => QualifiedType,

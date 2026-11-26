@@ -207,6 +207,7 @@ impl SignatureSnapshot {
                 &modules,
                 &checked,
                 &self.files[id].prepared.record.names.facts,
+                &environment.aggregates,
                 cancel,
             )?;
             environment.constants = Some(checked[id].clone());

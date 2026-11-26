@@ -262,6 +262,15 @@ test('reserved Kagari words, conservative declarations/types, attributes and no 
   region(text, spans, 'Model', 'code', 'variable.other.kagari', 3);
 });
 
+test('inherent constants scope the declaration but do not resolve path references', async () => {
+  const text = 'impl Limits { pub const MAX: i32 = Self::BASE; }';
+  const spans = await tokenize(text);
+  regionsIn(text, spans, 'pub const MAX: i32 = Self::BASE', [
+    ['pub', 'storage.modifier.kagari'], ['const', 'storage.type.kagari'],
+    ['MAX', 'variable.other.constant.kagari'], ['i32', 'entity.name.type.kagari'], ['BASE', 'variable.other.kagari'],
+  ]);
+});
+
 test('persistent statics use lexical storage scopes without treating val objects as constants', async () => {
   const text = await readFile(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
   const spans = await tokenize(text);

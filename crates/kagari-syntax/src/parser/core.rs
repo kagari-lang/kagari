@@ -499,7 +499,7 @@ impl<'a> Parser<'a> {
         &mut self,
         end: TokenKind,
         starts: fn(&Self) -> bool,
-        parse: fn(&mut Self) -> Built<T>,
+        mut parse: impl FnMut(&mut Self) -> Built<T>,
         field: u16,
         start_index: usize,
     ) -> (SeparatedList<T, S>, usize) {

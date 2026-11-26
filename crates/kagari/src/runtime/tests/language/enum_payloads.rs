@@ -255,11 +255,20 @@ fn imported_enum_constructors_use_the_pinned_dependency_layouts() {
                 },
             )
             .unwrap();
-        engine.set_source(&path, format!("pub enum Event {{ Data(i32) }} pub fn make() -> Event {{ Event::Data({value}) }}"), SourceLayer::Base).unwrap();
+        let source = if name == "left" {
+            format!(
+                "pub enum Event {{ Data {{ n: i32 }} }} pub fn make() -> Event {{ Event::Data {{ n: {value} }} }}"
+            )
+        } else {
+            format!(
+                "pub enum Event {{ Data(i32) }} pub fn make() -> Event {{ Event::Data({value}) }}"
+            )
+        };
+        engine.set_source(&path, source, SourceLayer::Base).unwrap();
     }
     let artifact = compile(
         &engine,
-        "use pkg::left; use pkg::right; fn main() -> bool { (match left::make() { left::Event::Data(n) => n == 7 }) && (match right::make() { right::Event::Data(n) => n == 9 }) }",
+        "use pkg::left; use pkg::right; fn main() -> bool { (match left::make() { left::Event::Data { n } => n == 7 }) && (match right::make() { right::Event::Data(n) => n == 9 }) }",
     );
     let decoded =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
@@ -289,7 +298,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
     )
     .unwrap();
     let mut runtime = engine.runtime(Default::default());
-    let source = "struct Point { val x: i32 } pub enum Event { Empty, Data(Point, (i32, [String])) } fn main() -> i32 { 42 }";
+    let source = "struct Point { val x: i32 } pub enum Event { Empty, Data { origin: Point, detail: (i32, [String]) } } fn main() -> i32 { 42 }";
     let original = compile(&engine, source);
     let definitions = DefinitionContext::new().unwrap();
     let original = original
@@ -304,6 +313,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
             _ => None,
         })
         .unwrap();
+    assert_eq!(variant.shape.labels().unwrap(), &["origin", "detail"]);
     let Ty::Struct(point) = &variant.payload[0] else {
         panic!("nominal payload")
     };
@@ -338,30 +348,33 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
             Default::default(),
         )
         .unwrap();
-    let changed = compile(
-        &engine,
-        &source.replace("(i32, [String])", "(i64, [String])"),
-    );
-    assert_ne!(
-        original.records().verification.public_abi_fingerprints,
-        changed.records().verification.public_abi_fingerprints
-    );
-    let before = runtime.modules().loaded_count();
-    let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
-    let error = runtime
-        .program(&loaded)
-        .map_err(ReloadValidationError::Runtime)
-        .and_then(|base| {
-            base.prepare_replacement(
-                &Program::from_artifact(changed, &Default::default(), &Default::default()).unwrap(),
-                &Default::default(),
-            )
-        })
-        .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
-        .unwrap_err();
-    assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
-    assert_eq!(runtime.modules().loaded_count(), before);
-    assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
+    for changed_source in [
+        source.replace("detail:", "info:"),
+        source.replace("(i32, [String])", "(i64, [String])"),
+    ] {
+        let changed = compile(&engine, &changed_source);
+        assert_ne!(
+            original.records().verification.public_abi_fingerprints,
+            changed.records().verification.public_abi_fingerprints
+        );
+        let before = runtime.modules().loaded_count();
+        let before_epoch = runtime.select_program(&loaded).unwrap().epoch;
+        let error = runtime
+            .program(&loaded)
+            .map_err(ReloadValidationError::Runtime)
+            .and_then(|base| {
+                base.prepare_replacement(
+                    &Program::from_artifact(changed, &Default::default(), &Default::default())
+                        .unwrap(),
+                    &Default::default(),
+                )
+            })
+            .and_then(|candidate| runtime.replace_program(&loaded, &candidate, Default::default()))
+            .unwrap_err();
+        assert_eq!(error.code(), "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH");
+        assert_eq!(runtime.modules().loaded_count(), before);
+        assert_eq!(runtime.select_program(&loaded).unwrap().epoch, before_epoch);
+    }
     // The original entry remains usable after rejection.
     assert!(
         runtime

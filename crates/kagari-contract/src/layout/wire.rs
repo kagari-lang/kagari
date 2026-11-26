@@ -7,7 +7,7 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding, PortableDefinitionRef},
     },
 };
-use kagari_types::{ty::wire::WireType, visibility::Visibility};
+use kagari_types::{declaration::VariantShape, ty::wire::WireType, visibility::Visibility};
 use serde::{Deserialize, Serialize};
 
 /// File-local EnumLayout facts; no verification evidence is serialized.
@@ -74,6 +74,7 @@ impl EnumLayoutRecord {
 #[derive(Serialize, Deserialize)]
 struct EnumVariantLayoutRecord {
     reports_failure: bool,
+    shape: VariantShape,
     declaration: PortableDefinitionRef,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     payload: Vec<WireType>,
@@ -90,6 +91,7 @@ impl EnumVariantLayoutRecord {
         check_cancel(cancel)?;
         Ok(Self {
             reports_failure: value.reports_failure,
+            shape: value.shape.clone(),
             declaration: encoding.reference(value.declaration)?,
             payload: value
                 .payload
@@ -111,6 +113,7 @@ impl EnumVariantLayoutRecord {
         check_cancel(cancel)?;
         Ok(EnumVariantLayout {
             reports_failure: self.reports_failure,
+            shape: self.shape.clone(),
             declaration: decoding.resolve(self.declaration)?,
             payload: self
                 .payload

@@ -114,6 +114,7 @@ fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
         .unwrap();
     let variant = |name: &str, payload| EnumVariantLayout {
         reports_failure: false,
+        shape: Default::default(),
         declaration: context
             .intern_child(declaration, DefinitionKind::Variant, name, 0)
             .unwrap(),
@@ -143,6 +144,7 @@ fn declared_enum_equality_keeps_nominal_identity_across_private_layout_edits() {
                         arguments: Vec::new(),
                         variants: vec![EnumVariantLayout {
                             reports_failure: false,
+                            shape: Default::default(),
                             declaration: context
                                 .intern_child(other_declaration, DefinitionKind::Variant, "Data", 0)
                                 .unwrap(),

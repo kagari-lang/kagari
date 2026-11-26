@@ -217,6 +217,7 @@ fn enum_matches(
                     &declared.name,
                     definitions,
                 )
+                && variant.shape == declared.shape
                 && variant.reports_failure == declared.reports_failure
                 && variant.payload.len() == declared.payload.len()
                 && variant

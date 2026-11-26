@@ -275,11 +275,13 @@ fn empty_variant_does_not_hide_changed_private_payload_schema() {
                 declaration: empty,
                 payload: vec![],
                 reports_failure: false,
+                shape: Default::default(),
             },
             EnumVariantLayout {
                 declaration: data,
                 payload: vec![array_type()],
                 reports_failure: false,
+                shape: Default::default(),
             },
         ],
     });

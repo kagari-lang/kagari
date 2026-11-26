@@ -151,7 +151,7 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
     assert_eq!(inclusive.range_inclusive(), Some(true));
     let bounds = inclusive.range_bounds().collect::<Vec<_>>();
     assert!(
-        matches!(&bounds[0], PatternBoundView::Literal(value) if value.text().as_deref() == Some("1"))
+        matches!(&bounds[0], PatternBoundView::Literal(value) if value.magnitude().text().as_deref() == Some("1"))
     );
     assert!(
         matches!(&bounds[1], PatternBoundView::Path(path) if path.name_text().as_deref() == Some("MAX"))
@@ -182,6 +182,23 @@ fn struct_pattern_rest_is_local_and_distinct_from_ranges() {
         assert!(!wrapper.has_rest());
         assert_eq!(wrapper.range_inclusive(), None);
         assert!(wrapper.elements().all(|element| element.has_rest()));
+    }
+}
+
+#[test]
+fn positional_rest_rejects_a_second_marker_at_its_own_level() {
+    for pattern in ["(.., (..), ..)", "V(x, .., .., y)"] {
+        let source = format!("fn f() {{ match x {{ {pattern} => 1, _ => 2 }} }}");
+        let parsed = common::parse(&source);
+        let diagnostics = parsed.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+        let span = diagnostics[0].span.unwrap();
+        assert_eq!(span.start, source.rfind("..").unwrap());
+        assert_eq!(&source[span.start..span.end], "..");
+        assert_eq!(
+            common::grammar_text(NodeRef::ModuleBody(parsed.module().body())),
+            source.split_whitespace().collect::<String>()
+        );
     }
 }
 

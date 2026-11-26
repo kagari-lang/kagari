@@ -14,12 +14,14 @@ impl BodyChecker<'_> {
         pattern: PatternId,
         expected: &TypeId,
         writeability: Writeability,
+        require_irrefutable: bool,
         env: &mut BodyTypeEnv,
     ) {
         self.check_pattern(pattern, expected, env);
-        if !self
-            .names
-            .pattern_is_irrefutable(&self.lowered.module.nodes, pattern)
+        if require_irrefutable
+            && !self
+                .names
+                .pattern_is_irrefutable(&self.lowered.module.nodes, pattern)
         {
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
@@ -37,6 +39,10 @@ impl BodyChecker<'_> {
         }
         let mut names = HashSet::default();
         for (local, name) in self.lowered.module.nodes.pattern_bindings(pattern) {
+            // Bare constructor patterns have a syntax local but introduce no binding.
+            if !env.locals.contains_key(&local) {
+                continue;
+            }
             if !names.insert(name) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::PatternTypeMismatch {

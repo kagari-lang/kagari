@@ -452,6 +452,7 @@ node!(
         keyword: Required<Token<tokens::StructKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
+        where_clause: Option<Box<WhereClause>>,
         fields: Required<FieldList>,
     }
 );
@@ -468,6 +469,7 @@ node!(
         keyword: Required<Token<tokens::EnumKw>>,
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
+        where_clause: Option<Box<WhereClause>>,
         variants: Required<VariantList>,
     }
 );
@@ -490,6 +492,7 @@ node!(
         name: Required<Name>,
         generics: Option<Box<GenericParamList>>,
         supertraits: Option<Supertraits>,
+        where_clause: Option<Box<WhereClause>>,
         open: Required<Token<tokens::LBrace>>,
         members: Vec<Member>,
         close: Required<Token<tokens::RBrace>>,

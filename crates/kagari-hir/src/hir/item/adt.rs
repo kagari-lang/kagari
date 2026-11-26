@@ -7,7 +7,7 @@ use crate::hir::{
     writeability::Writeability,
 };
 use kagari_common::span::Span;
-use kagari_types::visibility::Visibility;
+use kagari_types::{declaration::VariantShape, visibility::Visibility};
 
 /// A Native nominal interface, independent of its installed storage representation.
 ///
@@ -92,6 +92,8 @@ pub struct Struct {
     pub name: String,
     /// Generic binders in source order.
     pub generic_params: Vec<GenericParamId>,
+    /// Where predicates retain their complete target type, separate from binder bounds.
+    pub bounds: Vec<TraitBound>,
     /// Inline fields addressed by arena, struct owner and slot.
     pub fields: Vec<Field>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
@@ -173,6 +175,8 @@ pub struct Enum {
     pub name: String,
     /// Generic binders in source order.
     pub generic_params: Vec<GenericParamId>,
+    /// Where predicates retain their complete target type, separate from binder bounds.
+    pub bounds: Vec<TraitBound>,
     /// Inline variants addressed by arena, enum owner and slot.
     pub variants: Vec<Variant>,
     /// Unpopulated impl links; inspect `Module.impls` and checked lookup facts instead.
@@ -195,6 +199,7 @@ pub struct Enum {
 /// `Event::Pair(x, _)` in a match is an EnumVariant pattern.
 #[derive(Debug, Clone)]
 pub struct Variant {
+    pub shape: VariantShape,
     /// Source range or structured declaration attribution.
     pub origin: NodeOrigin,
     /// Exact written name when available.

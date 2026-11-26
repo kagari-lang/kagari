@@ -236,10 +236,13 @@ impl<'a> FileQueries<'a> {
                     .and_then(declaration)
                     .or_else(|| {
                         let fact = facts.typed.type_table().associated_const(id)?;
+                        let Some(interface) = &fact.interface else {
+                            return facts.aggregates.inherent_const_site(fact.member);
+                        };
                         Some(
                             &facts
                                 .aggregates
-                                .trait_(&fact.interface.declaration)?
+                                .trait_(&interface.declaration)?
                                 .associated_consts
                                 .get(&fact.member)?
                                 .declaration,

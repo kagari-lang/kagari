@@ -415,6 +415,17 @@ impl<'a> Completion<'a> {
                                 value = Exits::NORMAL;
                                 continue;
                             }
+                            StmtKind::Binding {
+                                pattern,
+                                initializer,
+                                else_block: Some(block),
+                                ..
+                            } if !self.names.pattern_is_irrefutable(self.nodes, *pattern) => {
+                                Box::new(
+                                    [Node::Expr(*initializer), Node::Branches(*block, None)]
+                                        .into_iter(),
+                                )
+                            }
                             StmtKind::Binding { initializer, .. } | StmtKind::Expr(initializer) => {
                                 work.push(Task::Visit(Node::Expr(*initializer)));
                                 continue;

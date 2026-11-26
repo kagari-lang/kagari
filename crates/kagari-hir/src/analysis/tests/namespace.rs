@@ -1,7 +1,9 @@
 use crate::analysis::*;
 use crate::tests::standard::standard_modules;
 use crate::tests::{native, native_fixture};
+use crate::types::TypeId;
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::diagnostic::DiagnosticKind;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
 
@@ -75,6 +77,63 @@ fn imported_constants_preserve_visibility_immutability_and_invalid_owner_rejecti
             analysis.result().clone().into_codegen().is_err(),
             "{provider}: {body}"
         );
+    }
+}
+
+#[test]
+fn inherent_constant_access_uses_the_imported_type_and_member_visibility() {
+    let (mut sources, mut db, file) =
+        setup("use pkg::library::Limits as L; static val CURRENT: i32 = L::MAX;");
+    for (visibility, initializer, error) in [
+        ("pub", "3", None),
+        ("", "3", Some("not visible")),
+        ("pub", "false", Some("initializer")),
+    ] {
+        let provider = sources
+            .set(
+                "library.kgr",
+                format!(
+                    "pub struct Limits {{}} impl Limits {{ {visibility} const MAX: i32 = {initializer}; }}"
+                ),
+                SourceLayer::Overlay,
+            )
+            .unwrap();
+        let snapshot = snapshot(&mut db, &sources);
+        let result = snapshot.file(file).unwrap().result();
+        if let Some(expected) = error {
+            if initializer == "false" {
+                let diagnostics = snapshot.file(provider).unwrap().result().diagnostics();
+                assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidConstInitializer { const_name, reason } if const_name == "MAX" && reason.contains("i32") && reason.contains("bool"))), "{diagnostics:?}");
+            }
+            assert!(result.diagnostics().iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidAssociatedConst { name, reason } if name == "MAX" && reason.contains(expected))), "{:?}", result.diagnostics());
+        } else {
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:?}",
+                result.diagnostics()
+            );
+            let facts = result.facts();
+            let (expr, target) = facts
+                .lowered
+                .module
+                .nodes
+                .expressions()
+                .find_map(|(id, _)| Some((id, facts.typed.type_table.associated_const(id)?)))
+                .unwrap();
+            assert_eq!(
+                facts.typed.type_table.expr_type(expr),
+                Some(TypeId::Builtin(BuiltinType::I32))
+            );
+            assert!(target.interface.is_none());
+            assert_eq!(
+                facts
+                    .aggregates
+                    .inherent_const_site(target.member)
+                    .unwrap()
+                    .name,
+                "MAX"
+            );
+        }
     }
 }
 

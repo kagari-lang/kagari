@@ -187,8 +187,8 @@ lifetime semantics; it does not decide whether constants, async methods or opaqu
 
 | Feature | Kagari today | Direction to evaluate |
 | --- | --- | --- |
-| Inherent associated constants | The [impl grammar](kagari.ebnf) admits associated constants in trait impls, not inherent impls. | A candidate for type-owned constants such as `Limits::MAX` that should not require inventing a trait. Start with existing const-safe values; this is not static mutable storage. |
-| More general `where` predicates | Bounds on type parameters and their associated projections suffice for `U: From<T>`. | Defer predicates on composite types such as `where Pair<T>: Encode` until a library needs to require the capability of the pair itself rather than of `T`. |
+| Inherent associated constants | The [impl grammar](kagari.ebnf) admits `impl Limits { pub const MAX: i32 = 3; }`. | Uses existing scalar const evaluation, not static mutable storage. |
+| More general `where` predicates | Function predicates can constrain an applied type; that is distinct from allowing a trailing clause on struct, enum or trait headers. | See the [stable Rust comparison](syntax-coverage.md#comparison-with-stable-rust-syntax) for the checked `Box<T>: Marker` example and the header gap. |
 | Const generic parameters | Impl binders are types, not values such as `const N: usize`. | Independent type-system feature, not excluded by GC. Revisit for a use case where the value must distinguish types, such as matrix dimensions. |
 | Lifetime parameters, borrowed receivers and `unsafe impl` | Scripts use `self`; Rust host loans and their validation stay at the host boundary. | Do not import Rust's lifetime/aliasing model or let script impls assert unchecked host invariants. |
 | Async trait methods | Inherent methods may be async; [general async trait methods](spec/syntax.md#async-syntax) are not supported. | Separate candidate. Specify how `async fn` in a trait relates to its `Future<T>` call result, including interface calls and retained futures across reload. |
@@ -411,3 +411,124 @@ record implemented ownership alongside explicitly deferred whole-stack discussio
 [Replacement boundaries](native-model-design.md#7-replacement-boundaries-and-acceptance) and
 [review limits](native-model-design.md#8-review-decisions-and-limits) preserve existing safety
 while preventing a HIR cleanup from silently becoming a whole Runtime migration.
+
+## Unified declaration input review
+
+Review of `341662b37` against its parent; numbering matches the discussion. Items 1–3 below
+describe the original reproductions, addressed by the P0/P1 implementation. Items 4–9 remain
+open and were traced in code, not confirmed by execution in the original review.
+
+### Reproduced: publishing the script interface
+
+For these items, compare the **same client** against the registration and against only the
+published `.kgr` plus its import scopes. A generated file that parses, or even type-checks in
+isolation, need not give that client the same signature.
+
+1. **P1 — Signature uses a private defining path.** The [renderer](../crates/kagari-hir/src/native/render.rs)
+   spells a foreign type by its defining module. The [existing visibility case](../crates/kagari-hir/src/native/api/tests/exact.rs)
+   resolves `Secret` through the public re-export `exact::api::Exposed`; publication instead
+   writes `exact::api::hidden::Secret`, giving the editor `UnknownType`. Both routes must select
+   the same declaration without making `hidden` public. See the [agreed repair](#item-1-publish-a-visible-reference).
+2. **P1 — Generated binder shadows a nominal type.** In a module declaring `struct T`, the
+   [renderer](../crates/kagari-hir/src/native/render.rs) writes `pick<T>(x: T, y: T) -> T`
+   even when only `y` is generic. The document checks in isolation. With `x: api::T`, however,
+   the editor expects `i32` for `x` in `pick::<i32>(x, 1)` and infers an `i32` result. Both
+   routes should accept the call and return `api::T`. See the [spelling rule](#item-2-qualify-only-when-needed).
+3. **P2 — Struct syntax lacks trailing `where` for parameter bounds.** The [type renderer](../crates/kagari-hir/src/native/render.rs)
+   emits `struct Wrap<T> where T: Marker {}`. At the reviewed commit the [grammar](kagari.ebnf) and
+   [struct parser](../crates/kagari-syntax/src/parser/grammar/items.rs) expected `{` immediately
+   after `<T>`, so [SDK publication](../crates/kagari/src/engine/declarations.rs) stops on the
+   parse error. Treat this as a language gap, not a renderer workaround: authored and generated
+   source should both accept this spelling and enforce the same bound as `Wrap<T: Marker>`.
+   Check that both accept a type implementing `Marker` and reject one that does not. The
+   [structured header](../crates/kagari-hir/src/native/structured/types.rs) already represents
+   a bound on `T`; predicates on other types (such as `where Box<T>: Marker`) and changes to
+   other declaration kinds are separate scope decisions.
+
+### Code-traced: compiler, runtime and editor behavior
+
+4. **P2 — Writing a script field after a Host read fails lowering.** If `player.child` returns
+   a shared script `Child`, `val c = player.child; c.hp = 1` works, but
+   [place lowering](../crates/kagari-compiler/src/source/lower/place.rs) rejects `player.child.hp = 1`.
+   Both forms should read the Host field once and mutate `Child.hp`; neither replaces `player.child`.
+5. **P2 — An impl header can make an identical method bound appear different.** For a trait
+   method requiring `T: Marker`, repeat that bound on the method of `impl<T: Marker>`.
+   [Method comparison](../crates/kagari-hir/src/typeck/check.rs) subtracts inherited bounds on
+   each side separately, leaving the predicate on the trait side only. Check that this impl is
+   accepted while a genuinely stronger method requirement is rejected. The CLI probe timed out
+   during build; it did not produce a diagnostic.
+6. **P2 — Rust trait implementations must copy positional parameter names.** For trait method
+   `get(self, amount: i32)`, naming the argument `delta` in the registered impl changes no call.
+   [Registration](../crates/kagari-types/src/declaration/module/implementation.rs) compares the
+   entire `FnDecl`, including the name; [source checking](../crates/kagari-hir/src/typeck/check.rs)
+   distinguishes the receiver but does not require ordinary parameter names to match.
+7. **P2 — A pinned public trait can disappear from its owner unnoticed.** Install a provider
+   that pins `Marker`, then load the defining module without the importer. The [existing test](../crates/kagari-runtime/src/native/registry/tests.rs)
+   covers making `Marker` private. Deleting or renaming it instead leaves no matching entry for
+   the [loader](../crates/kagari-runtime/src/native/registry/dependencies.rs) to inspect. Both
+   changes should be rejected before the module is published.
+8. **P2 — A Host-valued path setter has no usable argument.** For writable `Player.partner: Player`,
+   the [declaration check](../crates/kagari-types/src/declaration/path/operation.rs) accepts
+   `set_partner(self: Player, rhs: Player)`. The [runtime setter](../crates/kagari-runtime/src/host/path_calls.rs)
+   requires a heap-storable RHS before calling the adapter, which excludes even a live Host root.
+   Decide whether this operation is supported: accept a valid handle under the Host contract or
+   reject the declaration before publishing the callable.
+9. **P2 — Save then close can restore stale text for other files.** Open disk version `v1`,
+   change and save `v2`, then close the buffer. The [editor workspace](../crates/kagari-analyzer/src/workspace.rs)
+   captured `v1` at open and only removes the overlay at close. A fresh analysis of an importing
+   file should see saved `v2`; closing *without* saving should still reveal `v1`. Neither action
+   should change a previously retained snapshot.
+
+### Item 1: publish a visible reference
+
+**Implemented:** Resolve the reference from the module whose `.kgr` is being
+published, not from the module that defines the type. At the [publication boundary](../crates/kagari-hir/src/native/render/publication.rs),
+use the selected `DefinitionExposure`, or obtain it through the [existing catalog lookup](../crates/kagari-hir/src/imports/catalog/definitions.rs)
+with the target identity in the snapshot's definition context and the appropriate namespace.
+Spell the selected module using the [importer's package bindings](../crates/kagari-hir/src/native/paths.rs)
+and append the **selected path** (`Exposed`), not the defining name (`Secret`). Do not introduce
+a second visibility rule, global alias map or editor sidecar. If ordinary source cannot name
+the intended declaration unambiguously, report a publication error; do not guess a name.
+
+**Acceptance:** Extend the existing `exact` visibility case through publication and source-only
+analysis. With the same imports, `inspect`'s parameter must resolve to the same defining
+`Secret` in both runs, through the accessible `Exposed` route. Compare the logical declaration
+(module and declaration path), not raw IDs from independent snapshots. The private defining
+path must remain inaccessible. Item 2 separately covers a spelling captured by a local binder.
+
+**Related sites (code inspection, not additional reproductions):**
+
+- The [type renderer](../crates/kagari-hir/src/native/render.rs) already funnels fields, enum
+  payloads, parameters, returns, generic arguments, trait bounds, supertraits and `impl` headers
+  through `nominal_spelling` when they reference a named type. The shared reference spelling
+  now also handles the [exact constructors](../crates/kagari-hir/src/native/structured/types.rs)
+  for `String` and ranges; primitive keywords such as `i32` have no path to resolve.
+- A registered Script body can refer to a **value** by identity (`ScriptExpr::Definition`).
+  Publication now uses the value namespace when spelling this reference, but
+  [structured lowering](../crates/kagari-hir/src/native/structured/items.rs) still starts with
+  a defining path. Probe a call to a function available only through a public re-export:
+  unlike item 1, this route may already fail before publication.
+- Registered `pub use` targets also start from a defining path in structured lowering. Probe a
+  registration that re-exports a declaration from behind a public facade. Publication already
+  [checks the solved export in both namespaces](../crates/kagari-hir/src/native/render/publication.rs);
+  preserve that check. It cannot repair a path rejected earlier during import resolution.
+- Published trait headers retain their predicates. The [header parity test](../crates/kagari-hir/src/native/api/tests/header_predicates.rs)
+  compares structured and published inputs on a client that violates the bound.
+
+### Item 2: qualify only when needed
+
+**Implemented:** Prefer a short type name if it resolves uniquely to the
+intended declaration **at that position** in the generated source, including enclosing and
+method-local generic parameters. Otherwise use an unambiguous, accessible path as in
+[item 1](#item-1-publish-a-visible-reference). Do not add `use` directives or invent aliases
+just to shorten names. This is a publication rule, not a change to name resolution in user code.
+
+```text
+pub native fn heal<T>(player: Player, amount: T) -> Player;
+pub native fn pick<T>(x: self::T, y: T) -> self::T;
+```
+
+**Acceptance:** With local structs `Player` and `T`, keep `Player` unqualified in `heal`.
+In `pick`, qualify only the struct, not the generic parameter. On both input routes,
+`pick::<i32>(obj, 1)` with `obj: self::T` in the defining module must return that struct,
+not `i32`.

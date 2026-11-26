@@ -689,7 +689,7 @@ group!(
 pub enum Pattern {
     Wildcard(Token<tokens::NameToken>),
     Path(Box<PathExpr>),
-    Literal(Literal),
+    Literal(PatternLiteral),
     Or(Box<OrPattern>),
     Range(Box<RangePattern>),
     Grouped(Box<GroupedPattern>),
@@ -741,8 +741,23 @@ node!(
 /// [`RangePattern`]; endpoints are not unrestricted expressions.
 #[derive(Debug)]
 pub enum PatternBound {
-    Literal(Literal),
+    Literal(PatternLiteral),
     Path(PathExpr),
+}
+
+group!(
+    /// In `-128`, the separate minus belongs to the pattern, not the magnitude token.
+    PatternLiteral {
+        pub minus: Option<Token<tokens::Minus>>,
+        pub value: Literal,
+    }
+);
+
+/// One positional entry: `..` is punctuation, not a standalone match pattern.
+#[derive(Debug)]
+pub enum PositionalPattern {
+    Pattern(Pattern),
+    Rest(Token<tokens::DotDot>),
 }
 
 node!(
@@ -764,7 +779,7 @@ node!(
     /// one entry and its trailing comma. `open`/`close` retain parentheses.
     TuplePattern {
         open: Token<tokens::LParen>,
-        elements: SeparatedList<Pattern>,
+        elements: SeparatedList<PositionalPattern>,
         close: Required<Token<tokens::RParen>>,
     }
 );
@@ -777,7 +792,7 @@ node!(
     TupleStructPattern {
         path: PathExpr,
         open: Token<tokens::LParen>,
-        elements: SeparatedList<Pattern>,
+        elements: SeparatedList<PositionalPattern>,
         close: Required<Token<tokens::RParen>>,
     }
 );

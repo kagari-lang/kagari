@@ -42,6 +42,7 @@ fn payload(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             name: "Value".into(),
             payload: vec![record.generic_params[0].as_type()],
             reports_failure: false,
+            shape: Default::default(),
         });
         Ok(())
     })?;
@@ -145,6 +146,7 @@ fn concrete_result_requires_interface_evidence_before_any_factory_runs() {
                     name: "Value".into(),
                     payload: vec![],
                     reports_failure: false,
+                    shape: Default::default(),
                 });
                 Ok(())
             })?;

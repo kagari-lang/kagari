@@ -85,11 +85,13 @@ fn representative(
                     name: "Some".into(),
                     payload: vec![record.generic_params[0].as_type()],
                     reports_failure: false,
+                    shape: Default::default(),
                 },
                 VariantDef {
                     name: "None".into(),
                     payload: vec![],
                     reports_failure: false,
+                    shape: Default::default(),
                 },
             ]);
             Ok(())

@@ -193,6 +193,7 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
         variants: vec![EnumVariantLayout {
             declaration: variant,
             reports_failure: false,
+            shape: Default::default(),
             payload: vec![Ty::Struct(nominal(structure))],
         }],
     });

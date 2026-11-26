@@ -1,0 +1,22 @@
+struct Limits {}
+
+struct Generic<T> {}
+
+impl<T> Generic<T> {
+    const WIDTH: i32 = 1;
+}
+
+fn missing_args() -> i32 {
+    Generic::WIDTH
+}
+
+impl Limits {
+    const CYCLE: i32 = Self::CYCLE;
+    const MISMATCH: i32 = false;
+    const MISSING: i32;
+    pub const DUP: i32 = 1;
+}
+
+impl Limits {
+    const DUP: i32 = 2;
+}

@@ -7,9 +7,9 @@ use crate::{
     hir::{
         expr::MatchArm,
         ids::{LocalId, PatternId},
-        pattern::{PatternBound, PatternKind},
+        pattern::{PatternBound, PatternKind, PositionalPatterns},
     },
-    imports::types::aliases::resolved_alias,
+    imports::types::aliases::{CanonicalAlias, resolved_alias},
     resolver::resolved::ResolvedName,
     typeck::{BodyTypeEnv, body::BodyChecker, scalar::ScalarValue, ty::display_type_id},
     types::{NominalType, TypeId},
@@ -23,12 +23,13 @@ mod declarations;
 mod enums;
 
 impl<'a> BodyChecker<'a> {
+    fn pattern_alias(&self, path: &str) -> Option<&CanonicalAlias> {
+        let name = self.declarations.resolve_name(path, NameNamespace::Type)?;
+        resolved_alias(self.declarations, &name).map(|(_, alias)| alias)
+    }
+
     pub(super) fn alias_pattern_matches(&self, path: &str, expected: &TypeId) -> bool {
-        let alias = self
-            .declarations
-            .resolve_name(path, NameNamespace::Type)
-            .and_then(|name| resolved_alias(self.declarations, &name));
-        alias.is_none_or(|(_, alias)| {
+        self.pattern_alias(path).is_none_or(|alias| {
             alias.parameters.is_empty()
                 && !self
                     .aggregates
@@ -165,19 +166,25 @@ impl<'a> BodyChecker<'a> {
             }
             PatternKind::Name { local } if self.names.pattern_variants.contains_key(&pattern) => {
                 let name = self.lowered.module.nodes.local(*local).name.clone();
-                self.check_enum_pattern(pattern, &name, &[], expected, env);
+                self.check_enum_pattern(
+                    pattern,
+                    &name,
+                    &PositionalPatterns::default(),
+                    expected,
+                    env,
+                );
             }
             PatternKind::Name { local, .. } => {
                 env.locals.insert(*local, expected.clone());
                 self.type_table.insert_local(*local, expected.clone());
             }
             PatternKind::Literal(literal) => match ScalarValue::parse_expected(
-                literal,
+                &literal.value,
                 match expected {
                     TypeId::Builtin(ty) => Some(*ty),
                     _ => None,
                 },
-                false,
+                literal.negative,
             ) {
                 Ok(value) => {
                     if value.ty().conflicts_with(expected) {
@@ -205,7 +212,8 @@ impl<'a> BodyChecker<'a> {
                 ),
             },
             PatternKind::Tuple(elements) => {
-                if elements.is_empty() && *expected == TypeId::Builtin(BuiltinType::Unit) {
+                if elements.elements.is_empty() && *expected == TypeId::Builtin(BuiltinType::Unit) {
+                    self.type_table.insert_pattern_slots(pattern, Vec::new());
                     return;
                 }
                 let TypeId::Tuple(types) = expected else {
@@ -218,21 +226,21 @@ impl<'a> BodyChecker<'a> {
                     );
                     return;
                 };
-                if elements.len() != types.len() {
+                let Some(slots) = elements.slots(types.len()) else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
                             expected: display_type_id(self.declarations.definitions(), expected),
-                            found: format!("tuple of {} elements", elements.len()),
+                            found: format!("tuple of {} elements", elements.elements.len()),
                         })
                         .with_span(span),
                     );
                     return;
+                };
+                let elements = elements.elements.clone();
+                for (element, &slot) in elements.into_iter().zip(&slots) {
+                    self.check_pattern(element, &types[slot], env);
                 }
-                let elements = elements.clone();
-                let types = types.clone();
-                for (element, ty) in elements.into_iter().zip(types.iter()) {
-                    self.check_pattern(element, ty, env);
-                }
+                self.type_table.insert_pattern_slots(pattern, slots);
             }
             PatternKind::Struct {
                 path,
@@ -242,6 +250,10 @@ impl<'a> BodyChecker<'a> {
                 let path = path.clone();
                 let fields = fields.clone();
                 let has_rest = *has_rest;
+                if matches!(expected, TypeId::Enum(_)) {
+                    self.check_named_pattern(pattern, &path, &fields, has_rest, expected, env);
+                    return;
+                }
                 let TypeId::Struct(owner) = expected else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
@@ -347,12 +359,42 @@ impl<'a> BodyChecker<'a> {
         if !expected.is_never() {
             return None;
         }
-        match &self.lowered.module.pattern(pattern).kind {
-            PatternKind::Tuple(elements) if elements.is_empty() => {
+        let kind = &self.lowered.module.pattern(pattern).kind;
+        let variant_path = match kind {
+            PatternKind::EnumVariant { path, .. } | PatternKind::Struct { path, .. } => {
+                Some(path.as_str())
+            }
+            PatternKind::Name { local } if self.names.pattern_variants.contains_key(&pattern) => {
+                Some(self.lowered.module.nodes.local(*local).name.as_str())
+            }
+            _ => None,
+        };
+        if let Some(path) = variant_path
+            && let Some(variant) = self.pattern_variant_signature(pattern, path)
+        {
+            if let Some((owner, _)) = path.rsplit_once("::")
+                && let Some(alias) = self.pattern_alias(owner)
+                && alias.parameters.is_empty()
+            {
+                return Some(
+                    self.aggregates
+                        .normalize_type(self.declarations.definitions(), &alias.target),
+                );
+            }
+            let enumeration = self.aggregates.enumeration(&variant.owner)?;
+            return Some(TypeId::Enum(NominalType {
+                declaration: variant.owner,
+                arguments: vec![expected.clone(); enumeration.generic_params.len()],
+                associated_types: Default::default(),
+            }));
+        }
+        match kind {
+            PatternKind::Tuple(elements) if elements.elements.is_empty() => {
                 Some(TypeId::Builtin(BuiltinType::Unit))
             }
             PatternKind::Tuple(elements) => Some(TypeId::Tuple(
                 elements
+                    .elements
                     .iter()
                     .map(|element| {
                         self.diverging_pattern_context(*element, expected)
@@ -397,7 +439,7 @@ impl<'a> BodyChecker<'a> {
                 | PatternKind::EnumVariant {
                     fields: alternatives,
                     ..
-                } => work.extend(alternatives.iter().copied()),
+                } => work.extend(alternatives.elements.iter().copied()),
                 PatternKind::Struct { fields, .. } => {
                     work.extend(fields.iter().map(|field| field.pattern));
                 }
@@ -413,7 +455,9 @@ impl<'a> BodyChecker<'a> {
         span: Span,
     ) -> Option<ScalarValue> {
         let value = match bound {
-            PatternBound::Literal(literal) => ScalarValue::parse(literal).ok(),
+            PatternBound::Literal(literal) => {
+                ScalarValue::parse_expected(&literal.value, None, literal.negative).ok()
+            }
             PatternBound::Path(path) => self
                 .declarations
                 .names

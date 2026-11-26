@@ -1,0 +1,5 @@
+use crate::api::{Player, T, pick};
+
+fn keep(obj: T, player: Player) -> T {
+    pick::<i32>(obj, 1, player)
+}

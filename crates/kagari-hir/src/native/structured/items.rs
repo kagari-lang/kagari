@@ -50,8 +50,8 @@ impl StructuredLowerer<'_> {
             )?;
             self.lowerer.set_structured_origin(declaration);
             let id = TraitId::new(self.lowerer.module.traits.len());
-            let generic_params =
-                self.bounded_generics(&contract.generic_params, &contract.bounds)?;
+            let generic_params = self.generics(&contract.generic_params)?;
+            let bounds = self.bounds(&contract.bounds)?;
             let mut methods = Vec::new();
             for method in &contract.methods {
                 let owner = ModuleDecl::method_id(declaration, &method.name, self.definitions)?;
@@ -113,6 +113,7 @@ impl StructuredLowerer<'_> {
                 generic_params,
                 methods,
                 associated_types,
+                bounds,
                 supertraits,
                 associated_consts: vec![],
             });
@@ -256,11 +257,8 @@ impl StructuredLowerer<'_> {
             self.declaration
                 .definition(ty.kind.definition_kind(), &ty.name, self.definitions)?;
         self.lowerer.set_structured_origin(declaration);
-        let generic_params = if matches!(ty.kind, TypeDefKind::Struct | TypeDefKind::Enum) {
-            self.bounded_generics(&ty.generic_params, &ty.bounds)?
-        } else {
-            self.generics(&ty.generic_params)?
-        };
+        let generic_params = self.generics(&ty.generic_params)?;
+        let bounds = self.bounds(&ty.bounds)?;
         let item = match ty.kind {
             TypeDefKind::Struct => {
                 let id = StructId::new(self.lowerer.module.structs.len());
@@ -272,6 +270,7 @@ impl StructuredLowerer<'_> {
                     visibility: Visibility::Public,
                     name: ty.name.clone(),
                     generic_params,
+                    bounds,
                     fields,
                     impls: vec![],
                 });
@@ -292,6 +291,7 @@ impl StructuredLowerer<'_> {
                         .map(|ty| self.ty(ty))
                         .collect::<Result<_, _>>()?;
                     variants.push(Variant {
+                        shape: variant.shape.clone(),
                         origin: NodeOrigin::Structured { declaration: owner },
                         name_span: None,
                         id: member,
@@ -310,6 +310,7 @@ impl StructuredLowerer<'_> {
                     visibility: Visibility::Public,
                     name: ty.name.clone(),
                     generic_params,
+                    bounds,
                     variants,
                     impls: vec![],
                 });
@@ -318,7 +319,6 @@ impl StructuredLowerer<'_> {
             _ => {
                 let id = NativeTypeId::new(self.lowerer.module.native_types.len());
                 let fields = self.fields(declaration, FieldOwner::NativeType(id), ty)?;
-                let bounds = self.bounds(&ty.bounds)?;
                 self.lowerer
                     .module
                     .native_types

@@ -1,0 +1,32 @@
+const BASE: i32 = 20;
+
+struct Limits {}
+
+struct Sized<T> {}
+
+trait Enabled {}
+
+impl Enabled for Limits {}
+
+impl<T: Enabled> Sized<T> {
+    const WIDTH: i32 = 4;
+}
+
+trait DefaultLimit {
+    const MAX: i32 = 1;
+}
+
+impl DefaultLimit for Limits {}
+
+impl Limits {
+    pub const MAX: i32 = Self::STEP * 2;
+    const STEP: i32 = BASE;
+
+    fn limit() -> i32 {
+        Self::MAX
+    }
+}
+
+fn main() -> i32 {
+    Limits::MAX + <Limits as DefaultLimit>::MAX + Sized<Limits>::WIDTH
+}

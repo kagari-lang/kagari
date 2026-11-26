@@ -163,11 +163,13 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
                 VariantDef {
                     name: "Ok".into(),
                     reports_failure: false,
+                    shape: Default::default(),
                     payload: vec![parameters[0].as_type()],
                 },
                 VariantDef {
                     name: "Err".into(),
                     reports_failure: true,
+                    shape: Default::default(),
                     payload: vec![parameters[1].as_type()],
                 },
             ],

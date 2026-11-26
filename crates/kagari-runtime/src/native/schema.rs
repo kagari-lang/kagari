@@ -234,6 +234,7 @@ impl TypeRegistration<'_> {
             .map(|variant| {
                 Ok(VariantDef {
                     reports_failure: false,
+                    shape: Default::default(),
                     name: variant.name,
                     payload: variant
                         .payload

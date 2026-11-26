@@ -78,6 +78,7 @@ pub(super) fn lower(
                         .iter()
                         .map(|variant| VariantDef {
                             reports_failure: variant.reports_failure,
+                            shape: variant.shape.clone(),
                             name: variant.name.clone(),
                             payload: variant
                                 .payload

@@ -396,32 +396,27 @@ impl AliasValidation<'_> {
                     .unwrap_or_default();
             }
         }
-        for item in &self.lowered.module.structs {
-            if contains(
-                self.lowered.module.structs[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ) {
-                return constraints::parameter_bounds(
-                    &self.lowered.module,
-                    &item.generic_params,
-                    self.declarations,
-                    self.table,
-                );
-            }
-        }
-        for item in &self.lowered.module.enums {
-            if contains(
-                self.lowered.module.enums[item.id.index()]
-                    .origin
-                    .diagnostic_span(),
-            ) {
-                return constraints::parameter_bounds(
-                    &self.lowered.module,
-                    &item.generic_params,
-                    self.declarations,
-                    self.table,
-                );
+        for (origin, owner) in self
+            .lowered
+            .module
+            .structs
+            .iter()
+            .map(|item| (item.origin, ResolvedName::Struct(item.id)))
+            .chain(
+                self.lowered
+                    .module
+                    .enums
+                    .iter()
+                    .map(|item| (item.origin, ResolvedName::Enum(item.id))),
+            )
+        {
+            if contains(origin.diagnostic_span()) {
+                return self
+                    .declarations
+                    .definition(owner)
+                    .and_then(|id| signatures.type_bounds(id))
+                    .cloned()
+                    .unwrap_or_default();
             }
         }
         for item in &self.lowered.module.impls {
@@ -446,12 +441,12 @@ impl AliasValidation<'_> {
                     .origin
                     .diagnostic_span(),
             ) {
-                let mut bounds = constraints::parameter_bounds(
-                    &self.lowered.module,
-                    &item.generic_params,
-                    self.declarations,
-                    self.table,
-                );
+                let mut bounds = self
+                    .declarations
+                    .definition(ResolvedName::Trait(item.id))
+                    .and_then(|id| signatures.type_bounds(id))
+                    .cloned()
+                    .unwrap_or_default();
                 self.member_bounds(&item.associated_types, span, &mut bounds);
                 return bounds;
             }

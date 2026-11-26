@@ -12,7 +12,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::{
-        TypeDef, TypeDefKind, VariantDef,
+        TypeDef, TypeDefKind, VariantDef, VariantShape,
         module::{ImplDecl, ModuleDecl},
         names::{ExportName, NameNamespace},
         native::NativeTypeConstructor,
@@ -35,6 +35,7 @@ fn fixture() -> (DefinitionContext, DraftState, DefinitionId) {
             name: "Item".into(),
             payload: vec![],
             reports_failure: false,
+            shape: Default::default(),
         }],
     });
     let definitions = draft.declaration.collect_definitions(&context).unwrap();
@@ -106,6 +107,22 @@ fn constructor_tag_cannot_install_a_foreign_string_owner() {
     });
     draft.declaration.collect_definitions(&context).unwrap();
     assert_rejected(&context, draft, "invalid native constructor declaration");
+}
+
+#[test]
+fn registered_payload_labels_must_be_source_identifiers() {
+    for label in ["bad-label", "where", "false", "2nd", "café", "host", "_x2"] {
+        let (context, mut draft, _) = fixture();
+        let variant = &mut draft.declaration.types[0].variants[0];
+        variant.payload.push(Ty::Builtin(BuiltinType::I32));
+        variant.shape = VariantShape::Named(vec![label.into()]);
+        if matches!(label, "host" | "_x2") {
+            let providers = DeclarationCatalog::declared(&[], &context).unwrap();
+            seal(&context, &providers, &mut [draft]).unwrap();
+        } else {
+            assert_rejected(&context, draft, "invalid or unsupported native declaration");
+        }
+    }
 }
 
 #[test]

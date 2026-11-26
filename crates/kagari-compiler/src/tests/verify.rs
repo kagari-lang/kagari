@@ -922,6 +922,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                 2 => template.variants.push(template.variants[0].clone()),
                 3 if template.kind == TypeDefKind::Struct => template.variants.push(VariantDef {
                     reports_failure: false,
+                    shape: Default::default(),
                     name: "Unexpected".into(),
                     payload: vec![],
                 }),

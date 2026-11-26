@@ -17,6 +17,7 @@ use crate::{
 };
 use kagari_common::{identity::mapping::DefinitionMappingError, span::Span};
 use kagari_types::ty::{GenericParam, Ty};
+use std::iter::once;
 
 impl BodyBuilder {
     fn reference(
@@ -198,10 +199,14 @@ impl BodyBuilder {
                 span,
                 FactKind::AssociatedConstant,
                 vec![constant.member],
-                vec![
-                    lower_type(&constant.receiver),
-                    Ty::Trait(lower_nominal_type(&constant.interface)),
-                ],
+                once(lower_type(&constant.receiver))
+                    .chain(
+                        constant
+                            .interface
+                            .iter()
+                            .map(|ty| Ty::Trait(lower_nominal_type(ty))),
+                    )
+                    .collect(),
                 budget,
             )?;
         }

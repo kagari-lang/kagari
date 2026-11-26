@@ -33,8 +33,15 @@ impl InstancePlanner<'_> {
         bounds: &GenericBounds,
         span: Span,
     ) -> Result<ScalarValue, MirLoweringError> {
+        let Some(interface) = &fact.interface else {
+            return self
+                .constant(&fact.member)
+                .ok_or(MirLoweringError::MissingBinding(
+                    "checked inherent constant",
+                ));
+        };
         let types = self.arguments(
-            &[fact.receiver.clone(), TypeId::Trait(fact.interface.clone())],
+            &[fact.receiver.clone(), TypeId::Trait(interface.clone())],
             substitution,
             span,
         )?;

@@ -183,6 +183,7 @@ pub enum CheckedExprKind {
         base_fields: Vec<DefinitionId>,
     },
     Enum {
+        field_slots: Option<Vec<usize>>,
         declaration: DefinitionId,
         variant: DefinitionId,
         fields: Vec<ExprId>,
@@ -289,6 +290,7 @@ pub enum CheckedStmtKind {
     Binding {
         pattern: PatternId,
         initializer: ExprId,
+        else_block: Option<BlockId>,
     },
     Assign {
         target: PlaceId,
@@ -378,11 +380,11 @@ pub enum CheckedPatternKind {
         inclusive: bool,
     },
     Or(Vec<PatternId>),
-    Tuple(Vec<PatternId>),
+    Tuple(Vec<(usize, PatternId)>),
     Struct(Vec<(DefinitionId, PatternId)>),
     Variant {
         declaration: DefinitionId,
-        fields: Vec<PatternId>,
+        fields: Vec<(usize, PatternId)>,
     },
 }
 

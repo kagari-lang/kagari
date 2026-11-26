@@ -631,7 +631,7 @@ Notes:
 ### Structs and Enums
 
 ```ebnf
-struct_decl     ::= "struct" IDENT generic_param_clause? "{" field_list? "}" ;
+struct_decl     ::= "struct" IDENT generic_param_clause? where_clause? "{" field_list? "}" ;
 
 field_list      ::= field ("," field)* (",")? ;
 
@@ -640,12 +640,16 @@ field           ::= attribute* visibility? field_binding IDENT ":" type ;
 field_binding   ::= "val"
                   | "var" ;
 
-enum_decl       ::= "enum" IDENT generic_param_clause? "{" variant_list? "}" ;
+enum_decl       ::= "enum" IDENT generic_param_clause? where_clause? "{" variant_list? "}" ;
 
 variant_list    ::= variant ("," variant)* (",")? ;
 
 variant         ::= IDENT
-                  | IDENT "(" type_list? ")" ;
+                  | IDENT "(" type_list? ")"
+                  | IDENT "{" payload_field_list? "}" ;
+
+payload_field_list ::= payload_field ("," payload_field)* (",")? ;
+payload_field   ::= IDENT ":" type ;
 
 type_list       ::= type ("," type)* (",")? ;
 ```
@@ -655,7 +659,7 @@ type_list       ::= type ("," type)* (",")? ;
 ```ebnf
 trait_item      ::= visibility? trait_decl ;
 
-trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
+trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? where_clause? "{" trait_member* "}" ;
 
 supertrait_clause ::= ":" type_bound_list ;
 
@@ -876,7 +880,10 @@ Source code does not need to spell a trailing `()` expression; a block with no t
 Ordinary associated types use `type Item;` in traits and `type Item = T;`
 in trait implementations. Trait arguments can bind outputs (`Reader<Item = i32>`),
 and types can project them (`Self::Item`, `R::Item`, `<R as Reader>::Item`).
-A `where` condition may also constrain a named type. Conditions independent of generic
+A trailing header `where` precedes the opening brace of a struct, enum or trait;
+for a trait it follows any supertraits. The subject is the whole written type:
+`where Box<T>: Marker` requires `Box<T>`, not `T`, to implement `Marker`.
+Conditions independent of generic
 parameters and `Self` are [checked at declaration](traits.md#generic-bounds).
 See [traits.md](traits.md#ordinary-associated-types) for the authoritative rules;
 [the EBNF](../kagari.ebnf) defines their complete grammar.
@@ -894,7 +901,8 @@ trait_impl_item ::= attribute* (method_decl | associated_type_def | associated_c
 associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause? ";" ;
 associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
 
-impl_item       ::= attribute* method_decl ;
+impl_item       ::= attribute* method_decl
+                  | attribute* visibility? associated_const_def ;
 
 method_decl     ::= visibility? ("native" method_sig ";" | method_sig block) ;
 
@@ -907,7 +915,8 @@ receiver_param  ::= "self"
 
 Notes:
 
-- the language distinguishes inherent `impl` from `impl Trait for Type`
+- an inherent `impl` can define a scalar constant, e.g. `pub const MAX: i32 = 42;`;
+  both type and initializer are required. See [Associated Constants](traits.md#associated-constants).
 - method receivers do not introduce Rust-style borrowing or caller-slot aliasing
 - method receivers use the ordinary parameter value model
 
@@ -996,7 +1005,7 @@ binding_kind    ::= "val"
 
 type_annotation ::= ":" type ;
 
-init_expr       ::= "=" expr ;
+init_expr       ::= "=" expr ("else" block)? ;
 
 assign_stmt     ::= place_expr assign_op expr ";" ;
 
@@ -1053,19 +1062,24 @@ The annotation describes the whole initializer and supplies its inference/coerci
 context. Leaf types come from checked projections, without per-leaf conversions.
 The initializer resolves in the previous lexical scope and executes exactly once;
 all new leaves become visible together after declaration completion. Thus RHS `x`
-in `val (x, y) = (x + 1, 3);` denotes the previous binding. Bare names and shorthand
-always bind in ordinary declarations, even when shadowing constants or constructors
-such as `None`; match and conditional patterns retain their constructor precedence.
+in `val (x, y) = (x + 1, 3);` denotes the previous binding. Without `else`, bare names and shorthand
+bind even when shadowing constants or constructors such as `None`. With `else`,
+bare variant names resolve as in `match` and binding conditions.
 `_` creates no local. The outer `val`/`var` controls every real leaf; rebinding an
 extracted leaf does not write back to the source object. Object leaves retain shared
 identity, and captured `var` leaves use shared cells.
 
-A declaration pattern must be type-valid and conservatively irrefutable. Literal,
-range and explicit variant patterns are rejected, including single-variant enums.
-Top-level alternatives are excluded; grouped/nested alternatives retain existing
-binding-consistency and conservative irrefutability rules, not general exhaustiveness
-analysis. Accepted declarations have no runtime match-failure path.
-Decomposition supports owned tuples and structs, not Host objects, path views or
+Without `else`, the pattern must be conservatively irrefutable: literals, ranges
+and explicit variant patterns are rejected, even for single-variant enums.
+With `else`, a refutable pattern is allowed. For example,
+`var Some(n) = next() else { return; };` calls `next()` once. On success the
+statement introduces mutable `n` and skips the block. On failure the block runs
+in the pre-declaration scope: an outer `n` remains visible, but the pattern's `n`
+is not. The block must not complete normally on any path (`return`, a valid
+`break` or `continue`, or another diverging expression); the final `;` is required.
+Neither form accepts a bare top-level alternative or a match guard. Grouped and
+nested alternatives must bind the same names with the same types.
+Decomposition supports owned tuples, structs and enum payloads, not Host objects, path views or
 interface values. This restriction does not exclude otherwise valid
 simple name/wildcard bindings of those values. Required extraction follows pattern
 source order; `_`, rest and nested subpatterns needing neither a binding nor a
@@ -1265,7 +1279,8 @@ expr_list       ::= expr ("," expr)* (",")? ;
 
 array_expr      ::= "[" (expr_list | expr ";" expr)? "]" ;
 
-struct_expr     ::= path generic_args? "{" struct_init? "}" ;
+struct_expr     ::= path generic_args? "{" struct_init? "}"
+                  | explicit_enum_path "{" field_init_list? "}" ;
 
 struct_init     ::= field_init_list
                   | struct_update_base
@@ -1305,12 +1320,13 @@ match_guard     ::= "if" expr ;
 match_body      ::= expr
                   | block ;
 
-literal         ::= INTEGER
+literal         ::= scalar_literal | BYTE_STRING ;
+
+scalar_literal  ::= INTEGER
                   | FLOAT
                   | CHAR
                   | BYTE_CHAR
                   | STRING
-                  | BYTE_STRING
                   | "true"
                   | "false" ;
 
@@ -1339,6 +1355,17 @@ See [String literals](#string-literals) for decoding and delimiter rules.
 - A `match` guard is evaluated after its pattern binds names. It must be `bool`;
   a false guard continues to the next arm, even for an otherwise irrefutable
   pattern. Guards are evaluated only for matching patterns.
+- For an enum scrutinee the arms must cover every possible variant **and payload**.
+  For example, `Event::Hit { ready: true, .. }` does not cover `Hit` with `ready`
+  false. Alternatives combine, but combinations of fields must be covered together.
+  A wildcard or binding can cover the remainder. A guard that can complete normally
+  adds no coverage, even `if true`; a guard that cannot complete covers its matched
+  cases because control cannot reach the next arm. A guard can mutate shared fields through
+  aliases before returning false. Coverage cannot combine mutually exclusive readings of a
+  writable field across such a guard as though the field had stayed unchanged. Provably uninhabited payloads
+  (such as `!`) need no arm. The diagnostic names missing or partially covered
+  variants in declaration order. This check is specific to enum scrutinees;
+  it does not diagnose redundant arms or prove arbitrary guard conditions.
 - `if val pattern = expr` and `while val pattern = expr` evaluate `expr` once
   per condition check. On a match, names are visible only in the then branch or
   loop body. A failed match selects `else` or exits the loop.
@@ -1367,6 +1394,12 @@ See [String literals](#string-literals) for decoding and delimiter rules.
   use normal annotation resolution and bound checks, and supply payload context.
   Qualified and imported enum paths use the same declaration identity. Explicit
   arguments override contextual inference; incompatible enclosing types reject.
+- A named variant declares labels, not `val`/`var` fields: `Hit { amount: T, ready: bool }`.
+  Construct it with braces, e.g. `Event<i32>::Hit { ready, amount: read() }`.
+  Shorthand uses the same-named value. Supply each declared label exactly once;
+  unknown or repeated labels, positional calls and `..base` updates are errors.
+  Values evaluate once in written order and occupy the slots of their declared
+  labels, regardless of initializer order.
 - Struct literals accept explicit type arguments, such as `Marker<i32> { value: 7 }`.
   These arguments use annotation name resolution, arity and bound checks, and
   supply the field context even when an enclosing expression expects another type;
@@ -1434,17 +1467,20 @@ range_pattern   ::= primary_pattern range_pattern_tail? ;
 range_pattern_tail ::= ".." range_bound
                      | "..=" range_bound ;
 
-range_bound     ::= literal | path ;
+pattern_literal ::= scalar_literal | "-" INTEGER | "-" FLOAT ;
+range_bound     ::= pattern_literal | path ;
 
-primary_pattern ::= "_" | literal | path | tuple_struct_pattern
+primary_pattern ::= "_" | pattern_literal | path | tuple_struct_pattern
                   | struct_pattern | tuple_pattern | parenthesized_pattern ;
 
 parenthesized_pattern ::= "(" pattern ")" ;
 
 tuple_pattern   ::= "(" ")"
-                  | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
+                  | "(" ".." ")"
+                  | "(" positional_pattern "," pattern_list? ")" ;
 
-pattern_list    ::= pattern ("," pattern)* (",")? ;
+positional_pattern ::= pattern | ".." ;
+pattern_list    ::= positional_pattern ("," positional_pattern)* (",")? ;
 
 tuple_struct_pattern
                 ::= path "(" pattern_list? ")" ;
@@ -1459,8 +1495,15 @@ field_pattern   ::= IDENT
                   | IDENT ":" pattern ;
 ```
 
-`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Named-field struct
-patterns require every declared field unless they end with one `..` rest marker.
+`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Tuples and positional
+variants accept at most one `..` per list, including `(..)` and `Packet::Data(..)`.
+In `(first, .., last)` the prefix counts from the start and the suffix from the
+end. The omitted span can be empty, but the explicit children must all fit.
+Rest does not bind or read the skipped slots.
+
+Braced struct and named-variant patterns match by label, not written position.
+`Event::Hit { amount: n, .. }` binds `n` from `amount`; `Event::Hit { amount, .. }`
+is shorthand. Both forms require every label unless they end with one `..`.
 For `Point { x, y }`, `Point { x, .. }` and `Point { .. }` explicitly omit fields;
 `Point { x }` is incomplete. Rest may omit zero fields and permits a trailing comma.
 Unknown/duplicate-field, nominal type, generic substitution and field-access checks
@@ -1486,8 +1529,12 @@ fn classify(value: char) -> i32 {
 These are matching predicates, not range construction or iteration. They do not
 enable `Range<char>` iteration or character range expressions outside patterns.
 
-Kagari does not accept Rust's reference/slice patterns or tuple/slice rest patterns.
-Ordinary local declarations use these patterns under the irrefutability and scope
+A minus may prefix an integer or float literal pattern, not an arbitrary expression.
+The signed value is checked against the target type: `-128` fits `i8`, `-129` does
+not, and even `-0` is invalid for an unsigned scrutinee. Negative `i32` bounds
+are allowed in two-ended ranges; negative floats do not introduce float ranges.
+Reference and slice patterns (including slice rest) are not supported.
+Local declarations use these patterns under the irrefutability and scope
 rules in [Blocks and Statements](#blocks-and-statements).
 
 ### Place Expressions

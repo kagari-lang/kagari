@@ -33,28 +33,30 @@ pub(super) fn resolve_constraints(
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     cancel: &CancellationToken,
 ) {
-    for item in &lowered.module.native_types {
-        resolve_owner(
-            lowered,
-            &item.generic_params,
-            &item.bounds,
-            declarations,
-            table,
-            diagnostics,
-            cancel,
-        );
-    }
-    for params in lowered
+    for (params, bounds) in lowered
         .module
         .structs
         .iter()
-        .map(|item| &item.generic_params)
-        .chain(lowered.module.enums.iter().map(|item| &item.generic_params))
+        .map(|item| (&item.generic_params, &item.bounds))
+        .chain(
+            lowered
+                .module
+                .enums
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
+        .chain(
+            lowered
+                .module
+                .native_types
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
     {
         resolve_owner(
             lowered,
             params,
-            &[],
+            bounds,
             declarations,
             table,
             diagnostics,
@@ -62,25 +64,21 @@ pub(super) fn resolve_constraints(
         );
     }
     for item in &lowered.module.traits {
+        let context = TypeContext {
+            declarations,
+            generics: &item.generic_params,
+            self_type: Some(item.id),
+            implementation: None,
+        };
         for reference in &item.supertraits {
-            resolve_constraint(
-                lowered,
-                reference,
-                TypeContext {
-                    declarations,
-                    generics: &item.generic_params,
-                    self_type: Some(item.id),
-                    implementation: None,
-                },
-                table,
-                diagnostics,
-                cancel,
-            );
+            resolve_constraint(lowered, reference, context, table, diagnostics, cancel);
         }
+        // Portable trait header predicates are scoped to the trait parameters.
+        // Receiver requirements belong in the supertrait list or on a method.
         resolve_owner(
             lowered,
             &item.generic_params,
-            &[],
+            &item.bounds,
             declarations,
             table,
             diagnostics,
@@ -305,35 +303,24 @@ pub(super) fn resolve_constraint(
 pub(super) fn function_bounds(
     module: &Module,
     function: &Function,
-    declarations: &Declarations,
+    context: TypeContext<'_>,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(module, &function.generic_params, declarations, table);
-    let inherited = module
-        .impls
-        .iter()
-        .find(|item| {
-            item.methods
-                .iter()
-                .any(|method| method.function == function.id)
-        })
-        .map(|item| item.bounds.as_slice())
-        .unwrap_or_default();
-    for bound in inherited.iter().chain(&function.bounds) {
-        let Some(param) = table
-            .type_ref(bound.target_ref)
-            .map(|reference| reference.ty.clone())
-        else {
-            continue;
-        };
-        result.entry(param).or_default().extend(
-            bound
-                .traits
-                .iter()
-                .filter_map(|reference| table.constraint(reference.ty)),
-        );
-    }
-    result
+    let inherited = context
+        .implementation
+        .map(|id| &module.impls[id.index()].bounds)
+        .or_else(|| {
+            context
+                .self_type
+                .map(|id| &module.traits[id.index()].bounds)
+        });
+    owner_bounds(
+        module,
+        &function.generic_params,
+        inherited.into_iter().flatten().chain(&function.bounds),
+        context.declarations,
+        table,
+    )
 }
 
 pub(crate) fn implementation_bounds(
@@ -342,8 +329,24 @@ pub(crate) fn implementation_bounds(
     declarations: &Declarations,
     table: &TypeTable,
 ) -> super::GenericBounds {
-    let mut result = parameter_bounds(module, &implementation.generic_params, declarations, table);
-    for bound in &implementation.bounds {
+    owner_bounds(
+        module,
+        &implementation.generic_params,
+        &implementation.bounds,
+        declarations,
+        table,
+    )
+}
+
+pub(super) fn owner_bounds<'a>(
+    module: &Module,
+    params: &[GenericParamId],
+    bounds: impl IntoIterator<Item = &'a TraitBound>,
+    declarations: &Declarations,
+    table: &TypeTable,
+) -> super::GenericBounds {
+    let mut result = parameter_bounds(module, params, declarations, table);
+    for bound in bounds {
         let Some(parameter) = table
             .type_ref(bound.target_ref)
             .map(|reference| reference.ty.clone())

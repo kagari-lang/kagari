@@ -31,14 +31,16 @@ type_bound_list	covered	examples/syntax/where-bounds.kgr	-
 param_list	covered	examples/syntax/expressions.kgr	-
 param	covered	examples/syntax/expressions.kgr	-
 return_type	covered	examples/syntax/expressions.kgr	-
-struct_decl	covered	examples/syntax/data-model.kgr	-
+struct_decl	covered	examples/syntax/data-model.kgr	Trailing where predicates: crates/kagari-hir/tests/fixtures/typeck/traits/header-predicates.kgr.
 field_list	covered	examples/syntax/data-model.kgr	-
 field	covered	examples/syntax/attributes.kgr	-
 field_binding	covered	examples/syntax/data-model.kgr	-
-enum_decl	covered	examples/syntax/data-model.kgr	-
+enum_decl	covered	examples/syntax/data-model.kgr	Trailing where predicates: crates/kagari-hir/tests/fixtures/typeck/traits/header-predicates.kgr.
 variant_list	covered	examples/syntax/data-model.kgr	-
 variant	covered	examples/syntax/data-model.kgr	-
-trait_decl	covered	examples/syntax/where-bounds.kgr	-
+payload_field_list	covered	examples/syntax/named-variants.kgr	-
+payload_field	covered	examples/syntax/named-variants.kgr	-
+trait_decl	covered	examples/syntax/where-bounds.kgr	Where after supertraits: crates/kagari-hir/tests/fixtures/typeck/traits/header-predicates.kgr.
 supertrait_clause	covered	examples/syntax/trait-inheritance.kgr	-
 trait_member	covered	examples/syntax/attributes.kgr	-
 associated_type_decl	covered	examples/syntax/generic-associated-types.kgr	-
@@ -73,7 +75,7 @@ stmt	covered	examples/syntax/blocks.kgr	-
 binding_stmt	covered	examples/syntax/binding-patterns.kgr	-
 binding_kind	covered	examples/syntax/expressions.kgr	-
 type_annotation	covered	examples/standard-library.kgr	-
-init_expr	covered	examples/syntax/expressions.kgr	-
+init_expr	covered	examples/syntax/expressions.kgr	Diverging else block: crates/kagari/tests/fixtures/test-fixtures/language/binding-else.kgr.
 assign_stmt	covered	examples/syntax/data-model.kgr	-
 assign_op	covered	examples/syntax/data-model.kgr	-
 expr_stmt	covered	examples/syntax/expressions.kgr	-
@@ -107,7 +109,7 @@ parenthesized_expr	covered	examples/syntax/expressions.kgr	-
 tuple_expr	covered	examples/syntax/data-model.kgr	-
 expr_list	covered	examples/syntax/data-model.kgr	-
 array_expr	covered	examples/syntax/array-operations.kgr	-
-explicit_enum_path	unverified	-	No existing example witnesses path generic_args "::" IDENT
+explicit_enum_path	covered	examples/syntax/named-variants.kgr	Applied enum path in a braced constructor.
 struct_expr	covered	examples/syntax/struct-update.kgr	-
 struct_init	covered	examples/syntax/struct-update.kgr	-
 field_init_list	covered	examples/syntax/data-model.kgr	-
@@ -127,10 +129,12 @@ pattern	covered	examples/syntax/pattern-alternatives.kgr	-
 or_pattern	covered	examples/syntax/pattern-alternatives.kgr	-
 range_pattern	covered	examples/syntax/pattern-alternatives.kgr	-
 range_pattern_tail	covered	examples/syntax/pattern-alternatives.kgr	-
+pattern_literal	covered	examples/syntax/positional-patterns.kgr	-
 range_bound	covered	examples/syntax/pattern-alternatives.kgr	-
 primary_pattern	covered	examples/syntax/match.kgr	-
 parenthesized_pattern	covered	examples/syntax/match.kgr	-
 tuple_pattern	covered	examples/syntax/match.kgr	-
+positional_pattern	covered	examples/syntax/positional-patterns.kgr	-
 pattern_list	covered	examples/syntax/match.kgr	-
 tuple_struct_pattern	covered	examples/syntax/match.kgr	-
 struct_pattern	covered	examples/syntax/match.kgr	-

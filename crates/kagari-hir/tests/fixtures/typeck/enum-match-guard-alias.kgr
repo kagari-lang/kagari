@@ -1,0 +1,42 @@
+struct Flag {
+    var bit: bool,
+    val fixed: bool
+}
+
+enum Event {
+    Hit {
+        flag: Flag
+    },
+    Miss
+}
+
+fn flip(alias: Flag) -> bool {
+    alias.bit = true;
+    false
+}
+
+fn changed(unstable: Event, alias: Flag) -> i32 {
+    match unstable {
+        Event::Miss => 0,
+        Event::Hit { flag: Flag { bit: true, .. } } => 1,
+        Event::Hit { .. } if flip(alias) => 2,
+        Event::Hit { flag: Flag { bit: false, .. } } => 3,
+    }
+}
+
+fn main() -> i32 {
+    val shared = Flag { bit: false, fixed: false };
+    changed(Event::Hit { flag: shared }, shared)
+}
+
+fn stable(event: Event, alias: Flag, enabled: bool) -> i32 {
+    match event {
+        Event::Hit { flag: Flag { fixed: true, .. } } => 1,
+        Event::Hit { flag: Flag { bit: true, .. } } => 2,
+        Event::Miss if flip(alias) => 3,
+        Event::Hit { flag: Flag { fixed: true, .. } } if flip(alias) => 4,
+        Event::Hit { .. } if enabled => 5,
+        Event::Hit { flag: Flag { fixed: false, bit: false } } => 6,
+        Event::Miss => 7,
+    }
+}

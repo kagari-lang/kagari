@@ -103,6 +103,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         let mut wrong = ty.clone();
         wrong.variants.push(VariantDef {
             reports_failure: false,
+            shape: Default::default(),
             name: "extra".into(),
             payload: Vec::new(),
         });
@@ -162,6 +163,7 @@ fn result_layouts_validate_payloads_and_reporting_facts() {
             .enumerate()
             .map(|(slot, name)| VariantDef {
                 reports_failure: slot == 1,
+                shape: Default::default(),
                 name: name.into(),
                 payload: vec![parameters[slot].as_type()],
             })
@@ -175,6 +177,7 @@ fn result_layouts_validate_payloads_and_reporting_facts() {
             .enumerate()
             .map(|(slot, name)| EnumVariantLayout {
                 reports_failure: slot == 1,
+                shape: Default::default(),
                 declaration: context
                     .intern_child(owner, DefinitionKind::Variant, name, 0)
                     .unwrap(),

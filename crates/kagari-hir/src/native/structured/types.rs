@@ -146,34 +146,6 @@ impl StructuredLowerer<'_> {
             .collect()
     }
 
-    /// Struct/enum/trait headers own inline binder bounds in the common HIR.
-    /// Reject unrepresentable predicates rather than silently dropping constraints.
-    pub(super) fn bounded_generics(
-        &mut self,
-        parameters: &[RegisteredParameter],
-        bounds: &[GenericBound],
-    ) -> Result<Vec<GenericParamId>, DeclarationError> {
-        let generic_params = self.generics(parameters)?;
-        for bound in bounds {
-            let Ty::Parameter { owner, position } = bound.ty else {
-                return Err(DeclarationError(
-                    "structured header bound requires a generic parameter target".into(),
-                ));
-            };
-            let index = parameters
-                .iter()
-                .position(|parameter| parameter.owner == owner && parameter.position == position)
-                .ok_or_else(|| {
-                    DeclarationError("header bound target is not a declared binder".into())
-                })?;
-            let constraints = self.constraints(&bound.constraints)?;
-            self.lowerer.module.generic_params[generic_params[index].index()]
-                .bounds
-                .extend(constraints);
-        }
-        Ok(generic_params)
-    }
-
     pub(super) fn bounds(
         &mut self,
         bounds: &[GenericBound],

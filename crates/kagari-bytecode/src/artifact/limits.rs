@@ -215,7 +215,12 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             return false;
         }
         for variant in &layout.variants {
-            if !add(variant.payload.len()) {
+            if !add(variant.payload.len())
+                || variant
+                    .shape
+                    .labels()
+                    .is_some_and(|labels| !add(labels.len()))
+            {
                 return false;
             }
         }
@@ -392,7 +397,13 @@ fn add_type_definition(ty: &TypeDef, add: &mut impl FnMut(usize) -> bool) -> boo
         && add_abi_bounds(&ty.bounds, add)
         && add(ty.fields.len())
         && add(ty.variants.len())
-        && ty.variants.iter().all(|variant| add(variant.payload.len()))
+        && ty.variants.iter().all(|variant| {
+            add(variant.payload.len())
+                && variant
+                    .shape
+                    .labels()
+                    .is_none_or(|labels| add(labels.len()))
+        })
 }
 
 fn type_definition_limit(ty: &TypeDef) -> bool {

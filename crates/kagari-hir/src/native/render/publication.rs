@@ -5,23 +5,136 @@ use crate::{
         declarations::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
     },
-    hir::item::module::ImportLeaf,
+    hir::{item::module::ImportLeaf, ty::DefinitionExposure},
     imports::{
         DirectiveResolution, ImportDirective, ResolvedTarget,
-        catalog::{LookupContext, LookupResult},
+        catalog::{LookupContext, LookupResult, definitions::DefinitionLookup},
         environment::ImportEnvironment,
     },
     native::paths::{ImporterPaths, legal_name},
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionView},
+    identity::{
+        DefinitionPath, ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionView,
+    },
 };
 use kagari_types::declaration::{
     module::{DeclarationError, ModuleDecl},
     names::{ExportName, NameNamespace},
 };
 use std::{collections::BTreeMap, ptr};
+
+pub(super) enum ReferencePaths<'a> {
+    Preview(ImporterPaths<'a>),
+    Publication {
+        snapshot: &'a DeclarationSnapshot,
+        file: &'a FileDeclarations,
+        paths: ImporterPaths<'a>,
+    },
+}
+
+impl ReferencePaths<'_> {
+    pub(super) fn spelling(
+        &self,
+        importer: &ModuleIdentity,
+        target: &DefinitionPath,
+        namespace: NameNamespace,
+        short_available: impl Fn(&str) -> Result<bool, DeclarationError>,
+        cancel: &CancellationToken,
+    ) -> Result<String, DeclarationError> {
+        let unavailable = || {
+            DeclarationError(format!(
+                "no accessible source spelling for {target:?} from {importer}"
+            ))
+        };
+        let cancelled = |_| DeclarationError("native path spelling cancelled".into());
+        let (paths, exposure, selected) = match self {
+            Self::Preview(paths) => (
+                paths,
+                DefinitionExposure {
+                    module: target.module.clone(),
+                    path: target.path.iter().map(|part| part.name.clone()).collect(),
+                },
+                None,
+            ),
+            Self::Publication {
+                file,
+                snapshot,
+                paths,
+            } => {
+                let names = file.names();
+                let definitions = file.declarations().definitions();
+                let declaration = definitions.lookup(target).ok_or_else(unavailable)?;
+                let view = definitions
+                    .resolve(declaration)
+                    .map_err(|e| DeclarationError(e.to_string()))?;
+                let unit = names.items.unit.as_ref().ok_or_else(unavailable)?;
+                let selection = names
+                    .catalog
+                    .resolve_definition(
+                        &LookupContext::new(&unit.module),
+                        DefinitionLookup {
+                            declaration,
+                            definitions,
+                            namespace,
+                            exposure: None,
+                        },
+                        |candidate| snapshot.matches_definition(candidate, view),
+                        cancel,
+                    )
+                    .map_err(cancelled)?
+                    .ok_or_else(unavailable)?;
+                (
+                    paths,
+                    selection.exposure,
+                    Some((names, selection.hit.target)),
+                )
+            }
+        };
+        let resolves = |name: &str| -> Result<bool, DeclarationError> {
+            let Some((names, expected)) = &selected else {
+                return Ok(true);
+            };
+            Ok(names
+                .catalog
+                .lookup_name(&names.items, name, namespace, cancel)
+                .map_err(cancelled)?
+                .hit()
+                .is_some_and(|hit| hit.target == *expected))
+        };
+        for part in &exposure.path {
+            if !legal_name(part, cancel).map_err(cancelled)? {
+                return Err(unavailable());
+            }
+        }
+        // Only a solved scope can establish that a foreign leaf is already in scope.
+        if (selected.is_some() || &exposure.module == importer)
+            && let Some(name) = exposure.path.last()
+            && namespace == NameNamespace::Type
+            && short_available(name)?
+            && resolves(name)?
+        {
+            return Ok(name.clone());
+        }
+        let suffix = exposure.path.join("::");
+        if &exposure.module == importer {
+            let name = format!("self::{suffix}");
+            if resolves(&name)? {
+                return Ok(name);
+            }
+        }
+        for part in &exposure.module.path {
+            if !legal_name(part, cancel).map_err(cancelled)? {
+                return Err(unavailable());
+            }
+        }
+        let prefix = paths.module_path_matching(&exposure.module, cancel, |prefix| {
+            resolves(&format!("{prefix}::{suffix}"))
+        })?;
+        Ok(format!("{prefix}::{suffix}"))
+    }
+}
 
 impl DeclarationSnapshot {
     /// Effective package bindings, dependencies and preludes for all retained importers.
@@ -32,8 +145,8 @@ impl DeclarationSnapshot {
     /// Renders a retained registration for publication. The generated document must be
     /// bound to the registration's identity with [`Self::import_environment`] when
     /// analyzed as source. Pass an entry from [`Self::native_modules`].
-    /// Returns an error if the registration is absent or ordinary `pub use` cannot
-    /// express exactly its registered bindings in both namespaces. Cancellation
+    /// Returns an error if the registration is absent, a reference cannot name its
+    /// accessible target, or `pub use` cannot express the registered namespaces. Cancellation
     /// returns [`AnalysisError::Cancelled`] without returning a partial document.
     pub fn render_native_document(
         &self,
@@ -60,7 +173,11 @@ impl DeclarationSnapshot {
         let exports = self.publication_exports(metadata, cancel)?;
         let rendered = render_module(
             metadata,
-            ImporterPaths::effective(importer, scope),
+            ReferencePaths::Publication {
+                snapshot: self,
+                file: self.registration_file(importer)?,
+                paths: ImporterPaths::effective(importer, scope),
+            },
             &exports,
             cancel,
         );

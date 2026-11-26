@@ -9,7 +9,10 @@ use crate::{
             Item, ModuleBody, ModuleDef, ModuleForm, ModuleId, NativeTypeDef, StaticDef, StructDef,
             Supertraits, TypeAlias, UseDecl, UseSuffix, UseTree, UseTreeList,
         },
-        misc::{Field, FieldList, TuplePayload, TypeAnnotation, Variant, VariantList},
+        misc::{
+            Field, FieldList, NamedPayload, PayloadField, TuplePayload, TypeAnnotation, Variant,
+            VariantList, VariantPayload,
+        },
         site::Required,
         tokens,
     },
@@ -314,6 +317,7 @@ impl Parser<'_> {
         let keyword = self.expect(TokenKind::StructKw, DiagnosticKind::ExpectedStructKeyword);
         let name = self.parse_name(DiagnosticKind::ExpectedStructName);
         let generics = self.parse_generic_params();
+        let where_clause = self.parse_where_clause();
         let fields = Required::Present(self.parse_fields());
         let site = self.end(mark);
         StructDef {
@@ -323,6 +327,7 @@ impl Parser<'_> {
             keyword,
             name,
             generics,
+            where_clause,
             fields,
         }
     }
@@ -351,6 +356,23 @@ impl Parser<'_> {
         self.at(TokenKind::Ident)
     }
 
+    fn parse_payload_field(&mut self) -> Built<PayloadField> {
+        let mark = self.begin();
+        let name = self.parse_name(DiagnosticKind::ExpectedFieldName);
+        let colon = self.expect(TokenKind::Colon, DiagnosticKind::ExpectedFieldTypeSeparator);
+        let ty = self.parse_type_ref();
+        let site = self.end(mark);
+        Built::present(
+            PayloadField {
+                site,
+                name,
+                colon,
+                ty: ty.node,
+            },
+            self.completed_depth,
+        )
+    }
+
     fn parse_variant(&mut self) -> Built<Variant> {
         let mark = self.begin();
         let name = self.parse_name(DiagnosticKind::ExpectedVariantName);
@@ -366,12 +388,30 @@ impl Parser<'_> {
             );
             let close = self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
             let site = self.end(payload_mark);
-            Some(TuplePayload {
+            Some(VariantPayload::Tuple(TuplePayload {
                 site,
                 open,
                 types,
                 close,
-            })
+            }))
+        } else if self.at(TokenKind::LBrace) {
+            let mark = self.begin();
+            let open = self.take();
+            let (fields, _) = self.list(
+                TokenKind::RBrace,
+                Self::variant_starts,
+                Self::parse_payload_field,
+                1,
+                0,
+            );
+            let close = self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+            let site = self.end(mark);
+            Some(VariantPayload::Named(NamedPayload {
+                site,
+                open,
+                fields,
+                close,
+            }))
         } else {
             None
         };
@@ -394,6 +434,7 @@ impl Parser<'_> {
         let keyword = self.expect(TokenKind::EnumKw, DiagnosticKind::ExpectedEnumKeyword);
         let name = self.parse_name(DiagnosticKind::ExpectedEnumName);
         let generics = self.parse_generic_params();
+        let where_clause = self.parse_where_clause();
         let variants_mark = self.begin();
         let open = self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedImplBodyStart);
         let (variants, _) = self.list(
@@ -419,6 +460,7 @@ impl Parser<'_> {
             keyword,
             name,
             generics,
+            where_clause,
             variants,
         }
     }

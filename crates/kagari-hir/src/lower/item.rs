@@ -41,7 +41,7 @@ use kagari_syntax::ast::{
     module::ModuleSyntax,
     views::ItemView,
 };
-use kagari_types::visibility::Visibility;
+use kagari_types::{declaration::VariantShape, visibility::Visibility};
 
 use kagari_common::span::Span;
 
@@ -285,6 +285,10 @@ impl Lowerer {
             visibility: lower_visibility(trait_def.visibility()),
             name: trait_def.name_text().unwrap_or_default(),
             generic_params,
+            bounds: trait_def
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
             methods,
             associated_types: trait_def
                 .associated_types()
@@ -778,6 +782,10 @@ impl Lowerer {
             visibility: lower_visibility(struct_def.visibility()),
             name: struct_def.name_text().unwrap_or_default(),
             generic_params,
+            bounds: struct_def
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
             fields,
             impls: Vec::new(),
         }
@@ -829,15 +837,35 @@ impl Lowerer {
                     .map(|(slot, variant)| {
                         let variant_id = VariantId::new(self.module.nodes.arena(), id, slot);
                         self.attach_attributes(variant, AttributeTarget::Variant(variant_id));
+                        let (shape, payload) = if let Some(named) = variant.named_payload() {
+                            let (labels, types) = named
+                                .fields()
+                                .map(|field| {
+                                    (
+                                        field.name().and_then(|n| n.text()).unwrap_or_default(),
+                                        field.ty().map(|ty| self.lower_type(&ty)).unwrap_or_else(
+                                            || self.synthetic_named_type("<missing>"),
+                                        ),
+                                    )
+                                })
+                                .unzip();
+                            (VariantShape::Named(labels), types)
+                        } else {
+                            (
+                                VariantShape::Positional,
+                                variant
+                                    .payload_types()
+                                    .map(|types| self.lower_payload_types(&types))
+                                    .unwrap_or_default(),
+                            )
+                        };
                         Variant {
+                            shape,
                             origin: self.origin(syntax_span(&variant)),
                             name_span: variant.name().as_ref().map(token_span),
                             id: variant_id,
                             name: variant.name_text().unwrap_or_default(),
-                            payload: variant
-                                .payload_types()
-                                .map(|types| self.lower_payload_types(&types))
-                                .unwrap_or_default(),
+                            payload,
                         }
                     })
                     .collect::<Vec<_>>()
@@ -851,6 +879,10 @@ impl Lowerer {
             visibility: lower_visibility(enum_def.visibility()),
             name: enum_def.name_text().unwrap_or_default(),
             generic_params,
+            bounds: enum_def
+                .where_clause()
+                .map(|clause| self.lower_where_clause(&clause))
+                .unwrap_or_default(),
             variants,
             impls: Vec::new(),
         }

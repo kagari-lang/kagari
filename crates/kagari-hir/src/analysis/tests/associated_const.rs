@@ -11,6 +11,31 @@ use kagari_source::{
 use kagari_types::scalar::{BuiltinType, IntegerType};
 
 #[test]
+fn inherent_constant_checks_unused_definitions_and_rejects_unapplied_owners() {
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set(
+            "limits.kgr",
+            include_str!("../../../tests/fixtures/analysis/inherent-constant-errors.kgr").into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = test_analysis()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
+    assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::ConstCycle { const_name } if const_name == "CYCLE")), "{diagnostics:?}");
+    assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidConstInitializer { const_name, .. } if const_name == "MISMATCH")), "{diagnostics:?}");
+    for (member, cause) in [
+        ("MISSING", "initializer"),
+        ("DUP", "overlapping"),
+        ("WIDTH", "explicit type arguments"),
+    ] {
+        assert!(diagnostics.iter().any(|d| matches!(&d.kind, DiagnosticKind::InvalidAssociatedConst { name, reason } if name == member && reason.contains(cause))), "{diagnostics:?}");
+    }
+}
+
+#[test]
 fn character_constants_and_patterns_keep_checked_scalar_facts() {
     let text = r"
 const FIRST: char = 'a';

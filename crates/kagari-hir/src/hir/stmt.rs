@@ -98,6 +98,8 @@ pub enum StmtKind {
         ty: Option<TypeRefId>,
         /// Initializer expression; missing syntax points to `ExprKind::Missing`.
         initializer: ExprId,
+        /// `else { ... }` runs only on pattern failure, before any leaves are bound.
+        else_block: Option<BlockId>,
     },
     /// An assignment such as `a[i] += value`, retaining a place rather than a read expression.
     Assign {

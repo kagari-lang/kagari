@@ -164,6 +164,7 @@ pub(super) fn enumeration(actual: &EnumSignature, table: &DefinitionTable) -> Op
                 Some(VariantDef {
                     name: variant.name.clone(),
                     reports_failure: variant.reports_failure,
+                    shape: variant.shape.clone(),
                     payload: variant.payload.iter().map(ty).collect::<Option<_>>()?,
                 })
             })

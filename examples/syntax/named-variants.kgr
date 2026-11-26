@@ -1,0 +1,28 @@
+enum Event<T> {
+    Hit {
+        amount: T,
+        stamp: i32,
+        ready: bool
+    },
+    End,
+}
+
+fn main() -> i32 {
+    var calls = 0;
+    val ready = true;
+    val event = Event<i32>::Hit {
+        stamp: {
+            calls += 1;
+            calls
+        },
+        ready,
+        amount: {
+            calls += 1;
+            calls
+        },
+    };
+    match event {
+        Event::Hit { ready: true, stamp: first, amount } => first * 20 + amount * 10 + calls,
+        Event::Hit { ready: false, .. } | Event::End => 0,
+    }
+}

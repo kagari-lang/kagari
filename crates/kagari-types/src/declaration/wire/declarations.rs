@@ -2,7 +2,7 @@
 use crate::{
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, TraitDef,
-        TypeDeclaration, TypeDef, TypeDefKind, VariantDef,
+        TypeDeclaration, TypeDef, TypeDefKind, VariantDef, VariantShape,
         host::HostFieldPolicy,
         wire::{
             leaf::{ConversionAdapterRecord, NominalTyRecord},
@@ -197,6 +197,7 @@ impl FieldDefRecord {
 #[derive(Serialize, Deserialize)]
 struct VariantDefRecord {
     reports_failure: bool,
+    shape: VariantShape,
     name: String,
     #[serde(deserialize_with = "decode_limits::nested")]
     payload: Vec<WireType>,
@@ -213,6 +214,7 @@ impl VariantDefRecord {
         check_cancel(cancel)?;
         Ok(Self {
             reports_failure: value.reports_failure,
+            shape: value.shape.clone(),
             name: value.name.clone(),
             payload: value
                 .payload
@@ -232,6 +234,7 @@ impl VariantDefRecord {
         check_cancel(cancel)?;
         Ok(VariantDef {
             reports_failure: self.reports_failure,
+            shape: self.shape.clone(),
             name: self.name,
             payload: self
                 .payload

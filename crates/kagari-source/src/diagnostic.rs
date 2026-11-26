@@ -64,6 +64,7 @@ pub enum DiagnosticKind {
     ExpectedParameterTypeSeparator,
     ExpectedFieldTypeSeparator,
     ExpectedStructLiteralBodyStart,
+    RepeatedConstructorTypeArguments,
     ExpectedMatchBodyStart,
     ExpectedMatchPattern,
     ExpectedMatchArmArrow,
@@ -284,11 +285,16 @@ pub enum DiagnosticKind {
         expected: String,
         found: String,
     },
+    NonExhaustiveEnumMatch {
+        enum_name: String,
+        uncovered_variants: Vec<String>,
+    },
     ReturnTypeMismatch {
         function_name: String,
         expected: String,
         found: String,
     },
+    BindingElseMustDiverge,
     BreakOutsideLoop,
     ContinueOutsideLoop,
 }
@@ -374,6 +380,9 @@ impl DiagnosticKind {
             Self::ExpectedParameterTypeSeparator => "KG_PARSE_EXPECTED_PARAMETER_TYPE_SEPARATOR",
             Self::ExpectedFieldTypeSeparator => "KG_PARSE_EXPECTED_FIELD_TYPE_SEPARATOR",
             Self::ExpectedStructLiteralBodyStart => "KG_PARSE_EXPECTED_STRUCT_LITERAL_BODY_START",
+            Self::RepeatedConstructorTypeArguments => {
+                "KG_PARSE_REPEATED_CONSTRUCTOR_TYPE_ARGUMENTS"
+            }
             Self::ExpectedMatchBodyStart => "KG_PARSE_EXPECTED_MATCH_BODY_START",
             Self::ExpectedMatchPattern => "KG_PARSE_EXPECTED_MATCH_PATTERN",
             Self::ExpectedMatchArmArrow => "KG_PARSE_EXPECTED_MATCH_ARM_ARROW",
@@ -448,7 +457,9 @@ impl DiagnosticKind {
             Self::TraitMethodMismatch { .. } => "KG_TYPE_TRAIT_METHOD_MISMATCH",
             Self::IfBranchTypeMismatch { .. } => "KG_TYPE_IF_BRANCH_TYPE_MISMATCH",
             Self::MatchArmTypeMismatch { .. } => "KG_TYPE_MATCH_ARM_TYPE_MISMATCH",
+            Self::NonExhaustiveEnumMatch { .. } => "KG_TYPE_NON_EXHAUSTIVE_ENUM_MATCH",
             Self::ReturnTypeMismatch { .. } => "KG_TYPE_RETURN_TYPE_MISMATCH",
+            Self::BindingElseMustDiverge => "KG_TYPE_BINDING_ELSE_MUST_DIVERGE",
             Self::BreakOutsideLoop => "KG_TYPE_BREAK_OUTSIDE_LOOP",
             Self::ContinueOutsideLoop => "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
         }
@@ -516,6 +527,10 @@ impl Display for DiagnosticKind {
                 write!(f, "expected `:` after parameter name")
             }
             Self::ExpectedFieldTypeSeparator => write!(f, "expected `:` after field name"),
+            Self::RepeatedConstructorTypeArguments => write!(
+                f,
+                "constructor type arguments were already supplied on the owner; remove the second argument list"
+            ),
             Self::ExpectedStructLiteralBodyStart => {
                 write!(f, "expected `{{` to start struct literal")
             }
@@ -771,6 +786,14 @@ impl Display for DiagnosticKind {
                 f,
                 "match arm type mismatch: expected `{expected}`, found `{found}`; supply a result type for interface conversion"
             ),
+            Self::NonExhaustiveEnumMatch {
+                enum_name,
+                uncovered_variants,
+            } => write!(
+                f,
+                "non-exhaustive match on `{enum_name}`: uncovered values of {}",
+                uncovered_variants.join(", ")
+            ),
             Self::ReturnTypeMismatch {
                 function_name,
                 expected,
@@ -779,6 +802,9 @@ impl Display for DiagnosticKind {
                 f,
                 "return type mismatch in function `{function_name}`: expected `{expected}`, found `{found}`"
             ),
+            Self::BindingElseMustDiverge => {
+                write!(f, "binding `else` block must not complete normally")
+            }
             Self::BreakOutsideLoop => write!(f, "`break` used outside of a loop"),
             Self::ContinueOutsideLoop => write!(f, "`continue` used outside of a loop"),
         }

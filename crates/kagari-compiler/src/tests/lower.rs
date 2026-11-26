@@ -21,7 +21,7 @@ use kagari_hir::{aggregates::implementations::ImplementationSearchError, program
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     function::MirFunction,
-    instruction::{Instruction, MirValue, Terminator},
+    instruction::{Constant, Instruction, MirValue, Terminator},
     verify::{MirVerificationErrorKind, VerifiedMirModule},
 };
 use kagari_source::diagnostic::DiagnosticKind;
@@ -48,6 +48,33 @@ fn lower_budgeted_root(
     )?;
     state.process(&Default::default(), &inputs, options, &mut bridges)?;
     optimize_module(state.snapshot(&inputs, options)?.module, options)
+}
+
+#[test]
+fn inherent_constant_lowers_the_selected_initializer_not_the_trait_default() {
+    let program = common::program_ok(include_str!("../../tests/fixtures/inherent-constant.kgr"));
+    let module = lower_root(
+        &program,
+        &MirLoweringOptions {
+            optimization: None,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let main = module.functions.iter().find(|f| f.name == "main").unwrap();
+    let values: Vec<_> = main
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|i| match i {
+            Instruction::LoadConst {
+                constant: Constant::I32(n),
+                ..
+            } => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(values, [40, 1, 4]);
 }
 
 #[test]

@@ -7,19 +7,23 @@ use crate::{
         environment::{ImportEnvironment, ModuleScope},
     },
     native::adoption::adopt,
+    types::TypeId,
 };
-use kagari_common::identity::{DefinitionPath, PackageId};
+use kagari_common::identity::{DefinitionPath, ModuleIdentity, PackageId};
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
-    source_database::{CapturedSource, SourceDatabase},
+    source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
 use kagari_syntax::{
     ast::visit::NodeRef,
     parser::{ParseOptions, parse},
 };
-use kagari_types::declaration::names::{ExportName, NameNamespace};
+use kagari_types::declaration::{
+    Param, TraitDef, TypeDef, VariantDef,
+    names::{ExportName, NameNamespace},
+};
 
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
@@ -159,6 +163,188 @@ fn native_view_retains_its_prefix_and_rejects_missing_implicit_names() {
     let malformed =
         DefinitionMetadata::checked(imported.definitions().clone(), records, &cancel).unwrap();
     assert!(declaration_source(&malformed, &providers).is_err());
+}
+
+fn bounded_registration(identity: ModuleIdentity) -> DefinitionMetadata<ModuleDecl> {
+    let cancel = Default::default();
+    let context = DefinitionContext::new().unwrap();
+    let mut module = ModuleDecl::new(identity);
+    let root = context.intern_root(&module.identity).unwrap();
+    let child = |parent, kind, name| context.intern_child(parent, kind, name, 0).unwrap();
+    let parameter = |owner| GenericParam { owner, position: 0 };
+    let nominal = |declaration| NominalTy {
+        declaration,
+        arguments: vec![],
+        associated_types: Default::default(),
+    };
+    let marker = child(root, DefinitionKind::Trait, "Marker");
+    let bound = |owner| GenericBound {
+        ty: parameter(owner).as_type(),
+        constraints: vec![nominal(marker)],
+    };
+    for (name, kind, bounded) in [
+        ("T", TypeDefKind::Struct, false),
+        ("Player", TypeDefKind::Struct, false),
+        ("Wrap", TypeDefKind::Struct, true),
+        ("Choice", TypeDefKind::Enum, true),
+    ] {
+        let id = child(root, kind.definition_kind(), name);
+        module.types.push(TypeDef {
+            name: name.into(),
+            kind,
+            generic_params: bounded.then(|| parameter(id)).into_iter().collect(),
+            bounds: bounded.then(|| bound(id)).into_iter().collect(),
+            fields: vec![],
+            variants: if kind == TypeDefKind::Enum {
+                vec![VariantDef {
+                    name: "Item".into(),
+                    payload: vec![parameter(id).as_type()],
+                    reports_failure: false,
+                    shape: Default::default(),
+                }]
+            } else {
+                vec![]
+            },
+        });
+    }
+    let local_ty = |name| Ty::Struct(nominal(child(root, DefinitionKind::Struct, name)));
+    let param = |name: &str, ty| Param {
+        name: name.into(),
+        ty,
+        mutable: false,
+    };
+    let pick = child(root, DefinitionKind::Function, "pick");
+    module.functions.push(FnDecl {
+        name: "pick".into(),
+        implementation: CallableImplementation::Native(pick),
+        generic_params: vec![parameter(pick)],
+        bounds: vec![],
+        method_policy: Default::default(),
+        host_policy: None,
+        params: vec![
+            param("obj", local_ty("T")),
+            param("value", parameter(pick).as_type()),
+            param("player", local_ty("Player")),
+        ],
+        return_type: local_ty("T"),
+    });
+    let contract = child(root, DefinitionKind::Trait, "Contract");
+    let method = child(contract, DefinitionKind::Method, "check");
+    let marker_contract = TraitDef {
+        name: "Marker".into(),
+        generic_params: vec![],
+        bounds: vec![],
+        supertraits: vec![],
+        methods: vec![],
+        associated_types: vec![],
+        associated_consts: vec![],
+        conversion_adapter: None,
+    };
+    module.traits.push(TraitDef {
+        name: "Contract".into(),
+        generic_params: vec![parameter(contract)],
+        bounds: vec![bound(contract)],
+        supertraits: vec![nominal(marker)],
+        methods: vec![FnDecl {
+            name: "check".into(),
+            implementation: CallableImplementation::Required,
+            generic_params: vec![parameter(method)],
+            bounds: vec![],
+            params: vec![
+                param("obj", local_ty("T")),
+                param("outer", parameter(contract).as_type()),
+                param("inner", parameter(method).as_type()),
+            ],
+            return_type: local_ty("T"),
+            method_policy: Default::default(),
+            host_policy: None,
+        }],
+        ..marker_contract.clone()
+    });
+    module.traits.push(marker_contract);
+    let definitions = module.collect_definitions(&context).unwrap();
+    DefinitionMetadata::checked(definitions, module, &cancel).unwrap()
+}
+
+#[test]
+fn publication_preserves_lexical_binders_and_header_predicates() {
+    let cancel = Default::default();
+    let owner = |path: &str| ModuleIdentity {
+        package: PackageId("binders".into()),
+        path: vec![path.into()],
+    };
+    let module = Arc::new(bounded_registration(owner("api")));
+    let mut db = AnalysisDatabase::default();
+    db.set_native_modules(vec![module.clone()]);
+    let mut sources = SourceDatabase::default();
+    sources.bind_module("client", owner("client")).unwrap();
+    sources
+        .set(
+            "client",
+            include_str!("../../../tests/fixtures/native/render-binder-client.kgr").into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let structured = db.snapshot(sources.snapshot(), &cancel).unwrap();
+    let published = structured.declaration_snapshot();
+    let document = published.render_native_document(&module, &cancel).unwrap();
+    assert!(
+        document
+            .text
+            .contains("pick<T>(obj: self::T, value: T, player: Player) -> self::T"),
+        "{}",
+        document.text
+    );
+    assert!(
+        document
+            .text
+            .contains("check<M>(obj: self::T, outer: T, inner: M) -> self::T"),
+        "{}",
+        document.text
+    );
+    let mut offline = AnalysisDatabase::default();
+    offline.set_import_environment(published.import_environment().clone());
+    sources.bind_module(&document.uri, owner("api")).unwrap();
+    sources
+        .set(&document.uri, document.text, SourceLayer::Base)
+        .unwrap();
+    for snapshot in [
+        structured,
+        offline.snapshot(sources.snapshot(), &cancel).unwrap(),
+    ] {
+        for file in snapshot
+            .files()
+            .filter(|f| f.source().module_identity().package == owner("api").package)
+        {
+            assert!(
+                file.result().diagnostics().is_empty(),
+                "{:?}",
+                file.result().diagnostics()
+            );
+        }
+        let api = snapshot
+            .files()
+            .find(|f| f.source().module_identity() == &owner("api"))
+            .unwrap();
+        let definitions = api.definitions();
+        let root = definitions.lookup_root(&owner("api")).unwrap();
+        let id = |kind, name| definitions.lookup_child(root, kind, name, 0).unwrap();
+        for (kind, name) in [
+            (DefinitionKind::Trait, "Contract"),
+            (DefinitionKind::Struct, "Wrap"),
+            (DefinitionKind::Enum, "Choice"),
+        ] {
+            let owner = id(kind, name);
+            let bounds = api.signatures().facts().type_bounds(&owner).unwrap();
+            assert_eq!(bounds.len(), 1, "{name}");
+            let (TypeId::Generic(parameter), required) = bounds.iter().next().unwrap() else {
+                panic!("expected a binder predicate for {name}")
+            };
+            assert_eq!((parameter.owner, parameter.position), (owner, 0));
+            assert_eq!(required.len(), 1);
+            assert_eq!(required[0].declaration, id(DefinitionKind::Trait, "Marker"));
+        }
+    }
 }
 
 /// Independent oracle: read the canonical owner from each resolved source unit,

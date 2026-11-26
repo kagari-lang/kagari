@@ -549,11 +549,13 @@ mod tests {
                 VariantDef {
                     name: "Some".into(),
                     reports_failure: false,
+                    shape: Default::default(),
                     payload: vec![parameter.as_type()],
                 },
                 VariantDef {
                     name: "None".into(),
                     reports_failure: false,
+                    shape: Default::default(),
                     payload: vec![],
                 },
             ],
@@ -645,6 +647,7 @@ mod tests {
                         .intern_child(declaration, DefinitionKind::Variant, &v.name, 0)
                         .unwrap(),
                     reports_failure: v.reports_failure,
+                    shape: v.shape.clone(),
                     payload: v.payload.clone(),
                 })
                 .collect(),

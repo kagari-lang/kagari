@@ -271,6 +271,7 @@ mod tests {
                     position: 0,
                 }],
                 reports_failure: false,
+                shape: Default::default(),
             }],
         }];
         ProgramFixture {

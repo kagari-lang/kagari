@@ -10,7 +10,12 @@ use kagari_bytecode::{
     program::verify_program,
 };
 use kagari_contract::effects::EffectSet;
-use kagari_types::{declaration::host::PathAccess, range::RangeKind, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    declaration::{VariantShape, host::PathAccess},
+    range::RangeKind,
+    scalar::BuiltinType,
+    ty::Ty,
+};
 
 fn replace_fixture_code(function: &mut BytecodeFunction, instructions: Vec<BytecodeInstruction>) {
     function.metadata.origins = (0..instructions.len())
@@ -25,6 +30,43 @@ fn replace_fixture_code(function: &mut BytecodeFunction, instructions: Vec<Bytec
     function.metadata.instruction_origins.clear();
     function.metadata.control_flow_targets.clear();
     function.instructions = instructions;
+}
+
+#[test]
+fn decoded_enum_rejects_illegal_payload_labels_even_when_layout_matches_abi() {
+    let context = DefinitionContext::new().unwrap();
+    let program = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("pub enum E { Hit { x: i32 } } fn main() -> E { E::Hit { x: 1 } }"),
+    );
+    let mut artifact =
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap();
+    let module = &mut artifact.program.modules[artifact.program.root.index()];
+    let PublicItem::Type(template) = &mut module.public_items[0] else {
+        panic!("expected public enum")
+    };
+    let layout = module
+        .enumerations
+        .iter_mut()
+        .find(|layout| {
+            layout
+                .variants
+                .first()
+                .is_some_and(|v| v.shape.labels().is_some())
+        })
+        .unwrap();
+    let shape = VariantShape::Named(vec!["match".into()]);
+    template.variants[0].shape = shape.clone();
+    layout.variants[0].shape = shape;
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let decoded = common::adopt(&context, KbcArtifact::from_bytes(&bytes).unwrap());
+    assert!(matches!(
+        decoded.validate_for_loader(&Default::default(), &context, &Default::default()),
+        Err(ArtifactValidationError::Bytecode(
+            BytecodeVerificationError::InvalidPublicAbi
+        ))
+    ));
 }
 
 #[test]

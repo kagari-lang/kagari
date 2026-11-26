@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     PreparedSignatures,
+    aggregates::AggregateCatalog,
     collections::HashMap,
     declarations::Declaration,
     identity_mapping::map_hash_entries,
@@ -46,10 +47,26 @@ impl ImportedConstants {
         modules: &HashMap<FileId, &PreparedSignatures>,
         checked: &HashMap<FileId, Arc<CheckedConstants>>,
         names: &DeclarationNames,
+        aggregates: &AggregateCatalog,
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut result = Self::default();
-        for source in names.catalog.reachable_sources(&names.items, cancel)? {
+        let mut sources = names.catalog.reachable_sources(&names.items, cancel)?;
+        if let Some(importer) = names.items.source_unit() {
+            for (_, member) in aggregates.inherent_consts() {
+                cancel.check()?;
+                if member.source.unit != *importer
+                    && names.catalog.allows(
+                        member.visibility,
+                        member.source.unit.module,
+                        importer.module,
+                    )
+                {
+                    sources.insert(member.source);
+                }
+            }
+        }
+        for source in sources {
             cancel.check()?;
             let SourceItem::Const(id) = source.item else {
                 continue;

@@ -361,6 +361,7 @@ impl Builder<'_> {
                 payload.push(self.intern(&ty, depth + 1)?);
             }
             variants.push(VariantInfo {
+                shape: variant.shape.clone(),
                 id: VariantMetadataId::new(slot),
                 name: variant.name.clone(),
                 payload,

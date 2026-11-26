@@ -4,6 +4,7 @@
 use crate::{
     builtin::surface,
     collections::HashMap,
+    declarations::Declarations,
     hir::{
         expr::{
             ExprKind,
@@ -12,11 +13,14 @@ use crate::{
         ids::{ConstId, ExprId},
     },
     lower::LoweredModule,
-    resolver::resolved::{ResolvedName, ResolvedNames},
-    typeck::{TopLevelTypeIndex, const_budget::ConstBudget, table::TypeTable, ty::display_type_id},
+    resolver::resolved::ResolvedNames,
+    typeck::{
+        TopLevelTypeIndex, const_budget::ConstBudget, const_eval::local_reference,
+        table::TypeTable, ty::display_type_id,
+    },
     types::TypeId,
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
+use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 use smallvec::SmallVec;
@@ -29,7 +33,7 @@ pub(super) enum ConstVisitState {
 
 /// Immutable checked inputs used to validate one module's constant initializers.
 pub(super) struct ConstValidationInputs<'a> {
-    pub definitions: &'a DefinitionTable,
+    pub declarations: &'a Declarations,
     pub lowered: &'a LoweredModule,
     pub names: &'a ResolvedNames,
     pub top_level_index: &'a TopLevelTypeIndex,
@@ -43,7 +47,7 @@ pub(super) fn validate_const_initializers(
     budget: &mut ConstBudget,
 ) {
     let ConstValidationInputs {
-        definitions,
+        declarations,
         lowered,
         names,
         top_level_index,
@@ -52,7 +56,7 @@ pub(super) fn validate_const_initializers(
     } = inputs;
 
     struct ConstValidator<'a> {
-        definitions: &'a DefinitionTable,
+        declarations: &'a Declarations,
         lowered: &'a LoweredModule,
         names: &'a ResolvedNames,
         top_level_index: &'a TopLevelTypeIndex,
@@ -115,7 +119,7 @@ pub(super) fn validate_const_initializers(
                         const_name: const_item.name.clone(),
                         reason: format!(
                             "const type `{}` is heap-backed; const supports value types only",
-                            display_type_id(self.definitions, const_ty)
+                            display_type_id(self.declarations.definitions(), const_ty)
                         ),
                     })
                     .with_span(
@@ -146,8 +150,8 @@ pub(super) fn validate_const_initializers(
                         const_name: const_item.name.clone(),
                         reason: format!(
                             "expected `{}`, found `{}`",
-                            display_type_id(self.definitions, declared),
-                            display_type_id(self.definitions, &actual)
+                            display_type_id(self.declarations.definitions(), declared),
+                            display_type_id(self.declarations.definitions(), &actual)
                         ),
                     })
                     .with_span(
@@ -183,7 +187,9 @@ pub(super) fn validate_const_initializers(
             match &expr.kind {
                 ExprKind::Literal(_) => {}
                 ExprKind::Name { .. } => {
-                    let Some(resolved) = self.names.expr_resolution(expr_id) else {
+                    let Some(id) =
+                        local_reference(self.declarations, self.names, self.type_table, expr_id)
+                    else {
                         self.emit_invalid_const(
                             owner,
                             expr_id,
@@ -192,13 +198,13 @@ pub(super) fn validate_const_initializers(
                         return;
                     };
 
-                    match resolved {
-                        ResolvedName::Const(id) => self.validate_const(id),
-                        _ => self.emit_invalid_const(
+                    self.validate_const(id);
+                    if !self.top_level_index.consts.contains_key(&id) {
+                        self.emit_invalid_const(
                             owner,
                             expr_id,
-                            "const initializer must use literals or other consts",
-                        ),
+                            "const initializer references an unresolved const type",
+                        );
                     }
                 }
                 ExprKind::Cast { expr, .. } => {
@@ -268,17 +274,6 @@ pub(super) fn validate_const_initializers(
                     "unsupported const initializer expression",
                 ),
             }
-
-            if let Some(resolved) = self.names.expr_resolution(expr_id)
-                && let ResolvedName::Const(id) = resolved
-                && !self.top_level_index.consts.contains_key(&id)
-            {
-                self.emit_invalid_const(
-                    owner,
-                    expr_id,
-                    "const initializer references an unresolved const type",
-                );
-            }
         }
 
         fn emit_invalid_const(&mut self, owner: ConstId, expr_id: ExprId, reason: &'static str) {
@@ -334,7 +329,7 @@ pub(super) fn validate_const_initializers(
     }
 
     let mut validator = ConstValidator {
-        definitions,
+        declarations,
         lowered,
         names,
         top_level_index,

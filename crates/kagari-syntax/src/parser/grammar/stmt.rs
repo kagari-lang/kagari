@@ -8,8 +8,8 @@ use crate::{
         misc::{BindingKeyword, Writeability},
         site::Required,
         stmt::{
-            AssignStmt, AssignmentOp, BindingStmt, BreakStmt, ContinueStmt, ExprStmt, ForStmt,
-            Initializer, LoopStmt, ReturnStmt, Stmt, WhileStmt,
+            AssignStmt, AssignmentOp, BindingElse, BindingStmt, BreakStmt, ContinueStmt, ExprStmt,
+            ForStmt, Initializer, LoopStmt, ReturnStmt, Stmt, WhileStmt,
         },
     },
     kind::SyntaxKind,
@@ -190,9 +190,16 @@ impl Parser<'_> {
         let annotation = self.parse_annotation();
         let initializer = self.eat(TokenKind::Eq).map(|equal| {
             let expression = self.parse_expr();
+            let else_clause = self.eat(TokenKind::ElseKw).map(|keyword| {
+                Box::new(BindingElse {
+                    keyword,
+                    body: self.parse_block().node,
+                })
+            });
             Initializer {
                 equal,
                 expression: expression.node,
+                else_clause,
             }
         });
         let terminator = self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);

@@ -247,6 +247,7 @@ mod authored_facade;
 mod exact;
 mod fields;
 mod forwarding;
+mod header_predicates;
 mod health;
 mod host;
 mod orphan;

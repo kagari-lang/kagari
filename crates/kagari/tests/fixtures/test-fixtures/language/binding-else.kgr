@@ -1,0 +1,33 @@
+enum Step {
+    More(i32),
+    Done,
+}
+
+fn main() -> i32 {
+    var turns = 0;
+    val value = 17;
+    var sum = 0;
+    val last = loop {
+        val _ = 0 else {
+            break false;
+        };
+        var Step::More(value) = {
+            turns += 1;
+            if turns == 1 {
+                Step::More(value + 1)
+            } else {
+                Step::Done
+            }
+        } else {
+            break value + turns;
+        };
+        value += 5;
+        sum += value;
+    };
+    val Step::More(result) = {
+        return sum + last;
+    } else {
+        return 1;
+    };
+    result
+}

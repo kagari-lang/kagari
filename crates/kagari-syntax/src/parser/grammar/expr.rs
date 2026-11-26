@@ -560,7 +560,16 @@ impl Parser<'_> {
             && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::LBrace);
         if self.allow_struct_literals && (generic_struct || self.at(TokenKind::LBrace)) {
             let mark = self.begin_at(self.first(&path, self.cursor()), path.depth);
-            let arguments = generic_struct.then(|| Box::new(self.parse_generic_arg_list().0));
+            let arguments = if generic_struct
+                && matches!(&path.node, Required::Present(PathExpr::Applied(_)))
+            {
+                self.position(1, 0); // The rejected list occupies StructExpr.arguments.
+                self.error_here(DiagnosticKind::RepeatedConstructorTypeArguments);
+                self.rejected(Self::parse_generic_arg_list);
+                None
+            } else {
+                generic_struct.then(|| Box::new(self.parse_generic_arg_list().0))
+            };
             let (fields, _) = self.parse_field_initializers();
             let site = self.end(mark);
             Built::present(

@@ -2,6 +2,7 @@
 use crate::{
     analysis::AnalysisDatabase,
     hir::ty::{DefinitionExposure, TypeKind},
+    imports::environment::{ImportEnvironment, ModuleScope},
     typeck::check::check_signatures,
     types::TypeId,
 };
@@ -10,11 +11,12 @@ use kagari_common::identity::{
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
+    package::PackageScope,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, Param, module::ModuleDecl},
+    declaration::{FnDecl, Param, TypeDef, TypeDefKind, module::ModuleDecl},
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -73,13 +75,38 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
         }],
         return_type: Ty::Builtin(BuiltinType::I32),
     });
+    // A lexical type masks the first package alias; the second reaches the facade.
+    registration.types.push(TypeDef {
+        name: "Masked".into(),
+        kind: TypeDefKind::Struct,
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
     registration.collect_definitions(&context).unwrap();
     let registration_identity = registration.identity.clone();
     let registration = Arc::new(
         DefinitionMetadata::checked(context.snapshot(), registration, &Default::default()).unwrap(),
     );
     let mut db = AnalysisDatabase::new("/exact").unwrap();
-    db.set_native_modules(vec![registration]);
+    db.set_native_modules(vec![registration.clone()]);
+    db.set_import_environment(ImportEnvironment {
+        modules: [(
+            registration_identity.clone(),
+            ModuleScope {
+                packages: PackageScope {
+                    dependencies: ["Masked", "visible"]
+                        .map(|alias| (alias.into(), identity(&[]).package))
+                        .into(),
+                    ..Default::default()
+                },
+                dependencies: [identity(&["api", "hidden"])].into(),
+                ..Default::default()
+            },
+        )]
+        .into(),
+    });
     let snapshot = db
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -152,6 +179,60 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
         .find(|function| function.name == "from_exposure")
         .unwrap();
     assert_eq!(external.params[0].ty, signature.params[0].ty);
+    let published = snapshot.declaration_snapshot();
+    let document = published
+        .render_native_document(&registration, &Default::default())
+        .unwrap();
+    assert!(
+        document.text.contains("value: visible::api::Exposed"),
+        "{}",
+        document.text
+    );
+    let mut offline = AnalysisDatabase::new("/exact").unwrap();
+    offline.set_import_environment(published.import_environment().clone());
+    sources
+        .bind_module(&document.uri, registration_identity.clone())
+        .unwrap();
+    sources
+        .set(&document.uri, document.text, SourceLayer::Overlay)
+        .unwrap();
+    let editor = offline
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    for owner in [&registration_identity, &identity(&["consumer"])] {
+        let file = editor
+            .files()
+            .find(|file| file.source().module_identity() == owner)
+            .unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        let name = if owner == &registration_identity {
+            "inspect"
+        } else {
+            "from_exposure"
+        };
+        let function = file
+            .signatures()
+            .facts()
+            .functions()
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap();
+        let TypeId::Struct(ty) = &function.params[0].ty else {
+            panic!("expected the exposed struct")
+        };
+        assert_eq!(
+            file.definitions()
+                .resolve(ty.declaration)
+                .unwrap()
+                .to_path(),
+            definitions.resolve(secret).unwrap().to_path()
+        );
+    }
+    sources.close_overlay(&document.uri).unwrap();
     let consumer = definitions.lookup_root(&identity(&["consumer"])).unwrap();
     let function = definitions
         .lookup_child(consumer, DefinitionKind::Function, "accepts", 0)
@@ -284,6 +365,14 @@ fn exact_type_applications_check_visibility_arity_kind_and_foreign_scope() {
             .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::UnknownType { .. })),
         "{:?}",
         native.result().diagnostics()
+    );
+    let error = changed
+        .declaration_snapshot()
+        .render_native_document(&registration, &Default::default())
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("no accessible source spelling"),
+        "{error}"
     );
     let mut lowered = native.result().facts.lowered.as_ref().clone();
     let reference = lowered.module.functions[0].params[0].ty;

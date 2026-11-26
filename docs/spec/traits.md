@@ -181,10 +181,32 @@ Required constants must be defined in the impl; an explicit definition overrides
 the default and must have the declared type. Unknown or duplicate definitions
 are errors. Associated constants are not module-scope names or exports.
 
-`T::VALUE`, `Self::VALUE`, and concrete type paths resolve from satisfied trait
-bounds or implementations, including supertraits. Multiple same-named members
-are ambiguous; `<T as Trait>::VALUE` selects the owning trait explicitly. The
-compiler specializes each access into its checked scalar value.
+An inherent impl defines a constant directly on its receiver; no trait declaration
+is needed. Both type and initializer are required. For example:
+
+```kagari
+struct Limits {}
+impl Limits {
+    const STEP: i32 = 21;
+    pub const MAX: i32 = Self::STEP * 2;
+}
+```
+
+`Limits::MAX` selects the applicable inherent member before trait candidates.
+Visibility applies to the member itself; importing the owner (even under an alias)
+does not expose its private constants. A generic owner requires its arguments,
+e.g. `Sized<Limits>::WIDTH`, and the applied receiver must satisfy the impl bounds.
+Same-named inherent constants on overlapping receivers are rejected. Initializers
+may reference other local constants, including via `Self::STEP`; cycles and
+invalid unused definitions are errors. A client function reads the provider's
+checked scalar, not a runtime field or a new module-level export. This does not
+permit cross-module references in constant initializers.
+
+For trait lookup, `T::VALUE`, `Self::VALUE` and concrete type paths use satisfied
+bounds or implementations, including supertraits. Multiple trait candidates are
+ambiguous. If `Limits` also implements a trait `DefaultLimit` declaring `MAX`,
+`<Limits as DefaultLimit>::MAX` selects the trait member and `Limits::MAX` the
+inherent one. Both accesses lower to their checked scalar values.
 
 A trait declaring associated constants, and every trait inheriting it, supports
 only static dispatch: it cannot be used as an interface value type. The same
@@ -339,9 +361,12 @@ The important properties are:
 - no runtime interface object is required in the common static generic case
 - no downcast is involved
 
-Bounds resolve in their declaring generic scope. A `where` predicate must name
-a generic parameter or an associated projection rooted in a generic parameter;
-an unknown name or an unrelated concrete type is an invalid target.
+Bounds resolve in their declaring generic scope. A `where` predicate constrains
+the written type: it may be a parameter, a projection, a composite such as
+`Box<T>`, or a concrete type. For `struct Wrap<T> where Box<T>: Marker {}`,
+using `Wrap<i32>` requires `Box<i32>: Marker`, not `i32: Marker`. A closed
+requirement is checked even on an unused declaration; an unknown subject is a
+name error, not evidence for the bound.
 Methods inherit their impl's inline and `where` constraints. A method's own
 constraints apply only within that method. If a method declares a parameter with
 the same name as an inherited parameter, its uses and bounds refer to the method
@@ -426,9 +451,12 @@ traits at runtime or require constructing an interface value for a bound receive
 
 ### Generic aggregates
 
-Struct and enum declarations retain generic binders and inline bounds in checked
-signatures. Type applications such as `Cell<i32>` resolve those binders, check
-arity, and preserve declaration identity through imports and facades. Independent
+Struct, enum and trait headers retain both inline bounds and trailing `where`
+predicates. On a trait, `where` follows the supertraits, as in
+`trait Reader<T>: Base where Box<T>: Marker {}`. Members can use the header
+assumptions; a use of `Reader<T>` as a bound, interface type or implemented
+trait must establish its substituted requirements. Type applications such as
+`Cell<i32>` check arity and preserve declaration identity through imports and facades. Independent
 signature queries check applied bounds in parameters, returns, fields and payloads
 after constructing the shared aggregate catalog. Body analysis consumes those
 signatures and checks local annotations and constructors.
@@ -601,7 +629,7 @@ impl<T: Display> Display for Label<T> {
 }
 ```
 
-`impl<T> Label<T>` without a trait introduces inherent methods instead. See the
+`impl<T> Label<T>` without a trait introduces inherent methods or constants instead. See the
 [impl grammar](syntax.md#impl-blocks-and-methods) and [coherence rules](#coherence-guidance).
 
 ### Blanket trait implementations

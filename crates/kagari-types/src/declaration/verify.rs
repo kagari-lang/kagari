@@ -357,6 +357,13 @@ pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
     {
         return false;
     }
+    if ty
+        .variants
+        .iter()
+        .any(|v| !v.shape.valid_for(v.payload.len()))
+    {
+        return false;
+    }
     let mut names = HashSet::new();
     ty.fields
         .iter()

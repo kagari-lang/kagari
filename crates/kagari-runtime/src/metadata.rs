@@ -1,7 +1,9 @@
 use crate::{error::RuntimeError, reload::ModuleEpoch};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
-    declaration::TypeDef, declaration::host::PathAccess, ty::Ty, visibility::Visibility,
+    declaration::{TypeDef, VariantShape, host::PathAccess},
+    ty::Ty,
+    visibility::Visibility,
 };
 use std::{
     cell::RefCell,
@@ -81,6 +83,7 @@ pub struct FieldInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantInfo {
+    pub shape: VariantShape,
     pub id: VariantMetadataId,
     pub name: String,
     pub payload: Vec<TypeId>,

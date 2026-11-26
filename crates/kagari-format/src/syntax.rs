@@ -42,9 +42,10 @@ impl Context {
             | NodeRef::BlockExpr(_)
             | NodeRef::TraitDef(_)
             | NodeRef::ImplBlock(_) => Self::Block,
-            NodeRef::FieldList(_) | NodeRef::VariantList(_) | NodeRef::MatchArmList(_) => {
-                Self::MemberList
-            }
+            NodeRef::NamedPayload(_)
+            | NodeRef::FieldList(_)
+            | NodeRef::VariantList(_)
+            | NodeRef::MatchArmList(_) => Self::MemberList,
             NodeRef::UseTreeList(_) => Self::UseGroup,
             NodeRef::FieldInitList(_) => Self::StructFields,
             NodeRef::Pattern(_) => Self::Pattern,

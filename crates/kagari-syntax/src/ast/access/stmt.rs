@@ -36,6 +36,11 @@ impl<'a> Ast<'a, BindingStmt> {
             .map(|ty| self.with(ty))
     }
 
+    pub fn else_block(self) -> Option<Ast<'a, BlockExpr>> {
+        let clause = self.node.initializer.as_ref()?.else_clause.as_ref()?;
+        clause.body.as_ref().map(|block| self.with(block))
+    }
+
     pub fn initializer(self) -> Option<ExprView<'a>> {
         self.node
             .initializer

@@ -8,8 +8,8 @@ use crate::ast::{
     expr::{
         ArrayExpr, AsyncBlockExpr, AwaitExpr, BinaryExpr, BlockExpr, CallExpr, CastExpr,
         ClosureExpr, Expr, FieldExpr, IfExpr, IndexExpr, InterpolatedString, Interpolation,
-        Literal, LoopExpr, MatchExpr, ParenExpr, PathExpr, PrefixExpr, PropagateExpr, RangeExpr,
-        StructExpr, TupleExpr,
+        Literal, LoopExpr, MatchExpr, ParenExpr, PathExpr, PatternLiteral, PrefixExpr,
+        PropagateExpr, RangeExpr, StructExpr, TupleExpr,
     },
     item::{
         ConstDef, EnumDef, FnDef, ImplBlock, Item, ModuleDef, NativeTypeDef, StaticDef, StructDef,
@@ -35,7 +35,7 @@ pub enum StringPartView<'a> {
 
 #[derive(Debug, Clone, Copy)]
 pub enum PatternBoundView<'a> {
-    Literal(Ast<'a, Literal>),
+    Literal(Ast<'a, PatternLiteral>),
     Path(Ast<'a, PathExpr>),
 }
 

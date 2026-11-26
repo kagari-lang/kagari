@@ -8,7 +8,7 @@ use crate::{
             BlockId, BodyOwner, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId, StmtId,
         },
         item::Module,
-        pattern::PatternKind,
+        pattern::{PatternKind, PositionalPatterns},
         place::PlaceKind,
         stmt::StmtKind,
         ty::TypeKind,
@@ -143,17 +143,16 @@ impl<'a> BodyResolver<'a> {
             StmtKind::Binding {
                 pattern,
                 initializer,
+                else_block,
                 writeability,
                 ..
             } => {
                 self.resolve_expr(*initializer);
-                self.resolve_pattern_variants(*pattern, false);
-
-                for (local, name) in self.module.nodes.pattern_bindings(*pattern) {
-                    if !name.is_empty() && name != "<missing>" {
-                        self.bind_name(name, ResolvedName::Local(local), *writeability);
-                    }
+                if let Some(block) = else_block {
+                    self.resolve_block(*block);
                 }
+                self.resolve_pattern_variants(*pattern, else_block.is_some());
+                self.bind_pattern_locals(*pattern, *writeability);
             }
             StmtKind::Assign { target, value, .. } => {
                 self.resolve_place(*target);
@@ -288,7 +287,26 @@ impl<'a> BodyResolver<'a> {
                     self.pop_scope();
                 }
             }
-            ExprKind::StructInit { fields, base, .. } => {
+            ExprKind::StructInit {
+                path, fields, base, ..
+            } => {
+                if self.resolve_name(path, NameNamespace::Type).is_none() {
+                    if let Some(resolved) = self.resolve_name(path, NameNamespace::Value)
+                        && matches!(resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Variant(_)))
+                    {
+                        self.resolved.insert_expr(expr_id, resolved);
+                    } else if let Some((owner, name)) = path.rsplit_once("::")
+                        && let Some(owner) = self.resolve_name(owner, NameNamespace::Type)
+                    {
+                        self.resolved.insert_qualified_member(
+                            expr_id,
+                            QualifiedMember {
+                                owner,
+                                name: name.to_owned(),
+                            },
+                        );
+                    }
+                }
                 for field in fields {
                     self.resolve_expr(field.value);
                 }
@@ -335,7 +353,7 @@ impl<'a> BodyResolver<'a> {
 
     fn bind_pattern(&mut self, pattern: PatternId) {
         self.resolve_pattern_variants(pattern, true);
-        self.bind_pattern_locals(pattern);
+        self.bind_pattern_locals(pattern, Writeability::Val);
     }
 
     fn resolve_pattern_variants(&mut self, pattern: PatternId, bare_variants: bool) {
@@ -349,16 +367,24 @@ impl<'a> BodyResolver<'a> {
             }
             PatternKind::EnumVariant { path, fields } => {
                 self.record_pattern_variant(pattern, &path);
+                for field in fields.elements {
+                    self.resolve_pattern_variants(field, bare_variants);
+                }
+            }
+            PatternKind::Or(fields)
+            | PatternKind::Tuple(PositionalPatterns {
+                elements: fields, ..
+            }) => {
                 for field in fields {
                     self.resolve_pattern_variants(field, bare_variants);
                 }
             }
-            PatternKind::Or(fields) | PatternKind::Tuple(fields) => {
-                for field in fields {
-                    self.resolve_pattern_variants(field, bare_variants);
+            PatternKind::Struct { path, fields, .. } => {
+                if self.resolve_name(&path, NameNamespace::Type).is_some() {
+                    self.resolved.struct_patterns.insert(pattern);
+                } else {
+                    self.record_pattern_variant(pattern, &path);
                 }
-            }
-            PatternKind::Struct { fields, .. } => {
                 for field in fields {
                     self.resolve_pattern_variants(field.pattern, bare_variants);
                 }
@@ -377,11 +403,11 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn bind_pattern_locals(&mut self, pattern: PatternId) {
+    fn bind_pattern_locals(&mut self, pattern: PatternId, writeability: Writeability) {
         match &self.module.pattern(pattern).kind {
             PatternKind::Or(alternatives) => {
                 if let Some(first) = alternatives.first() {
-                    self.bind_pattern_locals(*first);
+                    self.bind_pattern_locals(*first, writeability);
                 }
             }
             PatternKind::Name { local } => {
@@ -390,25 +416,25 @@ impl<'a> BodyResolver<'a> {
                     && name != "<missing>"
                     && !self.resolved.pattern_variants.contains_key(&pattern)
                 {
-                    self.bind_name(name, ResolvedName::Local(*local), Writeability::Val);
+                    self.bind_name(name, ResolvedName::Local(*local), writeability);
                 }
             }
             PatternKind::Tuple(elements) => {
-                let elements = elements.clone();
+                let elements = elements.elements.clone();
                 for element in elements {
-                    self.bind_pattern_locals(element);
+                    self.bind_pattern_locals(element, writeability);
                 }
             }
             PatternKind::Struct { fields, .. } => {
                 let fields = fields.clone();
                 for field in fields {
-                    self.bind_pattern_locals(field.pattern);
+                    self.bind_pattern_locals(field.pattern, writeability);
                 }
             }
             PatternKind::EnumVariant { fields, .. } => {
-                let fields = fields.clone();
+                let fields = fields.elements.clone();
                 for field in fields {
-                    self.bind_pattern_locals(field);
+                    self.bind_pattern_locals(field, writeability);
                 }
             }
             _ => {}

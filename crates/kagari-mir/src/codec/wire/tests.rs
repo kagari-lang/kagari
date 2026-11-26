@@ -214,6 +214,7 @@ fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() 
             variants: vec![VariantDef {
                 name: "Value".into(),
                 reports_failure: false,
+                shape: Default::default(),
                 payload: vec![parameter.as_type()],
             }],
         },
@@ -224,6 +225,7 @@ fn private_types_codec_checks_enum_payloads_without_exporting_the_declaration() 
         variants: vec![EnumVariantLayout {
             declaration: variant,
             reports_failure: false,
+            shape: Default::default(),
             payload: vec![parameter.as_type()],
         }],
     });

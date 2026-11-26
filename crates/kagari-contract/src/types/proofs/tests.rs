@@ -58,6 +58,7 @@ fn wrapper_layout(context: &DefinitionContext, payload: Ty) -> EnumLayout {
         variants: vec![
             EnumVariantLayout {
                 reports_failure: false,
+                shape: Default::default(),
                 declaration: context
                     .intern_child(declaration, DefinitionKind::Variant, "Some", 0)
                     .unwrap(),
@@ -65,6 +66,7 @@ fn wrapper_layout(context: &DefinitionContext, payload: Ty) -> EnumLayout {
             },
             EnumVariantLayout {
                 reports_failure: false,
+                shape: Default::default(),
                 declaration: context
                     .intern_child(declaration, DefinitionKind::Variant, "None", 0)
                     .unwrap(),
@@ -1066,6 +1068,7 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
         arguments: vec![],
         variants: vec![EnumVariantLayout {
             reports_failure: false,
+            shape: Default::default(),
             declaration: id(&context, DefinitionKind::Variant, "Next"),
             payload: vec![key.clone(), chain.clone()],
         }],

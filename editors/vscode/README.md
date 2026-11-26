@@ -62,10 +62,12 @@ those captures. Arbitrary capitalized identifiers, constructors, generic argumen
 parameter types and generic/comparison angle brackets are not semantically resolved.
 Binding patterns reuse lexical identifier, separator, operator and recursive brace
 scopes: `val`/`var` destructuring, grouped/nested alternatives, renamed/shorthand
-struct fields and final `..` (with or without a trailing comma) need no pattern
-parser. Pattern names remain variables, not guessed types or constructors. The
-highlighter does not validate pattern legality, including the ban on bare top-level
-alternatives and tuple/slice rest; the language parser/checker owns those rules.
+fields, and `..` in named or positional patterns need no pattern parser. Named
+fields allow a final rest; tuples and positional variants also allow a prefix
+or middle rest, as in `(first, .., last)`. Slice patterns are not supported.
+Pattern names remain variables, not guessed types or constructors. The highlighter
+does not enforce rest placement, arity or the declaration's top-level alternative
+restriction; those belong to the language parser and checker.
 
 `///` and `/** ... */` receive documentation comment presentation, not additional
 language semantics. Unsupported Rust strings/lifetimes/keywords are not added.

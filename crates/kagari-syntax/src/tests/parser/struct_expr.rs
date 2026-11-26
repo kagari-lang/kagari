@@ -52,6 +52,46 @@ fn explicit_constructor_arguments_preserve_nested_types_and_comparisons() {
 }
 
 #[test]
+fn braced_constructor_keeps_owner_arguments_when_rejecting_a_second_list() {
+    let text = "fn main() { E<i32>::Hit<bool> { x: true } }";
+    let parse = common::parse(text);
+    let [diagnostic] = &parse.diagnostics()[..] else {
+        panic!("{:?}", parse.diagnostics())
+    };
+    assert_eq!(
+        diagnostic.kind,
+        DiagnosticKind::RepeatedConstructorTypeArguments
+    );
+    assert_eq!(diagnostic.span.unwrap().start, text.find("<bool>").unwrap());
+    let module = parse.module();
+    let Some(ExprView::StructExpr(expr)) =
+        common::first_function(&module).body().unwrap().tail_expr()
+    else {
+        panic!("expected recovered constructor")
+    };
+    assert_eq!(
+        expr.path().unwrap().generic_args().unwrap().source_text(),
+        "<i32>"
+    );
+    assert!(expr.generic_args().is_none());
+    assert_eq!(
+        expr.unexpected()
+            .map(|entry| entry.text())
+            .collect::<Vec<_>>(),
+        ["<bool>"]
+    );
+    assert_eq!(
+        expr.field_list()
+            .fields()
+            .next()
+            .unwrap()
+            .name_text()
+            .as_deref(),
+        Some("x")
+    );
+}
+
+#[test]
 fn parses_struct_literal_expression() {
     let module = common::parse_ok("fn main() { Player { hp: 10, name: value } }");
     let function = common::first_function(&module);

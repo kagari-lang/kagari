@@ -406,6 +406,11 @@ fn malformed_binding_patterns_preserve_following_declarations() {
         ("val Point { .., x } = incoming;", Some("incoming")),
         ("val (left, right): = incoming;", Some("incoming")),
         ("val (left, right) = ;", None),
+        ("val Some(left) = incoming else ;", Some("incoming")),
+        (
+            "val Some(left) = incoming else { return; }",
+            Some("incoming"),
+        ),
         ("val ;", None),
         ("val (left, right) = incoming", Some("incoming")),
     ] {

@@ -1,12 +1,10 @@
 //! Complete native declaration views derived from authoritative registrations.
-use crate::{
-    analysis::core_source::packaged_modules,
-    native::paths::{ImporterPaths, LibraryPaths},
-};
+use self::publication::ReferencePaths;
+use crate::{analysis::core_source::packaged_modules, native::paths::LibraryPaths};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, ModuleIdentity,
+        DefinitionKind, DefinitionPath,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
@@ -18,11 +16,13 @@ use kagari_types::{
     declaration::{
         FnDecl, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
+        names::NameNamespace,
         native::NativeTypeConstructor,
         script::ScriptExpr,
     },
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
+    surface::builtin_type,
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
@@ -113,12 +113,12 @@ pub fn declaration_source_with_core(
             Ok((name.name.clone(), paths.definition_path(target, cancel)?))
         })
         .collect::<Result<Vec<_>, DeclarationError>>()?;
-    render_module(module, paths, &exports, cancel)
+    render_module(module, ReferencePaths::Preview(paths), &exports, cancel)
 }
 
 fn render_module(
     module: &DefinitionMetadata<ModuleDecl>,
-    paths: ImporterPaths<'_>,
+    paths: ReferencePaths<'_>,
     exports: &[(String, String)],
     cancel: &CancellationToken,
 ) -> Result<DeclarationSource, DeclarationError> {
@@ -126,7 +126,13 @@ fn render_module(
     module
         .records()
         .validate_script_bodies(module.definitions(), cancel)?;
-    DeclarationView::new(module, paths, cancel)?.render(exports)
+    DeclarationView {
+        module: module.records(),
+        definitions: module.definitions(),
+        paths,
+        cancel,
+    }
+    .render(exports)
 }
 
 fn check_cancel(cancel: &CancellationToken) -> Result<(), DeclarationError> {
@@ -139,9 +145,8 @@ fn check_cancel(cancel: &CancellationToken) -> Result<(), DeclarationError> {
 struct DeclarationView<'a> {
     cancel: &'a CancellationToken,
     module: &'a ModuleDecl,
-    paths: ImporterPaths<'a>,
+    paths: ReferencePaths<'a>,
     definitions: &'a DefinitionTable,
-    parameter_counts: BTreeMap<DefinitionId, usize>,
 }
 
 impl Deref for DeclarationView<'_> {
@@ -152,58 +157,6 @@ impl Deref for DeclarationView<'_> {
 }
 
 impl<'a> DeclarationView<'a> {
-    fn new(
-        metadata: &'a DefinitionMetadata<ModuleDecl>,
-        paths: ImporterPaths<'a>,
-        cancel: &'a CancellationToken,
-    ) -> Result<Self, DeclarationError> {
-        let module = metadata.records();
-        let mut parameter_counts = BTreeMap::<DefinitionId, usize>::new();
-        let parameters = module
-            .types
-            .iter()
-            .flat_map(|item| &item.generic_params)
-            .chain(module.traits.iter().flat_map(|item| &item.generic_params))
-            .chain(
-                module
-                    .implementations
-                    .iter()
-                    .flat_map(|item| &item.generic_params),
-            )
-            .chain(
-                module
-                    .functions
-                    .iter()
-                    .flat_map(|item| &item.generic_params),
-            )
-            .chain(
-                module
-                    .traits
-                    .iter()
-                    .flat_map(|item| &item.methods)
-                    .flat_map(|method| &method.generic_params),
-            )
-            .chain(
-                module
-                    .implementations
-                    .iter()
-                    .flat_map(|item| &item.methods)
-                    .flat_map(|method| &method.generic_params),
-            );
-        for parameter in parameters {
-            check_cancel(cancel)?;
-            let count = parameter_counts.entry(parameter.owner).or_default();
-            *count = (*count).max(parameter.position.saturating_add(1));
-        }
-        Ok(Self {
-            cancel,
-            module,
-            paths,
-            definitions: metadata.definitions(),
-            parameter_counts,
-        })
-    }
-
     fn view(&self, id: DefinitionId) -> Result<DefinitionView<'a>, DeclarationError> {
         check_cancel(self.cancel)?;
         self.definitions
@@ -218,36 +171,12 @@ impl<'a> DeclarationView<'a> {
             .ok_or_else(|| DeclarationError("missing declaration name".into()))
     }
 
-    fn module_path(&self, identity: &ModuleIdentity) -> Result<String, DeclarationError> {
-        self.paths.module_path(identity, self.cancel)
-    }
-
-    /// Display names use one-based numbering, omitted for a single parameter.
-    /// Method binders use M only when an enclosing generic binder already uses T.
-    fn parameter_spelling(
-        &self,
-        owner: DefinitionId,
-        position: usize,
-    ) -> Result<String, DeclarationError> {
-        let method = self
-            .view(owner)?
-            .last()
-            .is_some_and(|part| part.kind == DefinitionKind::Method);
-        let parent = self
-            .definitions
-            .parent(owner)
-            .map_err(|error| DeclarationError(error.to_string()))?;
-        let prefix =
-            if method && parent.is_some_and(|parent| self.parameter_counts.contains_key(&parent)) {
-                "M"
-            } else {
-                "T"
-            };
-        Ok(if self.parameter_counts.get(&owner) == Some(&1) {
-            prefix.into()
-        } else {
-            format!("{prefix}{}", position.saturating_add(1))
-        })
+    fn scope<'b>(&'b self, enclosing: &'b [GenericParam], own: &'b [GenericParam]) -> Spelling<'b> {
+        Spelling {
+            module: self,
+            enclosing,
+            own,
+        }
     }
 
     /// Sort rendered associated outputs by exact identity, never allocation order.
@@ -303,8 +232,9 @@ impl<'a> DeclarationView<'a> {
                 TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_) => "pub native type ",
             });
             let name_span = output.name(&ty.name);
-            let generics = output.generics(&ty.generic_params)?;
-            let bounds = output.bounds(&ty.bounds)?;
+            let scope = self.scope(&[], &ty.generic_params);
+            let generics = output.generics(id, scope)?;
+            let bounds = output.bounds(scope, &ty.bounds)?;
             if is_enum {
                 output.text.push_str(" {\n");
                 for variant in &ty.variants {
@@ -314,18 +244,33 @@ impl<'a> DeclarationView<'a> {
                     output.text.push_str("    ");
                     let name_span = output.name(&variant.name);
                     let mut payload = vec![];
-                    if !variant.payload.is_empty() {
-                        output.text.push('(');
+                    if !variant.shape.valid_for(variant.payload.len()) {
+                        return Err(DeclarationError(format!(
+                            "invalid field labels for {}::{}",
+                            ty.name, variant.name
+                        )));
+                    }
+                    let labels = variant.shape.labels();
+                    if labels.is_some() || !variant.payload.is_empty() {
+                        output
+                            .text
+                            .push_str(if labels.is_some() { " { " } else { "(" });
                         for (index, ty) in variant.payload.iter().enumerate() {
                             if index > 0 {
                                 output.text.push_str(", ");
                             }
-                            payload.push(output.name(&self.type_spelling(ty)?));
+                            if let Some(labels) = labels {
+                                output.text.push_str(&labels[index]);
+                                output.text.push_str(": ");
+                            }
+                            payload.push(output.name(&scope.type_spelling(ty)?));
                         }
-                        output.text.push(')');
+                        output
+                            .text
+                            .push_str(if labels.is_some() { " }" } else { ")" });
                     }
                     output.text.push_str(",\n");
-                    output.site(owner, start, name_span, vec![], payload);
+                    output.site(owner, start, name_span, vec![], payload, vec![]);
                 }
                 output.text.push_str("}\n\n");
             } else if is_struct || !ty.fields.is_empty() {
@@ -351,20 +296,15 @@ impl<'a> DeclarationView<'a> {
                         .push_str(if field.mutable { "var " } else { "val " });
                     let name_span = output.name(&field.name);
                     output.text.push_str(": ");
-                    let field_type = output.name(&self.type_spelling(&field.ty)?);
+                    let field_type = output.name(&scope.type_spelling(&field.ty)?);
                     output.text.push_str(",\n");
-                    output.site(owner, start, name_span, vec![], vec![field_type]);
+                    output.site(owner, start, name_span, vec![], vec![field_type], vec![]);
                 }
                 output.text.push_str("}\n\n");
             } else {
                 output.text.push_str(";\n\n");
             }
-            output.site(id, start, name_span, generics, vec![]);
-            output
-                .sites
-                .get_mut(&id)
-                .expect("type declaration site")
-                .bounds = bounds;
+            output.site(id, start, name_span, generics, vec![], bounds);
             if self.variant_exports.contains(&ty.name) {
                 output.text.push_str(&format!(
                     "pub use self::{}::{{{}}};\n\n",
@@ -390,16 +330,18 @@ impl<'a> DeclarationView<'a> {
             }
             output.text.push_str("pub trait ");
             let name_span = output.name(&item.name);
-            let generics = output.generics(&item.generic_params)?;
+            let scope = self.scope(&[], &item.generic_params);
+            let generics = output.generics(id, scope)?;
             if !item.supertraits.is_empty() {
                 output.text.push_str(": ");
                 let names = item
                     .supertraits
                     .iter()
-                    .map(|ty| self.nominal_spelling(ty))
+                    .map(|ty| scope.nominal_spelling(ty))
                     .collect::<Result<Vec<_>, _>>()?;
                 output.text.push_str(&names.join(" + "));
             }
+            let bounds = output.bounds(scope, &item.bounds)?;
             output.text.push_str(" {\n");
             for member in &item.associated_types {
                 let name = self.name(member.declaration)?;
@@ -407,43 +349,50 @@ impl<'a> DeclarationView<'a> {
                 let start = output.text.len();
                 output.text.push_str("    type ");
                 let name_span = output.name(name);
-                let constraints = output.constraints(&member.bounds)?;
-                output.text.push_str(";\n");
-                output.site(member.declaration, start, name_span, vec![], vec![]);
-                output
-                    .sites
-                    .get_mut(&member.declaration)
-                    .expect("associated declaration")
-                    .bounds = vec![NativeBoundSite {
+                let member_scope = self.scope(&item.generic_params, &member.generic_params);
+                let generics = output.generics(member.declaration, member_scope)?;
+                let constraints = output.constraints(member_scope, &member.bounds)?;
+                let mut bounds = vec![NativeBoundSite {
                     target: name_span,
                     constraints,
                 }];
+                bounds.extend(output.bounds(member_scope, &member.parameter_bounds)?);
+                output.text.push_str(";\n");
+                output.site(
+                    member.declaration,
+                    start,
+                    name_span,
+                    generics,
+                    vec![],
+                    bounds,
+                );
             }
             for method in &item.methods {
                 output.function(
                     ModuleDecl::method_id(id, &method.name, self.definitions)?,
                     method,
-                    true,
+                    Some(&item.generic_params),
                 )?;
             }
             output.text.push_str("}\n\n");
-            output.site(id, start, name_span, generics, vec![]);
+            output.site(id, start, name_span, generics, vec![], bounds);
         }
         for (index, implementation) in self.implementations.iter().enumerate() {
             check_cancel(self.cancel)?;
             let id = self.implementation_id(index, self.definitions)?;
             let start = output.text.len();
             output.text.push_str("impl");
-            let generics = output.generics(&implementation.generic_params)?;
+            let scope = self.scope(&[], &implementation.generic_params);
+            let generics = output.generics(id, scope)?;
             output.text.push(' ');
             if let Some(trait_type) = &implementation.trait_type {
                 let mut header = trait_type.clone();
                 header.associated_types.clear();
-                output.text.push_str(&self.nominal_spelling(&header)?);
+                output.text.push_str(&scope.nominal_spelling(&header)?);
                 output.text.push_str(" for ");
             }
-            let name_span = output.name(&self.type_spelling(&implementation.for_type)?);
-            let bounds = output.bounds(&implementation.bounds)?;
+            let name_span = output.name(&scope.type_spelling(&implementation.for_type)?);
+            let bounds = output.bounds(scope, &implementation.bounds)?;
             output.text.push_str(" {\n");
             if let Some(trait_type) = &implementation.trait_type {
                 for (member, ty) in self.associated_outputs(&trait_type.associated_types)? {
@@ -458,31 +407,33 @@ impl<'a> DeclarationView<'a> {
                     output.text.push_str("    type ");
                     let name_span = output.name(name);
                     output.text.push_str(" = ");
-                    let value_span = output.name(&self.type_spelling(ty)?);
+                    let value_span = output.name(&scope.type_spelling(ty)?);
                     output.text.push_str(";\n");
-                    output.site(member_id, start, name_span, vec![], vec![value_span]);
+                    output.site(
+                        member_id,
+                        start,
+                        name_span,
+                        vec![],
+                        vec![value_span],
+                        vec![],
+                    );
                 }
             }
             for method in &implementation.methods {
                 output.function(
                     ModuleDecl::method_id(id, &method.name, self.definitions)?,
                     method,
-                    true,
+                    Some(&implementation.generic_params),
                 )?;
             }
             output.text.push_str("}\n\n");
-            output.site(id, start, name_span, generics, vec![]);
-            output
-                .sites
-                .get_mut(&id)
-                .expect("implementation declaration")
-                .bounds = bounds;
+            output.site(id, start, name_span, generics, vec![], bounds);
         }
         for function in &self.functions {
             output.function(
                 self.definition(DefinitionKind::Function, &function.name, self.definitions)?,
                 function,
-                false,
+                None,
             )?;
         }
         while output.text.ends_with("\n\n") {
@@ -501,6 +452,66 @@ impl<'a> DeclarationView<'a> {
         check_cancel(self.cancel)?;
         Ok(source)
     }
+}
+
+/// Generic names visible at this exact use site, including the parent of a method.
+#[derive(Clone, Copy)]
+struct Spelling<'a> {
+    module: &'a DeclarationView<'a>,
+    enclosing: &'a [GenericParam],
+    own: &'a [GenericParam],
+}
+
+impl Spelling<'_> {
+    fn parameter_name(
+        &self,
+        owner: DefinitionId,
+        position: usize,
+    ) -> Result<String, DeclarationError> {
+        let nested = !self.enclosing.is_empty();
+        for (binders, prefix) in [
+            (self.own, if nested { "M" } else { "T" }),
+            (self.enclosing, "T"),
+        ] {
+            if binders
+                .get(position)
+                .is_some_and(|p| p.owner == owner && p.position == position)
+            {
+                return Ok(if binders.len() == 1 {
+                    prefix.into()
+                } else {
+                    format!("{prefix}{}", position + 1)
+                });
+            }
+        }
+        Err(DeclarationError(
+            "type parameter is outside the rendered binder scope".into(),
+        ))
+    }
+
+    fn reference(
+        &self,
+        target: &DefinitionPath,
+        namespace: NameNamespace,
+    ) -> Result<String, DeclarationError> {
+        self.module.paths.spelling(
+            &self.module.identity,
+            target,
+            namespace,
+            |name| {
+                if builtin_type(name).is_some_and(|kind| kind != BuiltinType::String) {
+                    return Ok(false);
+                }
+                for binder in self.enclosing.iter().chain(self.own) {
+                    if self.parameter_name(binder.owner, binder.position)? == name {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            },
+            self.module.cancel,
+        )
+    }
 
     fn type_spelling(&self, ty: &Ty) -> Result<String, DeclarationError> {
         if !ty.within_wire_limits() {
@@ -510,7 +521,7 @@ impl<'a> DeclarationView<'a> {
     }
 
     fn spell(&self, ty: &Ty) -> Result<String, DeclarationError> {
-        check_cancel(self.cancel)?;
+        check_cancel(self.module.cancel)?;
         let join = |items: &[Ty]| -> Result<String, DeclarationError> {
             Ok(items
                 .iter()
@@ -535,8 +546,10 @@ impl<'a> DeclarationView<'a> {
                 BuiltinType::F32 => "f32",
                 BuiltinType::F64 => "f64",
                 BuiltinType::String => {
-                    let owner = NativeTypeConstructor::String.declaration().module;
-                    return Ok(format!("{}::String", self.module_path(&owner)?));
+                    return self.reference(
+                        &NativeTypeConstructor::String.declaration(),
+                        NameNamespace::Type,
+                    );
                 }
             }
             .into(),
@@ -545,7 +558,7 @@ impl<'a> DeclarationView<'a> {
                 arguments: vec![],
                 associated_types: BTreeMap::new(),
             })?,
-            Ty::Parameter { owner, position } => self.parameter_spelling(*owner, *position)?,
+            Ty::Parameter { owner, position } => self.parameter_name(*owner, *position)?,
             Ty::SelfType(_) => "Self".into(),
             Ty::Array(item) => format!("[{}]", self.spell(item)?),
 
@@ -566,7 +579,7 @@ impl<'a> DeclarationView<'a> {
                 member,
                 arguments,
             } if arguments.is_empty() => {
-                let name = self.name(*member)?;
+                let name = self.module.name(*member)?;
                 format!(
                     "<{} as {}>::{name}",
                     self.spell(receiver)?,
@@ -574,9 +587,9 @@ impl<'a> DeclarationView<'a> {
                 )
             }
             Ty::Range(item, kind) => {
-                let owner = NativeTypeConstructor::Range(*kind).declaration().module;
-                let name = format!("{}::{}", self.module_path(&owner)?, kind.name());
-                if NativeTypeConstructor::Range(*kind).arity() == 0 {
+                let constructor = NativeTypeConstructor::Range(*kind);
+                let name = self.reference(&constructor.declaration(), NameNamespace::Type)?;
+                if constructor.arity() == 0 {
                     name
                 } else {
                     format!("{name}<{}>", self.spell(item)?)
@@ -592,22 +605,17 @@ impl<'a> DeclarationView<'a> {
     }
 
     fn nominal_spelling(&self, ty: &NominalTy) -> Result<String, DeclarationError> {
-        let declaration = self.view(ty.declaration)?;
-        let name = self.name(ty.declaration)?;
-        let mut text = if declaration.module() == &self.identity {
-            name.to_owned()
-        } else {
-            format!("{}::{}", self.module_path(declaration.module())?, name)
-        };
+        let declaration = self.module.view(ty.declaration)?;
+        let mut text = self.reference(&declaration.to_path(), NameNamespace::Type)?;
         let mut args = ty
             .arguments
             .iter()
             .map(|ty| self.type_spelling(ty))
             .collect::<Result<Vec<_>, _>>()?;
-        for (id, value) in self.associated_outputs(&ty.associated_types)? {
+        for (id, value) in self.module.associated_outputs(&ty.associated_types)? {
             args.push(format!(
                 "{} = {}",
-                self.name(id)?,
+                self.module.name(id)?,
                 self.type_spelling(value)?
             ));
         }
@@ -647,23 +655,27 @@ impl Renderer<'_> {
         Span::new(start, self.text.len())
     }
 
-    fn generics(&mut self, parameters: &[GenericParam]) -> Result<Vec<Span>, DeclarationError> {
-        if parameters.is_empty() {
+    fn generics(
+        &mut self,
+        owner: DefinitionId,
+        scope: Spelling<'_>,
+    ) -> Result<Vec<Span>, DeclarationError> {
+        if scope.own.is_empty() {
             return Ok(vec![]);
         }
         self.text.push('<');
         let mut spans = vec![];
-        for (index, parameter) in parameters.iter().enumerate() {
+        for (index, parameter) in scope.own.iter().enumerate() {
+            check_cancel(self.module.cancel)?;
+            if parameter.owner != owner || parameter.position != index {
+                return Err(DeclarationError(
+                    "invalid generic binder in rendered declaration".into(),
+                ));
+            }
             if index != 0 {
                 self.text.push_str(", ");
             }
-            spans.push(
-                self.name(
-                    &self
-                        .module
-                        .parameter_spelling(parameter.owner, parameter.position)?,
-                ),
-            );
+            spans.push(self.name(&scope.parameter_name(owner, index)?));
         }
         self.text.push('>');
         Ok(spans)
@@ -676,6 +688,7 @@ impl Renderer<'_> {
         name_span: Span,
         generics: Vec<Span>,
         parameters: Vec<Span>,
+        bounds: Vec<NativeBoundSite>,
     ) {
         self.sites.insert(
             id,
@@ -684,7 +697,7 @@ impl Renderer<'_> {
                 name_span,
                 generics,
                 parameters,
-                bounds: vec![],
+                bounds,
             },
         );
     }
@@ -693,14 +706,14 @@ impl Renderer<'_> {
         &mut self,
         id: DefinitionId,
         function: &FnDecl,
-        method: bool,
+        enclosing: Option<&[GenericParam]>,
     ) -> Result<(), DeclarationError> {
         self.doc(id)?;
         let start = self.text.len();
         self.text
             .push_str(if self.module.private_functions.contains(&id) {
                 ""
-            } else if !method {
+            } else if enclosing.is_none() {
                 "pub "
             } else if self
                 .module
@@ -721,10 +734,11 @@ impl Renderer<'_> {
         let own = function
             .generic_params
             .iter()
-            .filter(|parameter| !method || parameter.owner == id)
+            .filter(|parameter| enclosing.is_none() || parameter.owner == id)
             .cloned()
             .collect::<Vec<_>>();
-        let generics = self.generics(&own)?;
+        let scope = self.module.scope(enclosing.unwrap_or_default(), &own);
+        let generics = self.generics(id, scope)?;
         self.text.push('(');
         let mut parameters = vec![];
         for (index, parameter) in function.params.iter().enumerate() {
@@ -734,23 +748,22 @@ impl Renderer<'_> {
             parameters.push(self.name(&parameter.name));
             if parameter.name != "self" {
                 self.text.push_str(": ");
-                self.text
-                    .push_str(&self.module.type_spelling(&parameter.ty)?);
+                self.text.push_str(&scope.type_spelling(&parameter.ty)?);
             }
         }
         self.text.push(')');
         if function.return_type != Ty::Builtin(BuiltinType::Unit) {
             self.text.push_str(" -> ");
             self.text
-                .push_str(&self.module.type_spelling(&function.return_type)?);
+                .push_str(&scope.type_spelling(&function.return_type)?);
         }
-        let bounds = self.bounds(&function.bounds)?;
+        let bounds = self.bounds(scope, &function.bounds)?;
         if let Some(body) = self.module.script_bodies.get(&id) {
             self.text.push_str(
                 " {
         ",
             );
-            self.script_expr(body)?;
+            self.script_expr(scope, body)?;
             self.text.push_str(
                 "
     }
@@ -759,33 +772,22 @@ impl Renderer<'_> {
         } else {
             self.text.push_str(";\n");
         }
-        self.site(id, start, name_span, generics, parameters);
-        self.sites
-            .get_mut(&id)
-            .expect("rendered declaration")
-            .bounds = bounds;
+        self.site(id, start, name_span, generics, parameters, bounds);
         Ok(())
     }
 
-    fn script_expr(&mut self, expression: &ScriptExpr) -> Result<(), DeclarationError> {
+    fn script_expr(
+        &mut self,
+        scope: Spelling<'_>,
+        expression: &ScriptExpr,
+    ) -> Result<(), DeclarationError> {
         check_cancel(self.module.cancel)?;
         match expression {
             ScriptExpr::Name(name) => self.text.push_str(name),
             ScriptExpr::Definition(id) => {
                 let target = self.module.view(*id)?;
-                let path = target
-                    .segments()
-                    .map(|part| part.name)
-                    .collect::<Vec<_>>()
-                    .join("::");
-                if target.module() != &self.module.identity {
-                    self.text
-                        .push_str(&self.module.module_path(target.module())?);
-                    self.text.push_str("::");
-                } else {
-                    self.text.push_str("self::");
-                }
-                self.text.push_str(&path);
+                self.text
+                    .push_str(&scope.reference(&target.to_path(), NameNamespace::Value)?);
             }
             ScriptExpr::TraitMethod {
                 receiver,
@@ -794,8 +796,8 @@ impl Renderer<'_> {
             } => {
                 self.text.push_str(&format!(
                     "<{} as {}>::{}",
-                    self.module.type_spelling(receiver)?,
-                    self.module.nominal_spelling(interface)?,
+                    scope.type_spelling(receiver)?,
+                    scope.nominal_spelling(interface)?,
                     self.module.name(*member)?
                 ));
             }
@@ -804,14 +806,14 @@ impl Renderer<'_> {
                 type_arguments,
                 arguments,
             } => {
-                self.script_expr(callee)?;
+                self.script_expr(scope, callee)?;
                 if !type_arguments.is_empty() {
                     self.text.push_str("::<");
                     for (index, ty) in type_arguments.iter().enumerate() {
                         if index != 0 {
                             self.text.push_str(", ");
                         }
-                        self.text.push_str(&self.module.type_spelling(ty)?);
+                        self.text.push_str(&scope.type_spelling(ty)?);
                     }
                     self.text.push('>');
                 }
@@ -820,7 +822,7 @@ impl Renderer<'_> {
                     if index != 0 {
                         self.text.push_str(", ");
                     }
-                    self.script_expr(argument)?;
+                    self.script_expr(scope, argument)?;
                 }
                 self.text.push(')');
             }
@@ -830,6 +832,7 @@ impl Renderer<'_> {
 
     fn bounds(
         &mut self,
+        scope: Spelling<'_>,
         bounds: &[GenericBound],
     ) -> Result<Vec<NativeBoundSite>, DeclarationError> {
         let mut sites = vec![];
@@ -840,8 +843,8 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(", ");
             }
-            let target = self.name(&self.module.type_spelling(&bound.ty)?);
-            let constraints = self.constraints(&bound.constraints)?;
+            let target = self.name(&scope.type_spelling(&bound.ty)?);
+            let constraints = self.constraints(scope, &bound.constraints)?;
             sites.push(NativeBoundSite {
                 target,
                 constraints,
@@ -850,7 +853,11 @@ impl Renderer<'_> {
         Ok(sites)
     }
 
-    fn constraints(&mut self, constraints: &[NominalTy]) -> Result<Vec<Span>, DeclarationError> {
+    fn constraints(
+        &mut self,
+        scope: Spelling<'_>,
+        constraints: &[NominalTy],
+    ) -> Result<Vec<Span>, DeclarationError> {
         let mut spans = vec![];
         if !constraints.is_empty() {
             self.text.push_str(": ");
@@ -859,7 +866,7 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(" + ");
             }
-            let name = self.module.nominal_spelling(constraint)?;
+            let name = scope.nominal_spelling(constraint)?;
             spans.push(self.name(&name));
         }
         Ok(spans)

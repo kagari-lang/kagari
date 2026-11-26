@@ -263,6 +263,7 @@ pub fn enum_owner(runtime: &mut Runtime, payloads: Vec<Ty>) -> ExecutableModule 
                 arguments: vec![],
                 variants: vec![EnumVariantLayout {
                     reports_failure: false,
+                    shape: Default::default(),
                     declaration: context
                         .intern_child(declaration, DefinitionKind::Variant, "Data", 0)
                         .unwrap(),

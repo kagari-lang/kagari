@@ -565,8 +565,15 @@ fn owner_predicates<'a>(
     let inherited = module
         .impls
         .iter()
-        .filter(|item| item.generic_params.contains(&parameter))
-        .flat_map(|item| &item.bounds);
+        .map(|item| (&item.generic_params, &item.bounds))
+        .chain(
+            module
+                .traits
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
+        .filter(|(params, _)| params.contains(&parameter))
+        .flat_map(|(_, bounds)| bounds);
     module
         .functions
         .iter()
@@ -574,6 +581,18 @@ fn owner_predicates<'a>(
         .chain(
             module
                 .type_aliases
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
+        .chain(
+            module
+                .structs
+                .iter()
+                .map(|item| (&item.generic_params, &item.bounds)),
+        )
+        .chain(
+            module
+                .enums
                 .iter()
                 .map(|item| (&item.generic_params, &item.bounds)),
         )

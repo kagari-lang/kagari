@@ -133,19 +133,42 @@ impl<'a> ImporterPaths<'a> {
         Ok(path)
     }
 
-    fn alias(
+    pub(crate) fn module_path(
         self,
         identity: &ModuleIdentity,
         cancel: &CancellationToken,
-    ) -> Result<Option<&'a str>, Cancelled> {
+    ) -> Result<String, DeclarationError> {
+        self.module_path_matching(identity, cancel, |_| Ok(true))
+    }
+
+    /// A valid package binding can still be shadowed by a module-level name in a
+    /// type expression. Publication checks the whole written path before choosing it.
+    pub(super) fn module_path_matching(
+        self,
+        identity: &ModuleIdentity,
+        cancel: &CancellationToken,
+        accepts: impl Fn(&str) -> Result<bool, DeclarationError>,
+    ) -> Result<String, DeclarationError> {
+        let cancelled = |_: Cancelled| DeclarationError("native path spelling cancelled".into());
+        let candidate = |package: &str| -> Result<Option<String>, DeclarationError> {
+            let path = iter::once(package)
+                .chain(identity.path.iter().map(String::as_str))
+                .collect::<Vec<_>>()
+                .join("::");
+            Ok(accepts(&path)?.then_some(path))
+        };
+        let importer = self.importer;
         for (name, target) in self
             .packages
             .into_iter()
             .flat_map(|scope| &scope.dependencies)
         {
-            cancel.check()?;
-            if *target == identity.package && legal_name(name, cancel)? {
-                return Ok(Some(name));
+            cancel.check().map_err(cancelled)?;
+            if *target == identity.package
+                && legal_name(name, cancel).map_err(cancelled)?
+                && let Some(path) = candidate(name)?
+            {
+                return Ok(path);
             }
         }
         if let Some(defaults) = self.defaults {
@@ -156,27 +179,17 @@ impl<'a> ImporterPaths<'a> {
                     .into_iter()
                     .flatten(),
             ) {
-                if legal_name(name, cancel)? {
-                    return Ok(Some(name));
+                if legal_name(name, cancel).map_err(cancelled)?
+                    && let Some(path) = candidate(name)?
+                {
+                    return Ok(path);
                 }
             }
         }
-        Ok(None)
-    }
-
-    pub(crate) fn module_path(
-        self,
-        identity: &ModuleIdentity,
-        cancel: &CancellationToken,
-    ) -> Result<String, DeclarationError> {
-        let cancelled = |_: Cancelled| DeclarationError("native path spelling cancelled".into());
         cancel.check().map_err(cancelled)?;
-        let importer = self.importer;
         let fallback = source_package_alias(&identity.package);
         let fallback = fallback.as_deref().unwrap_or(&identity.package.0);
-        let package = if let Some(name) = self.alias(identity, cancel).map_err(cancelled)? {
-            name
-        } else if identity.package == importer.package {
+        let package = if identity.package == importer.package {
             "crate"
         } else if legal_name(fallback, cancel).map_err(cancelled)?
             && !self
@@ -193,10 +206,11 @@ impl<'a> ImporterPaths<'a> {
                 "no package spelling for {identity} from {importer}"
             )));
         };
-        Ok(iter::once(package)
-            .chain(identity.path.iter().map(String::as_str))
-            .collect::<Vec<_>>()
-            .join("::"))
+        candidate(package)?.ok_or_else(|| {
+            DeclarationError(format!(
+                "no accessible package spelling for {identity} from {importer}"
+            ))
+        })
     }
 }
 

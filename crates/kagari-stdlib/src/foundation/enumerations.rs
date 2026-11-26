@@ -56,6 +56,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .map(|name| VariantDef {
                         name: (*name).into(),
                         reports_failure: false,
+                        shape: Default::default(),
                         payload: vec![],
                     })
                     .collect();

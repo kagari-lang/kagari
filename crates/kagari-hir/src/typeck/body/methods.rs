@@ -5,8 +5,9 @@
 use crate::{
     aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
     hir::{expr::ExprKind, ids::ExprId, ty::TypeKind},
+    imports::types::aliases::resolved_alias,
     typeck::{
-        BodyTypeEnv,
+        BodyTypeEnv, applications, associated_consts,
         body::BodyChecker,
         completion, inference, members,
         table::{
@@ -401,6 +402,95 @@ impl<'a> BodyChecker<'a> {
         if receiver.is_unresolved() {
             return None;
         }
+        if requested.is_none() && self.names.expr_resolution(expr).is_none() {
+            let query = members::MemberQuery {
+                definitions: self.declarations.definitions(),
+                aggregates: self.aggregates,
+                receiver: &receiver,
+                assumptions: &env.generic_bounds,
+                cancel: self.cancel,
+            };
+            match associated_consts::select_inherent(
+                &query,
+                &member,
+                self.lowered.source.module_identity(),
+            ) {
+                Ok(Some((id, item))) => {
+                    let span = self.lowered.module.expr(expr).origin.diagnostic_span();
+                    if !item.source.unit.matches(self.lowered, query.definitions) {
+                        let Some(constant) =
+                            self.top_level_index.imported_constants.get(&item.source)
+                        else {
+                            let reason = if self.const_values.is_none() {
+                                "cross-module references in constant initializers are not supported"
+                            } else {
+                                "the declaring module has no valid checked initializer"
+                            };
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidAssociatedConst {
+                                    name: member,
+                                    reason: reason.into(),
+                                })
+                                .with_span(span),
+                            );
+                            return Some(TypeId::Error);
+                        };
+                        self.type_table.insert_scalar(expr, constant.value.clone());
+                    }
+                    if explicit_type.is_none()
+                        && let Some(path) = self.names.qualified_member(expr)
+                        && !matches!(receiver, TypeId::Generic(_))
+                        && resolved_alias(self.declarations, &path.owner).map_or_else(
+                            || !receiver.is_closed(),
+                            |(_, alias)| !alias.parameters.is_empty(),
+                        )
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidAssociatedConst {
+                                name: member,
+                                reason: "generic constant owners require explicit type arguments"
+                                    .into(),
+                            })
+                            .with_span(span),
+                        );
+                        return Some(TypeId::Error);
+                    }
+                    applications::validate(
+                        applications::ApplicationContext {
+                            definitions: query.definitions,
+                            catalog: query.aggregates,
+                            receiver: None,
+                        },
+                        &receiver,
+                        &env.generic_bounds,
+                        span,
+                        self.diagnostics,
+                        self.cancel,
+                    );
+                    let ty = item.ty.clone();
+                    self.type_table.insert_associated_const(
+                        expr,
+                        ResolvedAssociatedConst {
+                            receiver,
+                            interface: None,
+                            member: id,
+                        },
+                    );
+                    return Some(ty);
+                }
+                Err(reason) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidAssociatedConst {
+                            name: member,
+                            reason: reason.into(),
+                        })
+                        .with_span(self.lowered.module.expr(expr).origin.diagnostic_span()),
+                    );
+                    return Some(TypeId::Error);
+                }
+                Ok(None) => {}
+            }
+        }
         let mut candidates = Vec::new();
         for interface in self.trait_bounds_for(&receiver, env) {
             if requested.as_ref().is_some_and(|requested| !matches!(requested, TypeId::Trait(required) if interface.satisfies(required))) { continue; }
@@ -429,7 +519,7 @@ impl<'a> BodyChecker<'a> {
                 expr,
                 ResolvedAssociatedConst {
                     receiver,
-                    interface,
+                    interface: Some(interface),
                     member,
                 },
             );

@@ -312,6 +312,7 @@ impl FunctionLowerer<'_, '_> {
                 base_fields,
             } => self.lower_struct_init(expr_id, declaration, fields, base, base_fields),
             CheckedExprKind::Enum {
+                field_slots,
                 declaration,
                 variant,
                 fields,
@@ -328,6 +329,21 @@ impl FunctionLowerer<'_, '_> {
                 let fields = match self.lower_values(&fields)? {
                     ControlFlow::Break(value) => return Ok(value),
                     ControlFlow::Continue(values) => values,
+                };
+                let fields = if let Some(slots) = field_slots {
+                    let mut ordered = vec![None; fields.len()];
+                    for (slot, value) in slots.into_iter().zip(fields) {
+                        *ordered
+                            .get_mut(slot)
+                            .ok_or(MirLoweringError::MissingBinding(
+                                "named variant field slot",
+                            ))? = Some(value);
+                    }
+                    ordered.into_iter().collect::<Option<ValueBuffer>>().ok_or(
+                        MirLoweringError::MissingBinding("named variant field permutation"),
+                    )?
+                } else {
+                    fields
                 };
                 let dst = self.alloc_temp(ValueType::HeapObject);
                 self.emit(Instruction::MakeEnum {

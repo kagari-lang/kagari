@@ -101,6 +101,7 @@ impl<'module> EnumBuilder<'module> {
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         self.declaration.variants.push(VariantDef {
             reports_failure: false,
+            shape: Default::default(),
             name,
             payload: payload
                 .into_iter()

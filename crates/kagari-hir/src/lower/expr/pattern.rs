@@ -3,11 +3,15 @@
 use crate::{
     hir::{
         ids::PatternId,
-        pattern::{PatternBound, PatternField, PatternKind},
+        pattern::{PatternBound, PatternField, PatternKind, PatternLiteral, PositionalPatterns},
     },
     lower::context::{Lowerer, syntax_span, token_span},
 };
-use kagari_syntax::ast::{borrow::Ast, expr::Pattern, views::PatternBoundView};
+use kagari_syntax::ast::{
+    borrow::Ast,
+    expr::{self, Pattern},
+    views::PatternBoundView,
+};
 
 impl Lowerer {
     /// Collapses grouping, allocates nested patterns/local IDs and preserves constructor/name sites for later resolution.
@@ -28,7 +32,7 @@ impl Lowerer {
         } else if let Some(inclusive) = pattern.range_inclusive() {
             let mut bounds = pattern.range_bounds().map(|bound| match bound {
                 PatternBoundView::Literal(literal) => {
-                    PatternBound::Literal(self.lower_literal(&literal))
+                    PatternBound::Literal(self.lower_pattern_literal(literal))
                 }
                 PatternBoundView::Path(path) => {
                     PatternBound::Path(path.name_text().unwrap_or_default())
@@ -77,24 +81,16 @@ impl Lowerer {
                     .path()
                     .and_then(|path| path.name_text())
                     .unwrap_or_default(),
-                fields: pattern
-                    .elements()
-                    .map(|element| self.lower_pattern(&element))
-                    .collect(),
+                fields: self.lower_positional(*pattern),
             }
         } else if pattern.is_tuple() {
-            PatternKind::Tuple(
-                pattern
-                    .elements()
-                    .map(|element| self.lower_pattern(&element))
-                    .collect(),
-            )
+            PatternKind::Tuple(self.lower_positional(*pattern))
         } else if let Some(path) = pattern.path() {
             let name = path.name_text().unwrap_or_default();
             if name.contains("::") {
                 PatternKind::EnumVariant {
                     path: name,
-                    fields: Vec::new(),
+                    fields: PositionalPatterns::default(),
                 }
             } else {
                 let binding_span = path
@@ -107,7 +103,7 @@ impl Lowerer {
                 }
             }
         } else if let Some(literal) = pattern.literal() {
-            PatternKind::Literal(self.lower_literal(&literal))
+            PatternKind::Literal(self.lower_pattern_literal(literal))
         } else {
             PatternKind::Name {
                 local: self.alloc_local(span, "<missing>".to_string()),
@@ -115,5 +111,19 @@ impl Lowerer {
         };
 
         self.alloc_pattern(span, kind)
+    }
+
+    fn lower_positional(&mut self, pattern: Ast<'_, Pattern>) -> PositionalPatterns {
+        PositionalPatterns {
+            rest: pattern.rest_index(),
+            elements: pattern.elements().map(|p| self.lower_pattern(&p)).collect(),
+        }
+    }
+
+    fn lower_pattern_literal(&mut self, literal: Ast<'_, expr::PatternLiteral>) -> PatternLiteral {
+        PatternLiteral {
+            value: self.lower_literal(&literal.magnitude()),
+            negative: literal.is_negative(),
+        }
     }
 }

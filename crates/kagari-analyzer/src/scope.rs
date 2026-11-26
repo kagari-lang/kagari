@@ -201,9 +201,13 @@ impl<'a> ScopeIndex<'a> {
             StmtKind::Binding {
                 pattern,
                 initializer,
+                else_block,
                 ..
             } => {
                 self.expr(*initializer, scope);
+                if let Some(block) = else_block {
+                    self.block(*block, scope);
+                }
                 self.pattern(
                     scope,
                     *pattern,

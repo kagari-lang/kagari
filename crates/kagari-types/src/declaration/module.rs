@@ -385,7 +385,6 @@ impl ModuleDecl {
         for item in &self.traits {
             if !identifier(&item.name)
                 || !names.insert((NameNamespace::Type, &item.name))
-                || !item.bounds.is_empty()
                 || item.associated_types.iter().any(|member| {
                     definitions
                         .resolve(member.declaration)
@@ -644,12 +643,15 @@ impl ModuleDecl {
         &self,
         definitions: &DefinitionTable,
     ) -> Result<(), DeclarationError> {
-        for ty in &self.types {
-            for bound in &ty.bounds {
-                supported_type(&bound.ty, definitions)?;
-                for constraint in &bound.constraints {
-                    supported_constraint(constraint, definitions)?;
-                }
+        for bound in self
+            .types
+            .iter()
+            .flat_map(|ty| &ty.bounds)
+            .chain(self.traits.iter().flat_map(|contract| &contract.bounds))
+        {
+            supported_type(&bound.ty, definitions)?;
+            for constraint in &bound.constraints {
+                supported_constraint(constraint, definitions)?;
             }
         }
         let mut functions = self.functions.iter().collect::<Vec<_>>();

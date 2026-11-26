@@ -103,6 +103,7 @@ pub(super) fn enumeration(
     for (index, variant) in variants.iter().enumerate() {
         let EnumVariantLayout {
             reports_failure,
+            shape,
             declaration,
             payload,
         } = variant;
@@ -112,7 +113,11 @@ pub(super) fn enumeration(
             context.definition(*declaration)
         )?;
         for (field, ty) in payload.iter().enumerate() {
-            writeln!(writer, "      payload#{field} type={}", context.ty(ty))?;
+            write!(writer, "      payload#{field}")?;
+            if let Some(labels) = shape.labels() {
+                write!(writer, " name={}", quoted(&labels[field]))?;
+            }
+            writeln!(writer, " type={}", context.ty(ty))?;
         }
     }
     Ok(())

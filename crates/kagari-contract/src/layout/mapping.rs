@@ -49,6 +49,7 @@ impl RemapDefinitions for EnumVariantLayout {
         mapper.check()?;
         Ok(EnumVariantLayout {
             reports_failure: self.reports_failure,
+            shape: self.shape.clone(),
             declaration: mapper.reference(&self.declaration)?,
             payload: map_sequence(&self.payload, |value| (value).remap_definitions(mapper))?,
         })

@@ -230,7 +230,7 @@ impl HirNodes {
                 | PatternKind::EnumVariant {
                     fields: elements, ..
                 } => {
-                    work.extend(elements.iter().rev().copied());
+                    work.extend(elements.elements.iter().rev().copied());
                 }
                 PatternKind::Struct { fields, .. } => {
                     work.extend(fields.iter().rev().map(|field| field.pattern));

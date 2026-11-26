@@ -68,6 +68,7 @@ impl Lowerer {
                     .initializer()
                     .map(|expr| self.lower_expr(&expr))
                     .unwrap_or_else(|| self.missing_expr()),
+                else_block: stmt.else_block().map(|block| self.lower_block(&block)),
             },
             StmtView::AssignStmt(stmt) => StmtKind::Assign {
                 op: match stmt.operator() {

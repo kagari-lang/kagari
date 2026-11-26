@@ -661,7 +661,6 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             .unwrap()
     };
     let field_id = id(DefinitionKind::Field);
-    let mut cases = Vec::new();
 
     let mut structure = valid.clone();
     structure.modules[0].structures.push(StructLayout {
@@ -678,7 +677,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             MAX_ARTIFACT_NESTED_RECORDS + 1
         ],
     });
-    cases.push(structure);
+    let mut cases = vec![structure];
 
     let mut enumeration = valid.clone();
     enumeration.modules[0].enumerations.push(EnumLayout {
@@ -686,6 +685,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         arguments: Vec::new(),
         variants: vec![EnumVariantLayout {
             reports_failure: false,
+            shape: Default::default(),
             declaration: id(DefinitionKind::Variant),
             payload: vec![Ty::Builtin(BuiltinType::I32); MAX_ARTIFACT_NESTED_RECORDS + 1],
         }],

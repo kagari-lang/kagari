@@ -16,6 +16,11 @@ use crate::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::scalar::BuiltinType;
 
+mod exhaustiveness;
+
+#[cfg(test)]
+mod tests;
+
 impl BodyChecker<'_> {
     pub(super) fn infer_if_type(
         &mut self,
@@ -139,6 +144,7 @@ impl BodyChecker<'_> {
         } else {
             TypeId::Unknown
         };
+        let before_arms = self.diagnostics.len();
         let mut reachable = scrutinee_completes;
         let mut hint: Option<TypeId> = None;
         let mut completing = Vec::new();
@@ -183,6 +189,9 @@ impl BodyChecker<'_> {
                 hint = Some(found.clone());
             }
             completing.push((arm.expr, found, arm_env));
+        }
+        if !self.solving && self.diagnostics.len() == before_arms {
+            self.check_enum_coverage(scrutinee, &scrutinee_ty, arms);
         }
         let Some(result) = hint else {
             return TypeId::Builtin(BuiltinType::Unit);

@@ -66,6 +66,7 @@ fn enumeration(module: &mut ModuleDraft<'_>, name: &str) -> NativeResult<()> {
             name: "Value".into(),
             payload: vec![],
             reports_failure: false,
+            shape: Default::default(),
         });
         Ok(())
     })?;
@@ -298,6 +299,7 @@ fn reciprocal_type_references_resolve_in_either_recipe_order() {
                     name: "Next".into(),
                     payload: vec![payload.abi().clone()],
                     reports_failure: false,
+                    shape: Default::default(),
                 });
                 Ok(())
             })?;

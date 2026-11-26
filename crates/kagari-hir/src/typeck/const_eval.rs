@@ -6,6 +6,7 @@ use crate::tests::cancellation::{Checkpoint, checkpoint};
 use super::const_budget::ConstBudget;
 use crate::{
     collections::HashMap,
+    declarations::Declarations,
     hir::{
         expr::{
             ExprKind,
@@ -33,8 +34,27 @@ use smallvec::SmallVec;
 #[cfg(test)]
 mod tests;
 
+/// Follow the checked local dependency, never a member spelling or deferred trait dispatch.
+pub(super) fn local_reference(
+    declarations: &Declarations,
+    names: &ResolvedNames,
+    table: &TypeTable,
+    expr: ExprId,
+) -> Option<ConstId> {
+    let target = match table.associated_const(expr) {
+        Some(fact) if fact.interface.is_none() => declarations.definition_target(&fact.member),
+        Some(_) => None,
+        None => names.expr_resolution(expr),
+    };
+    match target {
+        Some(ResolvedName::Const(id)) => Some(id),
+        _ => None,
+    }
+}
+
 pub(super) fn evaluate_constants(
     lowered: &LoweredModule,
+    declarations: &Declarations,
     names: &ResolvedNames,
     type_table: &TypeTable,
     cancel: &CancellationToken,
@@ -43,6 +63,7 @@ pub(super) fn evaluate_constants(
 ) -> HashMap<ConstId, ScalarValue> {
     let mut evaluator = Evaluator {
         lowered,
+        declarations,
         names,
         type_table,
         cancel,
@@ -65,6 +86,7 @@ pub(super) fn evaluate_constants(
 
 struct Evaluator<'a> {
     lowered: &'a LoweredModule,
+    declarations: &'a Declarations,
     names: &'a ResolvedNames,
     type_table: &'a TypeTable,
     cancel: &'a CancellationToken,
@@ -109,10 +131,14 @@ impl Evaluator<'_> {
         let value = match &self.lowered.module.expr(id).kind {
             ExprKind::Tuple(elements) if elements.is_empty() => Ok(ScalarValue::Unit),
             ExprKind::Literal(_) => return None, // Invalid literals were diagnosed during checking.
-            ExprKind::Name { .. } => match self.names.expr_resolution(id)? {
-                ResolvedName::Const(id) => return self.constant(id),
-                _ => return None,
-            },
+            ExprKind::Name { .. } => {
+                return self.constant(local_reference(
+                    self.declarations,
+                    self.names,
+                    self.type_table,
+                    id,
+                )?);
+            }
             ExprKind::Cast { expr, .. } => {
                 let TypeId::Builtin(target) = self.type_table.expr_type(id)? else {
                     return None;

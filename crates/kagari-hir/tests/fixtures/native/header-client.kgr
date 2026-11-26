@@ -1,0 +1,5 @@
+use headers::api::{Box, Marker, Wrap};
+
+impl Marker for Box<i32> {}
+
+fn check(good: Wrap<i32>, bad: Wrap<bool>) {}

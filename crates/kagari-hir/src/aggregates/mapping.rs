@@ -1,8 +1,8 @@
 //! Explicit traversal of the owning HIR records.
 
 use crate::aggregates::{
-    AggregateCatalog, EnumSignature, FieldSignature, InherentMethodSignature, NativeTypeSignature,
-    StructSignature, VariantSignature,
+    AggregateCatalog, EnumSignature, FieldSignature, InherentConstSignature,
+    InherentMethodSignature, NativeTypeSignature, StructSignature, VariantSignature,
 };
 use crate::identity_mapping::map_hash_entries;
 use kagari_common::{
@@ -48,6 +48,54 @@ impl DefinitionReferences for FieldSignature {
         visit(&self.owner)?;
         self.ty.visit_definition_ids(visit, cancel)?;
         self.declaration.visit_definition_ids(visit, cancel)?;
+        Ok(())
+    }
+}
+
+impl RemapDefinitions for InherentConstSignature {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            source: self.source.remap_definitions(mapper)?,
+            site: self.site.remap_definitions(mapper)?,
+            owner: self.owner.remap_definitions(mapper)?,
+            ty: self.ty.remap_definitions(mapper)?,
+            generic_params: map_sequence(&self.generic_params, |p| p.remap_definitions(mapper))?,
+            bounds: map_hash_entries(
+                self.bounds.len(),
+                self.bounds.iter().map(|(ty, bounds)| {
+                    Ok((
+                        ty.remap_definitions(mapper)?,
+                        map_sequence(bounds, |b| b.remap_definitions(mapper))?,
+                    ))
+                }),
+            )?,
+            visibility: self.visibility,
+        })
+    }
+}
+
+impl DefinitionReferences for InherentConstSignature {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        self.source.visit_definition_ids(visit, cancel)?;
+        self.site.visit_definition_ids(visit, cancel)?;
+        self.owner.visit_definition_ids(visit, cancel)?;
+        self.ty.visit_definition_ids(visit, cancel)?;
+        for p in &self.generic_params {
+            p.visit_definition_ids(visit, cancel)?;
+        }
+        for (ty, bounds) in &self.bounds {
+            ty.visit_definition_ids(visit, cancel)?;
+            for b in bounds {
+                b.visit_definition_ids(visit, cancel)?;
+            }
+        }
         Ok(())
     }
 }
@@ -196,6 +244,7 @@ impl RemapDefinitions for VariantSignature {
         mapper.check()?;
         Ok(VariantSignature {
             reports_failure: self.reports_failure,
+            shape: self.shape.clone(),
             id: mapper.reference(&self.id)?,
             owner: mapper.reference(&self.owner)?,
             slot: self.slot,
@@ -329,6 +378,15 @@ impl RemapDefinitions for AggregateCatalog {
                     ))
                 }),
             )?,
+            inherent_consts: map_entries(
+                self.inherent_consts.len(),
+                self.inherent_consts.iter().map(|(key, value)| {
+                    Ok((
+                        mapper.reference(key)?,
+                        Arc::new(value.remap_definitions(mapper)?),
+                    ))
+                }),
+            )?,
             inherent_methods: map_entries(
                 self.inherent_methods.len(),
                 self.inherent_methods.iter().map(|(key, value)| {
@@ -423,6 +481,11 @@ impl DefinitionReferences for AggregateCatalog {
             visit(key0)?;
             check_cancel(cancel)?;
             visit(&(value0).0)?;
+        }
+        for (key, value) in &self.inherent_consts {
+            check_cancel(cancel)?;
+            visit(key)?;
+            value.visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.inherent_methods {
             check_cancel(cancel)?;

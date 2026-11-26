@@ -7,7 +7,7 @@ use kagari_source::source::SourceFile;
 
 use crate::{
     ast::{
-        expr::{Expr, Literal, PathExpr, Pattern},
+        expr::{Expr, Literal, PathExpr, Pattern, PatternLiteral},
         item::{Attribute, AttributeValue, Item, Member},
         misc::{Name, Path},
         site::{RecoveryPosition, SeparatedList, SyntaxSite, Unexpected},
@@ -62,6 +62,15 @@ impl NodeData for Name {
 impl NodeData for Literal {
     fn site(&self) -> SyntaxSite {
         self.token.site()
+    }
+}
+
+impl NodeData for PatternLiteral {
+    fn site(&self) -> SyntaxSite {
+        SyntaxSite {
+            first: self.minus.map_or(self.value.token.index(), Token::index),
+            end: self.value.token.index() + 1,
+        }
     }
 }
 

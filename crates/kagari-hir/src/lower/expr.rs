@@ -230,28 +230,31 @@ impl Lowerer {
                 else_branch: if_expr.else_branch().map(|expr| self.lower_expr(&expr)),
             },
             ExprView::StructExpr(struct_expr) => ExprKind::StructInit {
-                explicit_type: struct_expr.generic_args().map(|arguments| {
-                    let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
-                    let name = struct_expr
-                        .path()
-                        .and_then(|path| path.name_text())
-                        .unwrap_or_default();
-                    let mut span = syntax_span(&arguments);
-                    if let Some(path) = struct_expr.path() {
-                        span.start = syntax_span(&path).start;
-                    }
-                    let bindings = self.lower_associated_bindings(&arguments);
-                    self.alloc_type(
-                        span,
-                        TypeKind::Generic {
-                            name,
-                            args,
-                            bindings,
-                            callable_syntax: false,
-                            positional_after_binding: arguments.positional_after_binding(),
-                        },
-                    )
-                }),
+                explicit_type: struct_expr
+                    .generic_args()
+                    .or_else(|| struct_expr.path()?.generic_args())
+                    .map(|arguments| {
+                        let args = arguments.args().map(|arg| self.lower_type(&arg)).collect();
+                        let name = struct_expr
+                            .path()
+                            .and_then(|path| path.path()?.text())
+                            .unwrap_or_default();
+                        let mut span = syntax_span(&arguments);
+                        if let Some(path) = struct_expr.path() {
+                            span.start = syntax_span(&path).start;
+                        }
+                        let bindings = self.lower_associated_bindings(&arguments);
+                        self.alloc_type(
+                            span,
+                            TypeKind::Generic {
+                                name,
+                                args,
+                                bindings,
+                                callable_syntax: false,
+                                positional_after_binding: arguments.positional_after_binding(),
+                            },
+                        )
+                    }),
                 path: struct_expr
                     .path()
                     .and_then(|path| path.name_text())

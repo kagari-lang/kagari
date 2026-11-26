@@ -70,6 +70,14 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
   }
 });
 
+test('named variant payloads highlight declarations without field binding keywords', () => {
+  const text = 'enum Event<T> where T: Show { Hit { amount: T } }';
+  const found = captures(text);
+  for (const [needle, scope] of [['Hit', 'variant'], ['amount', 'property'], ['T }', 'type'], ['where', 'keyword']]) {
+    assert.equal(effectiveCapture(found, text.indexOf(needle)), scope, needle);
+  }
+});
+
 test('character quote pairs coexist with identifier interpolation', () => {
   const text = String.raw`fn main() { val smile = '🙂'; val open = '\u{7B_}'; "{smile} {open} tail" }`;
   const tree = parse(text);

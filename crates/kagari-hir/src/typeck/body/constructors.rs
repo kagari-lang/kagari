@@ -21,6 +21,7 @@ use crate::{
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_types::declaration::names::NameNamespace;
+use std::borrow::Cow;
 use {
     kagari_common::identity::table::DefinitionId,
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
@@ -113,7 +114,7 @@ impl<'a> BodyChecker<'a> {
             return None;
         }
         let explicit = match &self.lowered.module.expr(callee).kind {
-            ExprKind::Name { explicit_type, .. } => {
+            ExprKind::Name { explicit_type, .. } | ExprKind::StructInit { explicit_type, .. } => {
                 explicit_type.map(|ty| self.resolve_constructor_type(ty, env))
             }
             _ => None,
@@ -162,7 +163,43 @@ impl<'a> BodyChecker<'a> {
             .cloned();
         let name = format!("{}::{}", signature.declaration.name, member);
         let generic_params = signature.generic_params.clone();
+        let braced = match &self.lowered.module.expr(expression).kind {
+            ExprKind::StructInit { fields, .. } => Some(fields),
+            _ => None,
+        };
+        let field_slots = if let (Some(fields), Some(variant)) = (braced, &variant) {
+            match variant.named_slots(fields.iter().map(|f| f.name.as_str()), false) {
+                Ok(slots) => Some(slots),
+                Err(reason) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                            struct_name: name,
+                            reason,
+                        })
+                        .with_span(
+                            self.lowered
+                                .module
+                                .expr(expression)
+                                .origin
+                                .diagnostic_span(),
+                        ),
+                    );
+                    self.infer_call_args(args, env);
+                    return Some(TypeId::Error);
+                }
+            }
+        } else {
+            None
+        };
+        let parameters: Cow<'_, [TypeId]> = match (&variant, &field_slots) {
+            (Some(v), Some(slots)) => {
+                Cow::Owned(slots.iter().map(|&i| v.payload[i].clone()).collect())
+            }
+            (Some(v), None) => Cow::Borrowed(&v.payload),
+            _ => Cow::Borrowed(&[]),
+        };
         let target = ResolvedEnumConstructor {
+            field_slots,
             enumeration,
             variant: variant.as_ref().map(|variant| variant.id),
         };
@@ -196,9 +233,7 @@ impl<'a> BodyChecker<'a> {
         }
         let actual = self.infer_generic_args(
             args,
-            variant
-                .iter()
-                .flat_map(|variant| variant.payload.iter().cloned()),
+            parameters.iter().cloned(),
             &generic_params,
             &mut substitution,
             env,
@@ -229,8 +264,21 @@ impl<'a> BodyChecker<'a> {
         });
         self.type_table.insert_expr(callee, result.clone());
         env.exprs.insert(callee, result.clone());
-        if let Some(variant) = variant {
-            if variant.payload.is_empty() && expression != callee {
+        if let Some(variant) = &variant {
+            if braced.is_none() && variant.shape.labels().is_some() {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: format!("{name} (named variant; use braces)"),
+                    })
+                    .with_span(
+                        self.lowered
+                            .module
+                            .expr(expression)
+                            .origin
+                            .diagnostic_span(),
+                    ),
+                );
+            } else if variant.payload.is_empty() && expression != callee {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidCallTarget {
                         type_name: format!("{name} (unit variant; omit parentheses)"),
@@ -254,7 +302,7 @@ impl<'a> BodyChecker<'a> {
                     .with_span(self.lowered.module.expr(callee).origin.diagnostic_span()),
                 );
             }
-            for (index, expected) in variant.payload.iter().enumerate() {
+            for (index, expected) in parameters.iter().enumerate() {
                 if self.cancelled() {
                     return Some(TypeId::Unknown);
                 }

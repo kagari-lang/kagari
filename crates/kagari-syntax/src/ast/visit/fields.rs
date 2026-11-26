@@ -99,6 +99,8 @@ alternative_walk!(expr::StructEntry { Field, Update });
 alternative_walk!(expr::ClosureParams { Empty, List });
 alternative_walk!(expr::StringPart { Text, Hole });
 alternative_walk!(expr::PatternBound { Literal, Path });
+alternative_walk!(expr::PositionalPattern { Pattern, Rest });
+alternative_walk!(misc::VariantPayload { Tuple, Named });
 alternative_walk!(misc::GenericArgument { Type, Binding });
 alternative_walk!(misc::TraitApplication { Generic, Callable });
 alternative_walk!(item::FunctionBody { Block, Declaration });

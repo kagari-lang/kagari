@@ -1,0 +1,43 @@
+trait Marker {}
+
+struct Box<T> {}
+
+impl Marker for Box<i32> {}
+
+struct Wrap<T> where Box<T>: Marker {}
+
+enum Choice<T> where Box<T>: Marker {
+    Some(Wrap<T>),
+}
+
+trait Base {}
+
+trait Reader<T>: Base where Box<T>: Marker {
+    fn read(self, value: Wrap<T>) -> Wrap<T> {
+        value
+    }
+}
+
+struct Number {}
+
+impl Base for Number {}
+
+impl Reader<i32> for Number {}
+
+fn good(x: Wrap<i32>, y: Choice<i32>, z: Reader<i32>) {}
+
+fn bad(x: Wrap<bool>, y: Choice<bool>, z: Reader<bool>) {}
+
+impl Reader<bool> for Number {}
+
+struct Impossible where Box<bool>: Marker {}
+
+fn probe<U: Reader<bool>>() {}
+
+trait Relay<T> where Box<T>: Marker {
+    type Output: Reader<T>;
+}
+
+fn forward<T, U>() where U: Reader<T>, Box<T>: Marker {}
+
+fn unproven<T, U>() where U: Reader<T> {}

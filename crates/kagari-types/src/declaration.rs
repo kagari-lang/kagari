@@ -26,8 +26,12 @@ use crate::{
     ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
-use kagari_common::identity::{DefinitionKind, table::DefinitionId};
+use kagari_common::{
+    identifier::is_identifier,
+    identity::{DefinitionKind, table::DefinitionId},
+};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {
@@ -120,10 +124,38 @@ pub struct FieldDef {
     pub mutable: bool,
 }
 
+/// Source construction and matching shape. Named labels follow logical payload order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VariantShape {
+    #[default]
+    Positional,
+    Named(#[serde(deserialize_with = "crate::decode_limits::nested")] Vec<String>),
+}
+
+impl VariantShape {
+    pub fn labels(&self) -> Option<&[String]> {
+        match self {
+            Self::Positional => None,
+            Self::Named(labels) => Some(labels),
+        }
+    }
+
+    pub fn valid_for(&self, arity: usize) -> bool {
+        self.labels().is_none_or(|labels| {
+            let mut seen = HashSet::new();
+            labels.len() == arity
+                && labels
+                    .iter()
+                    .all(|name| is_identifier(name) && seen.insert(name))
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantDef {
     /// Portable failure-origin fact, verified against the canonical `Result::Err` schema.
     pub reports_failure: bool,
+    pub shape: VariantShape,
     pub name: String,
     pub payload: Vec<Ty>,
 }

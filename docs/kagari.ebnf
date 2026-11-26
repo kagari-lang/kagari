@@ -100,7 +100,7 @@ param               ::= IDENT ":" type ;
 
 return_type         ::= "->" type ;
 
-struct_decl         ::= "struct" IDENT generic_param_clause? "{" field_list? "}" ;
+struct_decl         ::= "struct" IDENT generic_param_clause? where_clause? "{" field_list? "}" ;
 
 field_list          ::= field ("," field)* (",")? ;
 
@@ -109,14 +109,19 @@ field               ::= attribute* visibility? field_binding IDENT ":" type ;
 field_binding       ::= "val"
                       | "var" ;
 
-enum_decl           ::= "enum" IDENT generic_param_clause? "{" variant_list? "}" ;
+enum_decl           ::= "enum" IDENT generic_param_clause? where_clause? "{" variant_list? "}" ;
 
 variant_list        ::= variant ("," variant)* (",")? ;
 
 variant             ::= IDENT
-                      | IDENT "(" type_list? ")" ;
+                      | IDENT "(" type_list? ")"
+                      | IDENT "{" payload_field_list? "}" ;
 
-trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
+payload_field_list  ::= payload_field ("," payload_field)* (",")? ;
+
+payload_field       ::= IDENT ":" type ;
+
+trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? where_clause? "{" trait_member* "}" ;
 
 supertrait_clause   ::= ":" type_bound_list ;
 
@@ -168,7 +173,7 @@ path_segment        ::= IDENT
 
 where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-(* Semantics restrict where targets to generic parameters and their projections. *)
+(* A predicate constrains the written type, e.g. Box<T>, not just its parameters. *)
 where_predicate     ::= type ":" type_bound_list ;
 
 trait_ref           ::= path trait_arguments? ;
@@ -191,7 +196,8 @@ associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
 
 associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause? ";" ;
 
-impl_item           ::= attribute* method_decl ;
+impl_item           ::= attribute* method_decl
+                      | attribute* visibility? associated_const_def ;
 
 method_decl         ::= visibility? ("native" method_sig ";" | method_sig block) ;
 
@@ -222,7 +228,7 @@ binding_kind        ::= "val"
 
 type_annotation     ::= ":" type ;
 
-init_expr           ::= "=" expr ;
+init_expr           ::= "=" expr ("else" block)? ;
 
 assign_stmt         ::= place_expr assign_op expr ";" ;
 
@@ -344,7 +350,9 @@ array_expr          ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 explicit_enum_path  ::= path generic_args "::" IDENT ;
 
-struct_expr         ::= path generic_args? "{" struct_init? "}" ;
+(* Braced enum constructors require named payloads and do not accept update bases. *)
+struct_expr         ::= path generic_args? "{" struct_init? "}"
+                      | explicit_enum_path "{" field_init_list? "}" ;
 
 struct_init         ::= field_init_list
                       | struct_update_base
@@ -394,11 +402,15 @@ range_pattern       ::= primary_pattern range_pattern_tail? ;
 range_pattern_tail  ::= ".." range_bound
                       | "..=" range_bound ;
 
-range_bound         ::= scalar_literal
+pattern_literal     ::= scalar_literal
+                      | "-" INTEGER
+                      | "-" FLOAT ;
+
+range_bound         ::= pattern_literal
                       | path ;
 
 primary_pattern     ::= "_"
-                      | scalar_literal
+                      | pattern_literal
                       | path
                       | tuple_struct_pattern
                       | struct_pattern
@@ -408,9 +420,13 @@ primary_pattern     ::= "_"
 parenthesized_pattern ::= "(" pattern ")" ;
 
 tuple_pattern       ::= "(" ")"
-                      | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
+                      | "(" ".." ")"
+                      | "(" positional_pattern "," pattern_list? ")" ;
 
-pattern_list        ::= pattern ("," pattern)* (",")? ;
+(* At most one rest per positional list; suffix children align from the end. *)
+positional_pattern  ::= pattern | ".." ;
+
+pattern_list        ::= positional_pattern ("," positional_pattern)* (",")? ;
 
 tuple_struct_pattern ::= path "(" pattern_list? ")" ;
 

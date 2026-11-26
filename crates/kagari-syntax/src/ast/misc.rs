@@ -355,15 +355,40 @@ node!(
 );
 
 node!(
-    /// An enum variant name, attributes and optional tuple payload.
+    /// An enum variant name, attributes and optional positional or named payload.
     ///
-    /// `Empty` has `payload = None`; `Value(T)` has `Some(TuplePayload)`.
-    /// The payload owns parentheses and type entries; the surrounding [`VariantList`]
+    /// `Empty` has `payload = None`; `Value(T)` has `Some(VariantPayload::Tuple(..))`.
+    /// The payload owns delimiters and its entries; the surrounding [`VariantList`]
     /// owns the comma after the whole variant.
     Variant {
         attributes: Attributes,
         name: Required<Name>,
-        payload: Option<TuplePayload>,
+        payload: Option<VariantPayload>,
+    }
+);
+
+/// Delimiters distinguish positional payloads from labeled ones, even when empty.
+#[derive(Debug)]
+pub enum VariantPayload {
+    Tuple(TuplePayload),
+    Named(NamedPayload),
+}
+
+node!(
+    /// In `Hit { amount: i32 }`, braces and comma-separated entries belong to the payload.
+    NamedPayload {
+        open: Token<tokens::LBrace>,
+        fields: SeparatedList<PayloadField>,
+        close: Required<Token<tokens::RBrace>>,
+    }
+);
+
+node!(
+    /// A payload slot such as `amount: i32`; no visibility or binding modifier.
+    PayloadField {
+        name: Required<Name>,
+        colon: Required<Token<tokens::Colon>>,
+        ty: Required<TypeSyntax>,
     }
 );
 

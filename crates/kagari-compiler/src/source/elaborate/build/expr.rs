@@ -143,6 +143,9 @@ impl Builder<'_, '_> {
             let fields = match syntax {
                 ExprKind::Name { .. } => Vec::new(),
                 ExprKind::Call { args, .. } => args.to_vec(),
+                ExprKind::StructInit {
+                    fields, base: None, ..
+                } => fields.iter().map(|f| f.value).collect(),
                 _ => {
                     return Err(
                         self.error(Some(span), "constructor fact on non-constructor expression")
@@ -154,6 +157,7 @@ impl Builder<'_, '_> {
             }
             self.expressions(&fields)?;
             return Ok(CheckedExprKind::Enum {
+                field_slots: enumeration.field_slots.clone(),
                 declaration: enumeration.enumeration,
                 variant,
                 fields,

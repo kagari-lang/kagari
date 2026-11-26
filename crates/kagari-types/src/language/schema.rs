@@ -120,7 +120,8 @@ impl CoreEnum {
                 .iter()
                 .zip(variants)
                 .all(|(v, &(name, index))| {
-                    v.name == name
+                    v.shape.labels().is_none()
+                        && v.name == name
                         && v.payload
                             .iter()
                             .eq(index.map(|i| parameter(i).as_type()).iter())

@@ -47,19 +47,25 @@ type_bound_list	1	*	("+" trait_ref)
 param_list	1	*	("," param)
 param_list	2	?	(",")
 struct_decl	1	?	generic_param_clause
-struct_decl	2	?	field_list
+struct_decl	2	?	where_clause
+struct_decl	3	?	field_list
 field_list	1	*	("," field)
 field_list	2	?	(",")
 field	1	*	attribute
 field	2	?	visibility
 enum_decl	1	?	generic_param_clause
-enum_decl	2	?	variant_list
+enum_decl	2	?	where_clause
+enum_decl	3	?	variant_list
 variant_list	1	*	("," variant)
 variant_list	2	?	(",")
 variant	1	?	type_list
+variant	2	?	payload_field_list
+payload_field_list	1	*	("," payload_field)
+payload_field_list	2	?	(",")
 trait_decl	1	?	generic_param_clause
 trait_decl	2	?	supertrait_clause
-trait_decl	3	*	trait_member
+trait_decl	3	?	where_clause
+trait_decl	4	*	trait_member
 trait_member	1	*	attribute
 associated_type_decl	1	?	generic_param_clause
 associated_type_decl	2	?	(":" type_bound_list)
@@ -90,6 +96,8 @@ trait_impl	2	?	where_clause
 trait_impl	3	*	trait_impl_item
 trait_impl_item	1	*	attribute
 impl_item	1	*	attribute
+impl_item	2	*	attribute
+impl_item	3	?	visibility
 method_decl	1	?	visibility
 method_param_list	1	?	("," param_list)
 method_param_list	2	?	(",")
@@ -98,6 +106,7 @@ block	2	?	expr
 stmt	1	*	attribute
 binding_stmt	1	?	type_annotation
 binding_stmt	2	?	init_expr
+init_expr	1	?	("else" block)
 return_stmt	1	?	expr
 if_expr	1	?	("else" (if_expr | block))
 break_stmt	1	?	expr
@@ -121,6 +130,7 @@ expr_list	2	?	(",")
 array_expr	1	?	(expr_list | expr ";" expr)
 struct_expr	1	?	generic_args
 struct_expr	2	?	struct_init
+struct_expr	3	?	field_init_list
 struct_init	1	*	("," field_init)
 field_init_list	1	*	("," field_init)
 field_init_list	2	?	(",")
@@ -135,10 +145,8 @@ match_arm_list	2	?	(",")
 match_arm	1	?	match_guard
 or_pattern	1	*	("|" range_pattern)
 range_pattern	1	?	range_pattern_tail
-tuple_pattern	1	*	("," pattern)
-tuple_pattern	2	?	(",")
-tuple_pattern	3	?	(pattern ("," pattern)* (",")?)
-pattern_list	1	*	("," pattern)
+tuple_pattern	1	?	pattern_list
+pattern_list	1	*	("," positional_pattern)
 pattern_list	2	?	(",")
 tuple_struct_pattern	1	?	pattern_list
 struct_pattern	1	?	field_pattern_list

@@ -64,14 +64,21 @@ impl Builder<'_, '_> {
             StmtKind::Binding {
                 pattern,
                 initializer,
+                else_block,
                 ..
             } => {
                 self.expression(initializer)?;
                 if self.completes(initializer)? {
                     self.pattern(pattern)?;
+                    let else_block =
+                        else_block.filter(|_| !self.body.patterns[&pattern].irrefutable);
+                    if let Some(block) = else_block {
+                        self.block(block)?;
+                    }
                     CheckedStmtKind::Binding {
                         pattern,
                         initializer,
+                        else_block,
                     }
                 } else {
                     CheckedStmtKind::Expr(initializer)
@@ -195,15 +202,15 @@ impl Builder<'_, '_> {
         } else if let Some(variant) = facts.variant {
             let fields = match node.kind {
                 PatternKind::Name { .. } => Vec::new(),
-                PatternKind::EnumVariant { fields, .. } => fields,
+                PatternKind::EnumVariant { fields, .. } => fields.elements,
+                PatternKind::Struct { fields, .. } => {
+                    fields.into_iter().map(|f| f.pattern).collect()
+                }
                 _ => return Err(self.error(Some(span), "variant on non-constructor pattern")),
             };
-            for field in &fields {
-                self.pattern(*field)?;
-            }
             CheckedPatternKind::Variant {
                 declaration: *variant,
-                fields,
+                fields: self.positional_patterns(fields, facts.slots, span)?,
             }
         } else {
             match node.kind {
@@ -226,12 +233,9 @@ impl Builder<'_, '_> {
                     }
                     CheckedPatternKind::Or(alternatives)
                 }
-                PatternKind::Tuple(elements) => {
-                    for element in &elements {
-                        self.pattern(*element)?;
-                    }
-                    CheckedPatternKind::Tuple(elements)
-                }
+                PatternKind::Tuple(elements) => CheckedPatternKind::Tuple(
+                    self.positional_patterns(elements.elements, facts.slots, span)?,
+                ),
                 PatternKind::Struct { fields, .. } => {
                     let selected =
                         self.require(facts.fields, Some(span), "missing pattern fields")?;
@@ -258,6 +262,27 @@ impl Builder<'_, '_> {
             },
         );
         Ok(())
+    }
+
+    fn positional_patterns(
+        &mut self,
+        elements: Vec<PatternId>,
+        slots: Option<&[usize]>,
+        span: Span,
+    ) -> Result<Vec<(usize, PatternId)>, ElaborationError> {
+        let slots = self.require(slots, Some(span), "missing checked positional slots")?;
+        if slots.len() != elements.len() {
+            return Err(self.error(Some(span), "positional pattern slot count mismatch"));
+        }
+        slots
+            .iter()
+            .copied()
+            .zip(elements)
+            .map(|(slot, element)| {
+                self.pattern(element)?;
+                Ok((slot, element))
+            })
+            .collect()
     }
 
     fn place_completes(&mut self, id: PlaceId) -> Result<bool, ElaborationError> {

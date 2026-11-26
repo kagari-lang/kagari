@@ -214,12 +214,14 @@
           }
         },
         {
-          "match": "\\b(val|var|const)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)([ \\t]*)(:)([ \\t]*)(?!fn\\b)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(?:(const)[ \\t]+([A-Za-z_][A-Za-z0-9_]*)|(val|var)[ \\t]+([A-Za-z_][A-Za-z0-9_]*))[ \\t]*(:)[ \\t]*(?!fn\\b)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.kagari" },
-            "3": { "name": "variable.other.kagari" },
+            "2": { "name": "variable.other.constant.kagari" },
+            "3": { "name": "storage.type.kagari" },
+            "4": { "name": "variable.other.kagari" },
             "5": { "name": "punctuation.separator.type.kagari" },
-            "7": { "name": "entity.name.type.kagari" }
+            "6": { "name": "entity.name.type.kagari" }
           }
         },
         {

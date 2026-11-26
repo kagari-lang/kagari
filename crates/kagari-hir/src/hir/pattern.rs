@@ -10,7 +10,7 @@ use crate::hir::{
 ///
 /// ```text
 /// match pair { (x, _) => x }
-/// outer -> PatternData { kind: Tuple([p0, p1]) }
+/// outer -> Tuple(PositionalPatterns { elements: [p0, p1], rest: None })
 /// p0 -> PatternData { kind: Name { local: l } }
 /// p1 -> PatternData { kind: Wildcard }
 /// l -> provisional binding identity used by resolution/type facts
@@ -30,13 +30,14 @@ pub struct PatternData {
 
 /// Source patterns and nested links used by declarations, match, for and binding conditions.
 ///
-/// | Pattern source | Kind (all payload fields shown) |
+/// | Pattern source | Kind (positional lists abbreviated) |
 /// | --- | --- |
 /// | `_` | `Wildcard` |
 /// | `1 \| 2` | `Or([one_pattern, two_pattern])` |
 /// | `1..=LIMIT` | `Range { start: Literal(number_one), end: Path("LIMIT"), inclusive: true }` |
 /// | `x` | `Name { local: l }` |
-/// | `42` | `Literal(Literal { kind: Number, text: "42" })` |
+/// | `-42` | `Literal(PatternLiteral { value: Literal { kind: Number, text: "42" }, negative: true })` |
+/// | `(x, .., z)` | `Tuple(PositionalPatterns { elements: [x_pattern, z_pattern], rest: Some(1) })` |
 /// | `(x, _)` / `()` | `Tuple([x_pattern, wildcard])` / `Tuple([])` |
 /// | `Point { x: n, y }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: n_pattern }, PatternField { name: "y", pattern: y_pattern }], has_rest: false }` |
 /// | `Point { x, .. }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: x_pattern }], has_rest: true }` |
@@ -73,9 +74,9 @@ pub enum PatternKind {
         local: LocalId,
     },
     /// A literal pattern whose value/type is checked later.
-    Literal(Literal),
-    /// Tuple element patterns in source order.
-    Tuple(Vec<PatternId>),
+    Literal(PatternLiteral),
+    /// Tuple element patterns and optional rest position.
+    Tuple(PositionalPatterns),
     /// A named-field pattern.
     Struct {
         /// Unresolved struct path.
@@ -90,8 +91,47 @@ pub enum PatternKind {
         /// Unresolved variant path.
         path: String,
         /// Payload patterns; empty for a payload-free variant.
-        fields: Vec<PatternId>,
+        fields: PositionalPatterns,
     },
+}
+
+/// Source-ordered explicit children; in `(a, .., z)` `rest` is `Some(1)`.
+#[derive(Debug, Clone, Default)]
+pub struct PositionalPatterns {
+    /// Child pattern IDs in written order, excluding `..`.
+    pub elements: Vec<PatternId>,
+    /// Number of explicit children to the left of `..`, if written.
+    pub rest: Option<usize>,
+}
+
+impl PositionalPatterns {
+    /// Map the written children onto a known shape. No rest means exact arity.
+    pub(crate) fn slots(&self, arity: usize) -> Option<Vec<usize>> {
+        let gap = arity.checked_sub(self.elements.len())?;
+        if gap != 0 && self.rest.is_none() {
+            return None;
+        }
+        Some(
+            (0..self.elements.len())
+                .map(|i| {
+                    if self.rest.is_some_and(|rest| i >= rest) {
+                        i + gap
+                    } else {
+                        i
+                    }
+                })
+                .collect(),
+        )
+    }
+}
+
+/// Literal magnitude and source sign, checked together against the expected scalar domain.
+#[derive(Debug, Clone)]
+pub struct PatternLiteral {
+    /// Literal token payload without the sign.
+    pub value: Literal,
+    /// Whether a numeric token was preceded by `-`.
+    pub negative: bool,
 }
 
 /// An inline range-pattern endpoint before constant evaluation.
@@ -103,8 +143,8 @@ pub enum PatternKind {
 /// checking resolves/evaluates them under pattern constraints.
 #[derive(Debug, Clone)]
 pub enum PatternBound {
-    /// A literal endpoint, such as `1`.
-    Literal(Literal),
+    /// A literal endpoint, such as `-1`.
+    Literal(PatternLiteral),
     /// A constant path; recovery may produce `<missing>`.
     Path(String),
 }

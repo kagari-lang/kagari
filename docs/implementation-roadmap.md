@@ -1327,6 +1327,26 @@ are not a second pending queue.
 
 **HIR declaration inputs: implemented and checked locally.** Compilation lowers scoped Rust registrations; the editor analyzes generated `.kgr` plus importer scopes and bundled core, without registrations. Both use the [same HIR graph and type checker](architecture/hir.md#native-declaration-inputs-and-origins). The [declaration contract](spec/standard-declarations.md#source-visible-declarations-and-executable-evidence) distinguishes a visible Host handle from a managed object without granting a binding. Local checks sampled declaration selection, retained editor snapshots, package coherence, decoded execution and independent rejection of incompatible installations; full workspace tests and exhaustive matrices remain CI-only.
 
+The [unified declaration input review](hir-model-review.md#unified-declaration-input-review) retains pending items 4–9 from `341662b37`; the P0/P1 syntax checkpoint addresses the first three.
+
+**P0/P1 correctness and syntax checkpoint.** Publication selects visible type names in the
+importer's scope without capturing a generic binder, and preserves trait predicates. Ordinary
+struct/enum/trait headers now accept trailing `where`, including composite targets. Enum matches
+must cover variants and payloads without relying on a guard staying true or mutable state
+staying unchanged. The [language spec](spec/syntax.md) owns named enum fields, early-exit
+bindings, signed literal and positional rest patterns; [associated constants](spec/traits.md)
+include inherent scalar members. Field labels survive source-free loading and participate in
+interface compatibility; regenerate disposable artifacts built with the previous payload layout.
+
+Local checks sampled publisher/client equivalence, valid and invalid header applications,
+mutable guards, signed/rest pattern positions, binding failure scope, imported constants and
+public payload field rename rejection. The three SDK examples (named variants, positional
+patterns, binding `else`) run through source and decoded artifacts. Exhaustive workspace and
+backend matrices remain CI-only. A separate baseline regression, `imported_constant_edits_invalidate_value_facts_without_retargeting_aliases`,
+reproduces at `341662b37` (an expression ID is reused across independent lowerings); it was not
+changed here. Cross-module references in consumer-side const initializers and the optional
+remaining pattern extensions are outside this checkpoint.
+
 LoweredModule retains source, module and input kind. Module.nodes uses HirNodes, and records carry their origins. Explicit common import
 scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
 Native signatures have one static kind without installed entries. Real Script expressions/default

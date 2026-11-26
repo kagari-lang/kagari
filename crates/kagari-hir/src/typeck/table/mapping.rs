@@ -227,6 +227,7 @@ impl RemapDefinitions for ResolvedEnumConstructor {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ResolvedEnumConstructor {
+            field_slots: self.field_slots.clone(),
             enumeration: mapper.reference(&self.enumeration)?,
             variant: self
                 .variant
@@ -513,6 +514,7 @@ impl RemapDefinitions for TypeTable {
             scalars: self.scalars.clone(),
             pattern_scalars: self.pattern_scalars.clone(),
             pattern_ranges: self.pattern_ranges.clone(),
+            pattern_slots: self.pattern_slots.clone(),
             pattern_fields: map_hash_entries(
                 self.pattern_fields.len(),
                 self.pattern_fields.iter().map(|(key, value)| {
@@ -646,7 +648,11 @@ impl RemapDefinitions for ResolvedAssociatedConst {
         mapper.check()?;
         Ok(ResolvedAssociatedConst {
             receiver: self.receiver.remap_definitions(mapper)?,
-            interface: self.interface.remap_definitions(mapper)?,
+            interface: self
+                .interface
+                .as_ref()
+                .map(|ty| ty.remap_definitions(mapper))
+                .transpose()?,
             member: mapper.reference(&self.member)?,
         })
     }
@@ -660,7 +666,9 @@ impl DefinitionReferences for ResolvedAssociatedConst {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         self.receiver.visit_definition_ids(visit, cancel)?;
-        self.interface.visit_definition_ids(visit, cancel)?;
+        if let Some(interface) = &self.interface {
+            interface.visit_definition_ids(visit, cancel)?;
+        }
         check_cancel(cancel)?;
         visit(&self.member)?;
         Ok(())

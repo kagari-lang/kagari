@@ -105,6 +105,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
                     .map(|variant| {
                         let VariantSignature {
                             reports_failure,
+                            shape,
                             id,
                             owner,
                             slot,
@@ -119,6 +120,7 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
                             name.clone(),
                             payload.clone(),
                             *reports_failure,
+                            shape.clone(),
                         )
                     })
                     .collect::<Vec<_>>();

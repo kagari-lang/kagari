@@ -67,7 +67,7 @@ impl FunctionLowerer<'_, '_> {
             CheckedStmtKind::Binding {
                 pattern,
                 initializer,
-                ..
+                else_block,
             } => {
                 let src = self.lower_expr(initializer)?;
                 if self.current_block_terminated() {
@@ -80,7 +80,23 @@ impl FunctionLowerer<'_, '_> {
                     .ty
                     .clone();
                 let mut bindings = Vec::new();
-                self.lower_pattern_decision(pattern, src, &ty, None, &mut bindings)?;
+                let failure = else_block.map(|block| (block, self.new_block()));
+                self.lower_pattern_decision(
+                    pattern,
+                    src,
+                    &ty,
+                    failure.map(|(_, dst)| dst),
+                    &mut bindings,
+                )?;
+                if let Some((block, dst)) = failure {
+                    let success = self.current_block;
+                    self.switch_to_block(dst);
+                    self.lower_block(block)?;
+                    if !self.current_block_terminated() {
+                        return Err(MirLoweringError::MissingBinding("binding else completed"));
+                    }
+                    self.switch_to_block(success);
+                }
                 self.publish_declaration_bindings(pattern, bindings)
             }
             CheckedStmtKind::Assign { target, value, op } => {

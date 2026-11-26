@@ -68,6 +68,16 @@ group!(
     Initializer {
         pub equal: Token<tokens::Eq>,
         pub expression: Required<Expr>,
+        pub else_clause: Option<Box<BindingElse>>,
+    }
+);
+
+group!(
+    /// In `val Some(x) = next() else { return; };`, the block handles a failed match.
+    /// A written `else` without a block retains a missing body.
+    BindingElse {
+        pub keyword: Token<tokens::ElseKw>,
+        pub body: Required<BlockExpr>,
     }
 );
 

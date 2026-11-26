@@ -203,14 +203,16 @@ interpolating its name; update expressions are not permitted inside holes. Exist
 TextMate rules cover this syntax without semantic guesses about `Default` or
 other referenced names.
 
-### Declaration patterns and struct rest
+### Declaration patterns and rest
 
 Ordinary `val`/`var` declarations share the existing pattern nodes used by match,
 for and binding conditions. The declaration root excludes an unparenthesized
 alternative; grouped and nested alternatives still use `or_pattern`. Named-field
-struct patterns permit one final `rest_pattern` (`..`), optionally followed by a
-comma. Tuple/slice rest remains unsupported. Complete field coverage, binding
-consistency and irrefutability belong to static checking, not this editor grammar.
+patterns permit one final `rest_pattern` (`..`), optionally followed by a comma.
+Tuple and positional variant patterns permit one `rest_pattern` anywhere in the
+list, as in `(first, .., last)` or `Packet::Data(.., last)`. Slice patterns are
+not supported. Arity, field coverage, binding consistency and irrefutability
+belong to static checking, not this editor grammar.
 
 For `val (left, Point { x: renamed, .. }) = pair;`, the query tree is:
 

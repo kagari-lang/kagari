@@ -155,6 +155,8 @@ markers!(
     VisibilityScopeToken,
     /// The `+` token, including the separator in `T: Read + Write`.
     Plus,
+    /// The `-` sign on a numeric pattern literal.
+    Minus,
     /// The `*` token, including the wildcard in `use module::*`.
     Star,
     /// The single `||` token used for an empty closure parameter list in `|| 42`.

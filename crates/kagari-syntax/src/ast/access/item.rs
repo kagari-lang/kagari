@@ -99,7 +99,16 @@ macro_rules! where_clauses {
     )+ };
 }
 
-where_clauses!(FnDef, ImplBlock, NativeTypeDef, MethodDef, AssociatedType);
+where_clauses!(
+    FnDef,
+    StructDef,
+    EnumDef,
+    TraitDef,
+    ImplBlock,
+    NativeTypeDef,
+    MethodDef,
+    AssociatedType
+);
 
 macro_rules! functions {
     ($($ty:ty),+ $(,)?) => { $(

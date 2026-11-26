@@ -1,0 +1,16 @@
+enum Packet {
+    Data((bool, i32, i8), bool, f32, i32),
+    Empty,
+}
+
+fn main() -> i32 {
+    var calls = 0;
+    val answer = match {
+        calls += 1;
+        Packet::Data((true, 7, -128i8), false, -2.5f32, 41)
+    } {
+        Packet::Data((_, .., - 128), .., - 2.5, last) => last,
+        Packet::Data((..), ..) | Packet::Empty => 0,
+    };
+    answer + calls
+}

@@ -72,6 +72,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 name: (*name).into(),
                 payload: vec![],
                 reports_failure: false,
+                shape: Default::default(),
             })
             .collect();
         Ok(())

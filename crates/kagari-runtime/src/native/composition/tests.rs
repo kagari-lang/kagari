@@ -80,11 +80,13 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
                         declaration: ok,
                         payload: vec![success.clone()],
                         reports_failure: false,
+                        shape: Default::default(),
                     },
                     EnumVariantLayout {
                         declaration: error,
                         payload: vec![payload.clone()],
                         reports_failure: true,
+                        shape: Default::default(),
                     },
                 ]
             } else {
@@ -92,6 +94,7 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
                     declaration: other,
                     payload: vec![payload.clone()],
                     reports_failure: false,
+                    shape: Default::default(),
                 }]
             },
         })
@@ -110,11 +113,13 @@ fn fixture(runtime: &mut Runtime) -> (ExecutableModule, Vec<TypeArgument>, Varia
             VariantDef {
                 name: "Ok".into(),
                 reports_failure: false,
+                shape: Default::default(),
                 payload: vec![params[0].as_type()],
             },
             VariantDef {
                 name: "Err".into(),
                 reports_failure: true,
+                shape: Default::default(),
                 payload: vec![params[1].as_type()],
             },
         ],

@@ -32,6 +32,18 @@ use crate::test_support::execution;
     "examples/6502-numeric.kgr",
     include_str!("../../../../../../examples/6502-numeric.kgr")
 )]
+#[case::positional_patterns(
+    "examples/syntax/positional-patterns.kgr",
+    include_str!("../../../../../../examples/syntax/positional-patterns.kgr")
+)]
+#[case::named_variants(
+    "examples/syntax/named-variants.kgr",
+    include_str!("../../../../../../examples/syntax/named-variants.kgr")
+)]
+#[case::binding_else(
+    "binding-else.kgr",
+    include_str!("../../../../tests/fixtures/test-fixtures/language/binding-else.kgr")
+)]
 #[case::interface_dispatch(
     "examples/interface-dispatch.kgr",
     include_str!("../../../../../../examples/interface-dispatch.kgr")

@@ -216,14 +216,10 @@ impl FunctionLowerer<'_, '_> {
                 let TypeId::Tuple(types) = expected else {
                     return Err(MirLoweringError::MissingBinding("checked tuple pattern"));
                 };
-                let elements = elements.clone();
-                let types = types.clone();
-                if elements.len() != types.len() {
-                    return Err(MirLoweringError::MissingBinding(
-                        "checked tuple pattern arity",
-                    ));
-                }
-                for (index, (element, ty)) in elements.into_iter().zip(types.iter()).enumerate() {
+                for (index, element) in elements {
+                    let ty = types.get(index).ok_or(MirLoweringError::MissingBinding(
+                        "checked tuple pattern slot",
+                    ))?;
                     if !self.pattern_requires_value(element) {
                         continue;
                     }
@@ -365,7 +361,7 @@ impl FunctionLowerer<'_, '_> {
             CheckedPatternKind::Wildcard => false,
             CheckedPatternKind::Tuple(elements) => elements
                 .iter()
-                .any(|element| self.pattern_requires_value(*element)),
+                .any(|(_, element)| self.pattern_requires_value(*element)),
             CheckedPatternKind::Struct(fields) => fields
                 .iter()
                 .any(|(_, pattern)| self.pattern_requires_value(*pattern)),
@@ -416,7 +412,7 @@ impl FunctionLowerer<'_, '_> {
                     pending.extend(alternatives.first().copied())
                 }
                 CheckedPatternKind::Tuple(fields) | CheckedPatternKind::Variant { fields, .. } => {
-                    pending.extend(fields.iter().rev().copied())
+                    pending.extend(fields.iter().rev().map(|(_, pattern)| *pattern))
                 }
                 CheckedPatternKind::Struct(fields) => {
                     pending.extend(fields.iter().rev().map(|(_, pattern)| *pattern))
@@ -467,7 +463,7 @@ impl FunctionLowerer<'_, '_> {
     fn lower_enum_pattern(
         &mut self,
         declaration: DefinitionId,
-        fields: Vec<PatternId>,
+        fields: Vec<(usize, PatternId)>,
         value: MirValue,
         expected: &TypeId,
         fail: BlockId,
@@ -508,11 +504,7 @@ impl FunctionLowerer<'_, '_> {
             .map(|ty| ty.instantiate(&substitution))
             .collect::<Vec<_>>();
         let slot = signature.slot;
-        if fields.len() != payload.len() {
-            return Err(MirLoweringError::MissingBinding(
-                "checked enum pattern arity",
-            ));
-        }
+
         let cond = self.test_enum_variant(expected, value, slot)?;
         let next = self.new_block();
         self.set_terminator(Terminator::Branch {
@@ -521,7 +513,10 @@ impl FunctionLowerer<'_, '_> {
             else_block: fail,
         });
         self.switch_to_block(next);
-        for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
+        for (index, field) in fields {
+            let ty = payload.get(index).ok_or(MirLoweringError::MissingBinding(
+                "checked variant pattern slot",
+            ))?;
             if !self.pattern_requires_value(field) {
                 continue;
             }
