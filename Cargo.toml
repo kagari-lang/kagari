@@ -54,12 +54,12 @@ kagari-runtime = { path = "crates/kagari-runtime" }
 kagari-gc = { path = "crates/kagari-gc" }
 kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
-cranelift-codegen = "0.137.0"
-cranelift-frontend = "0.137.0"
+cranelift-codegen = "0.138.0"
+cranelift-frontend = "0.138.0"
 cranelift-jit = "0.137.0"
 cranelift-module = "0.137.0"
 cranelift-native = "0.137.0"
-cranelift-object = "0.137.0"
+cranelift-object = "0.138.0"
 smallvec = "1.16.3"
 stacker = "0.1.25"
 serde = { version = "1.0", features = ["derive"] }
