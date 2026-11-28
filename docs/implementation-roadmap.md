@@ -1347,6 +1347,12 @@ reproduces at `341662b37` (an expression ID is reused across independent lowerin
 changed here. Cross-module references in consumer-side const initializers and the optional
 remaining pattern extensions are outside this checkpoint.
 
+Source-error migration checks also found a baseline package-analysis failure:
+`cargo test -p kagari-package --lib implementation_only_dependencies_participate_in_selection_and_conflict_checks`
+fails on both clean `9acc3b9c5` and the typed-error changes. The accepted case
+reports `UnknownName("read")`. The cause was not isolated; HIR package/trait
+selection owns follow-up, not source error reporting.
+
 LoweredModule retains source, module and input kind. Module.nodes uses HirNodes, and records carry their origins. Explicit common import
 scopes and declaration-owned contracts replace attachment maps and input-origin privileges.
 Native signatures have one static kind without installed entries. Real Script expressions/default

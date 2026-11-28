@@ -93,9 +93,7 @@ impl KagariEngine {
             .transpose()?;
         #[cfg(feature = "source")]
         let sources = match &builder.source_root {
-            Some(root) => {
-                SourceDatabase::new(root).map_err(|message| EmbeddingError::Source { message })?
-            }
+            Some(root) => SourceDatabase::new(root)?,
             None => SourceDatabase::default(),
         };
         #[cfg(feature = "source")]

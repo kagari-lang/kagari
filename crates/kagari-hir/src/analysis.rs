@@ -40,7 +40,7 @@ use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, Revision},
     source::SourceFile,
-    source_database::{SourceDatabase, SourceSnapshot},
+    source_database::{SourceDatabase, SourceDatabaseError, SourceSnapshot},
 };
 use kagari_syntax::{ast::module::ModuleSyntax, parser::ParseLimits};
 use kagari_types::declaration::module::ModuleDecl;
@@ -156,7 +156,7 @@ impl AnalysisDatabase {
     /// No filesystem access or working-directory lookup is performed. Relative
     /// declaration names use this captured root; virtual URI identities are preserved.
     /// Invalid or relative roots return an error. User snapshots retain their own names.
-    pub fn new(source_root: &str) -> Result<Self, String> {
+    pub fn new(source_root: &str) -> Result<Self, SourceDatabaseError> {
         let sources = SourceDatabase::new(source_root)?;
         let definitions = DefinitionContext::new().expect("analysis definition context exhausted");
         Ok(Self {

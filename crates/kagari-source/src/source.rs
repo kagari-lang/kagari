@@ -4,6 +4,7 @@ use crate::{
 };
 use kagari_common::{identity::ModuleIdentity, span::Span};
 use std::sync::Arc;
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 struct CopiedSource {
@@ -30,6 +31,19 @@ pub enum SourceExtent {
         /// Module content range, excluding its enclosing braces.
         range: Span,
     },
+}
+
+/// A copied fragment could not be recorded as source provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SourceCopyError {
+    #[error("invalid copy range")]
+    InvalidLocalRange,
+    #[error("source copy must be exact, disjoint and directly authored")]
+    OriginalTextMismatch,
+    #[error("source copy must be exact, disjoint and directly authored")]
+    OverlappingLocalRange,
+    #[error("source copy must be exact, disjoint and directly authored")]
+    NotDirectlyAuthored,
 }
 
 #[derive(Debug, Clone)]
@@ -151,21 +165,24 @@ impl SourceFile {
         local: Span,
         source: Arc<SourceFile>,
         original: Span,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), SourceCopyError> {
         let text = self
             .content
             .text
             .get(local.start..local.end)
-            .ok_or("invalid copy range")?;
-        if source.content.text.get(original.start..original.end) != Some(text)
-            || self
-                .copies
-                .iter()
-                .any(|copy| local.start < copy.local.end && copy.local.start < local.end)
-            || source.extent != SourceExtent::Whole
-            || !source.copies.is_empty()
+            .ok_or(SourceCopyError::InvalidLocalRange)?;
+        if source.content.text.get(original.start..original.end) != Some(text) {
+            return Err(SourceCopyError::OriginalTextMismatch);
+        }
+        if self
+            .copies
+            .iter()
+            .any(|copy| local.start < copy.local.end && copy.local.start < local.end)
         {
-            return Err("source copy must be exact, disjoint and directly authored");
+            return Err(SourceCopyError::OverlappingLocalRange);
+        }
+        if source.extent != SourceExtent::Whole || !source.copies.is_empty() {
+            return Err(SourceCopyError::NotDirectlyAuthored);
         }
         self.copies.push(CopiedSource {
             local,
@@ -242,10 +259,21 @@ mod tests {
         assert_eq!(location, original.span(Span::new(12, 15)).unwrap());
         assert_eq!(view.local_range(location), Some(Span::new(19, 22)));
         assert_eq!(view.copied_sources().next().unwrap().id(), original.id());
-        assert!(view.add_copy(local, original.clone(), authored).is_err());
-        assert!(
-            view.add_copy(Span::new(0, 4), original.clone(), Span::new(12, 15))
-                .is_err()
+        assert_eq!(
+            view.add_copy(local, original.clone(), authored),
+            Err(SourceCopyError::OverlappingLocalRange)
+        );
+        assert_eq!(
+            view.add_copy(Span::new(0, 4), original.clone(), Span::new(12, 15)),
+            Err(SourceCopyError::OriginalTextMismatch)
+        );
+        assert_eq!(
+            view.add_copy(
+                Span::new(0, view.text().len() + 1),
+                original.clone(),
+                authored
+            ),
+            Err(SourceCopyError::InvalidLocalRange)
         );
         let inline = Arc::new(SourceFile::inline_module(
             &original,
@@ -261,7 +289,10 @@ mod tests {
             assert_eq!(inline.offset(position, encoding), Some(authored.start));
         }
         let mut other_view = SourceFile::new("other.kgr", view.text());
-        assert!(other_view.add_copy(local, inline, authored).is_err());
+        assert_eq!(
+            other_view.add_copy(local, inline, authored),
+            Err(SourceCopyError::NotDirectlyAuthored)
+        );
         let mut stale = location;
         stale.revision = Revision(1);
         assert!(view.local_range(stale).is_none());

@@ -322,19 +322,18 @@ impl<'a> Parser<'a> {
             let text = &self.source.text()[span.start..span.end];
             let reason = if text == "f" && self.source.text()[span.end..].starts_with('"') {
                 Some(
-                    "the f String prefix is not supported; use ordinary quotes and name-only interpolation",
+                    "the f String prefix is not supported; use ordinary quotes and name-only interpolation".into(),
                 )
             } else if text.starts_with('"') || text.starts_with("r\"") || text.starts_with("r#") {
                 decode_string_literal_with_cancellation(text, &self.cancel)
                     .ok()
                     .and_then(Result::err)
+                    .map(|error| error.to_string())
             } else {
                 None
             };
             if let Some(reason) = reason {
-                kind = DiagnosticKind::InvalidLiteral {
-                    reason: reason.into(),
-                };
+                kind = DiagnosticKind::InvalidLiteral { reason };
             }
         }
         if self.diagnostics.len() < self.limits.max_diagnostics {

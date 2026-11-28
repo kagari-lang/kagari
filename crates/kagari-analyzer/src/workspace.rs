@@ -7,7 +7,9 @@ use kagari_hir::{
 };
 use kagari_source::{
     identity::FileId,
-    source_database::{CapturedSource, SourceDatabase, SourceLayer, SourceSnapshot},
+    source_database::{
+        CapturedSource, SourceDatabase, SourceDatabaseError, SourceLayer, SourceSnapshot,
+    },
 };
 use std::{collections::HashMap, fs, io::ErrorKind, path::Path};
 
@@ -31,7 +33,7 @@ enum BufferKind {
 
 impl EditorWorkspace {
     /// Takes ownership of the project's base documents, module bindings and package environment.
-    pub fn new(sources: SourceDatabase) -> Result<Self, String> {
+    pub fn new(sources: SourceDatabase) -> Result<Self, SourceDatabaseError> {
         let analysis = AnalysisDatabase::new(sources.root())?;
         Ok(Self {
             sources,
@@ -48,7 +50,10 @@ impl EditorWorkspace {
     /// Opens a user overlay, capturing the local disk base if the project has not supplied one.
     /// A generated key or display path may only open its exact published text, without an overlay.
     pub fn open(&mut self, name: &str, text: String) -> Result<FileId, String> {
-        let name = self.sources.source_name(name)?;
+        let name = self
+            .sources
+            .source_name(name)
+            .map_err(|error| error.to_string())?;
         if self.buffers.contains_key(&name) {
             return Err(format!("document already open: {name}"));
         }
@@ -67,7 +72,9 @@ impl EditorWorkspace {
         } else {
             self.capture_missing_base(&name)?;
             (
-                self.sources.set(&name, text, SourceLayer::Overlay)?,
+                self.sources
+                    .set(&name, text, SourceLayer::Overlay)
+                    .map_err(|error| error.to_string())?,
                 BufferKind::Editable,
             )
         };
@@ -86,7 +93,11 @@ impl EditorWorkspace {
             return Ok(());
         }
         match fs::metadata(path) {
-            Ok(metadata) if metadata.is_file() => self.sources.load_file(name).map(|_| ()),
+            Ok(metadata) if metadata.is_file() => self
+                .sources
+                .load_file(name)
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
             Ok(_) => Err(format!("{name}: not a regular source file")),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
             Err(error) => Err(format!("{name}: {error}")),
@@ -96,12 +107,16 @@ impl EditorWorkspace {
     /// Replaces the full text of an open, editable document. An open generated view
     /// remains read-only even after its name disappears from the live export.
     pub fn change(&mut self, name: &str, text: String) -> Result<(), String> {
-        let name = self.sources.source_name(name)?;
+        let name = self
+            .sources
+            .source_name(name)
+            .map_err(|error| error.to_string())?;
         match self.buffers.get(&name) {
             Some(BufferKind::Editable) => self
                 .sources
                 .set(&name, text, SourceLayer::Overlay)
-                .map(|_| ()),
+                .map(|_| ())
+                .map_err(|error| error.to_string()),
             Some(BufferKind::Generated) => Err("generated source is read-only".into()),
             None => Err("document is not open".into()),
         }
@@ -110,9 +125,14 @@ impl EditorWorkspace {
     /// Closes a view. User buffers reveal their base (or disappear); generated views
     /// own no overlay, so closing one never changes the current export.
     pub fn close(&mut self, name: &str) -> Result<(), String> {
-        let name = self.sources.source_name(name)?;
+        let name = self
+            .sources
+            .source_name(name)
+            .map_err(|error| error.to_string())?;
         if let BufferKind::Editable = self.buffers.get(&name).ok_or("document is not open")? {
-            self.sources.close_overlay(&name)?;
+            self.sources
+                .close_overlay(&name)
+                .map_err(|error| error.to_string())?;
         }
         self.buffers.remove(&name);
         Ok(())
@@ -126,7 +146,7 @@ impl EditorWorkspace {
         documents: Vec<CapturedSource>,
         imports: ImportEnvironment,
         cancel: &CancellationToken,
-    ) -> Result<SourceSnapshot, String> {
+    ) -> Result<SourceSnapshot, SourceDatabaseError> {
         let snapshot = self.sources.replace_generated(documents, cancel)?;
         self.analysis.set_import_environment(imports);
         Ok(snapshot)

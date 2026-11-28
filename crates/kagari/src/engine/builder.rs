@@ -123,8 +123,7 @@ impl KagariEngineBuilder {
     /// Invalid or relative roots return a source error without changing the builder.
     #[cfg(feature = "source")]
     pub fn source_root(&mut self, root: &str) -> Result<&mut Self, EmbeddingError> {
-        let sources =
-            SourceDatabase::new(root).map_err(|message| EmbeddingError::Source { message })?;
+        let sources = SourceDatabase::new(root)?;
         self.source_root = Some(sources.root().to_owned());
         Ok(self)
     }

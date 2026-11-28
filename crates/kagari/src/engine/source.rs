@@ -33,7 +33,7 @@ use kagari_hir::{
     typeck::const_budget::ConstLimits,
 };
 use kagari_mir::passes::PassOptions;
-use kagari_package::{error::PackageError, snapshot::ProgramInputs};
+use kagari_package::snapshot::ProgramInputs;
 use kagari_source::{
     identity::FileId,
     source::SourceFile,
@@ -272,14 +272,7 @@ impl KagariEngine {
         inputs: &ProgramInputs,
         cancel: &CancellationToken,
     ) -> CompileResult<SourceAnalysis> {
-        let source = inputs
-            .source_snapshot(&mut self.sources.borrow_mut(), cancel)
-            .map_err(|error| match error {
-                PackageError::Cancelled => EmbeddingError::Cancelled,
-                error => EmbeddingError::Source {
-                    message: error.to_string(),
-                },
-            })?;
+        let source = inputs.source_snapshot(&mut self.sources.borrow_mut(), cancel)?;
         let root = ModuleIdentity {
             package: inputs.root().family.package_id(),
             path: Vec::new(),
@@ -307,28 +300,28 @@ impl KagariEngine {
         self.sources
             .borrow_mut()
             .set(name, text, layer)
-            .map_err(|message| EmbeddingError::Source { message })
+            .map_err(Into::into)
     }
 
     pub fn load_source(&self, path: &str) -> CompileResult<FileId> {
         self.sources
             .borrow_mut()
             .load_file(path)
-            .map_err(|message| EmbeddingError::Source { message })
+            .map_err(Into::into)
     }
 
     pub fn bind_module(&self, name: &str, module: ModuleIdentity) -> CompileResult<FileId> {
         self.sources
             .borrow_mut()
             .bind_module(name, module)
-            .map_err(|message| EmbeddingError::Source { message })
+            .map_err(Into::into)
     }
 
     pub fn close_overlay(&self, name: &str) -> CompileResult<()> {
         self.sources
             .borrow_mut()
             .close_overlay(name)
-            .map_err(|message| EmbeddingError::Source { message })
+            .map_err(Into::into)
     }
 
     pub fn source_snapshot(&self) -> SourceSnapshot {

@@ -21,7 +21,7 @@ fn compile() -> Result<VerifiedBytecodeProgram, String> {
     // packaged module as the root, not an artificial entry function or a Native facade.
     let root = modules.first().ok_or("empty packaged core")?.id();
     let cancel = Default::default();
-    let mut db = AnalysisDatabase::new("/")?;
+    let mut db = AnalysisDatabase::new("/").map_err(|error| error.to_string())?;
 
     let snapshot = db
         .snapshot(Default::default(), &cancel)

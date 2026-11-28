@@ -42,7 +42,8 @@ impl NativeFiles {
                 .map(|module| module.records())
                 .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
         )?;
-        let mut sources = SourceDatabase::new(source_root).map_err(DeclarationError)?;
+        let mut sources = SourceDatabase::new(source_root)
+            .map_err(|error| DeclarationError(error.to_string()))?;
         let mut prepared = Vec::with_capacity(modules.len());
         for metadata in modules {
             check_cancel(cancel)?;
@@ -53,10 +54,10 @@ impl NativeFiles {
             let uri = registration_key(&definition.identity);
             sources
                 .bind_module(&uri, definition.identity.clone())
-                .map_err(DeclarationError)?;
+                .map_err(|error| DeclarationError(error.to_string()))?;
             let id = sources
                 .set(&uri, String::new(), SourceLayer::Base)
-                .map_err(DeclarationError)?;
+                .map_err(|error| DeclarationError(error.to_string()))?;
             let key = sources
                 .snapshot()
                 .file(id)

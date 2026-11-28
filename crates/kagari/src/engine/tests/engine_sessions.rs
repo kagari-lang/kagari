@@ -1,5 +1,7 @@
 #![cfg(feature = "source")]
-use crate::{context::ExecutionContext, engine::KagariEngine, program::Program};
+use crate::{
+    context::ExecutionContext, engine::KagariEngine, error::EmbeddingError, program::Program,
+};
 use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
@@ -10,10 +12,10 @@ use kagari_runtime::{
 };
 use kagari_source::{
     source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
+    source_database::{SourceDatabase, SourceDatabaseError, SourceLayer, SourceNameError},
 };
 use kagari_syntax::parser::ParseLimits;
-use std::{env, process::Command};
+use std::{env, error::Error, fs, io, path::Path, process::Command};
 
 #[test]
 fn constructors_do_not_install_implicit_library_providers() {
@@ -145,9 +147,20 @@ fn explicit_source_root_preserves_names_capture_and_fresh_sessions() {
     builder
         .source_root("/host-owned/../virtual-project")
         .unwrap();
-    for invalid in ["relative", "memory://root", "file:relative"] {
-        assert!(builder.source_root(invalid).is_err());
+    for invalid in ["relative", "memory://root"] {
+        assert!(matches!(
+            builder.source_root(invalid),
+            Err(EmbeddingError::SourceDatabase {
+                error: SourceDatabaseError::RootRequiresAbsolutePath,
+            })
+        ));
     }
+    assert!(matches!(
+        builder.source_root("file:relative"),
+        Err(EmbeddingError::SourceDatabase {
+            error: SourceDatabaseError::Name(SourceNameError::FileUriRequiresAbsolutePath),
+        })
+    ));
     let engine = builder.build().unwrap();
     let id = engine
         .set_source("src/../main.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -199,6 +212,28 @@ fn explicit_source_root_preserves_names_capture_and_fresh_sessions() {
         "/virtual-project/other.kgr"
     );
     assert_eq!(engine.source_snapshot().files().count(), 1);
+}
+
+#[test]
+fn load_source_preserves_the_filesystem_error() {
+    let engine = KagariEngine::default();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml/missing.kgr");
+    let expected = fs::read_to_string(&path).unwrap_err();
+    let error = engine.load_source(path.to_str().unwrap()).unwrap_err();
+    let EmbeddingError::SourceDatabase {
+        error: SourceDatabaseError::ReadFile { path, .. },
+    } = &error
+    else {
+        panic!("expected source database read error, got {error:?}");
+    };
+    assert_eq!(error.code(), "KG_SOURCE_INPUT");
+    assert_eq!(error.to_string(), format!("{path}: {expected}"));
+    let io_error = error
+        .source()
+        .and_then(Error::source)
+        .and_then(|source| source.downcast_ref::<io::Error>())
+        .unwrap();
+    assert_eq!(io_error.raw_os_error(), expected.raw_os_error());
 }
 
 #[test]

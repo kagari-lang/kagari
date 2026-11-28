@@ -81,8 +81,24 @@ fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
             kind: LiteralKind::Number,
             text: "42".into()
         }),
-        ScalarValue::integer(42, IntegerType::I32).map_err(IntegerRangeError::message),
+        ScalarValue::integer(42, IntegerType::I32).map_err(ScalarLiteralError::from),
     );
+    for (value, expected) in [
+        (
+            i128::from(i32::MAX) + 1,
+            ScalarLiteralError::IntegerRange(IntegerRangeError),
+        ),
+        (
+            i128::from(u64::MAX) + 1,
+            ScalarLiteralError::Source(LiteralError::IntegerOutOfRange),
+        ),
+    ] {
+        let literal = Literal {
+            kind: LiteralKind::Number,
+            text: value.to_string(),
+        };
+        assert_eq!(ScalarValue::parse(&literal), Err(expected));
+    }
     for ty in [
         BuiltinType::Never,
         BuiltinType::Unit,

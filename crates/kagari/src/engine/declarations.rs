@@ -59,8 +59,7 @@ pub(super) fn prepare(
         .iter()
         .map(|module| Arc::new(module.to_declaration()))
         .collect::<Vec<_>>();
-    let mut analysis =
-        AnalysisDatabase::new(source_root).map_err(|message| EmbeddingError::Source { message })?;
+    let mut analysis = AnalysisDatabase::new(source_root)?;
     let owners = construction_owners(&providers, &builder.imports);
     let mut imports = builder.imports.clone();
     imports.modules.retain(|owner, _| owners.contains(owner));
@@ -301,5 +300,5 @@ fn source_name(path: &Path) -> Result<String, EmbeddingError> {
         .filter(|name| name.as_bytes().get(1) == Some(&b':'))
         .unwrap_or(name);
     normalize_source_name(name)
-        .map_err(|message| cache_error(path, Error::new(ErrorKind::InvalidInput, message)))
+        .map_err(|error| cache_error(path, Error::new(ErrorKind::InvalidInput, error)))
 }

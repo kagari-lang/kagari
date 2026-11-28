@@ -1,6 +1,7 @@
 use super::*;
 use crate::package::PackageScope;
 use kagari_common::{identity::PackageId, span::Span};
+use std::mem::discriminant;
 
 fn capture(key: &str, display: &str, owner: &str, text: &str) -> CapturedSource {
     CapturedSource {
@@ -98,52 +99,94 @@ fn generated_owner_rejects_alias_edits_and_conflicting_or_cancelled_batches() {
     let first = || capture("mem://host", "cache/first.kgr", "host", "first");
     let old = db.replace_generated(vec![first()], &cancel).unwrap();
     let id = db.generated_file_id("mem://host").unwrap();
-    for alias in ["MEM://host", "file:///project/cache/%66irst.kgr"] {
+    for (alias, normalized) in [
+        ("MEM://host", "mem://host"),
+        (
+            "file:///project/cache/%66irst.kgr",
+            "/project/cache/first.kgr",
+        ),
+    ] {
         assert_eq!(db.generated_file_id(alias), Some(id));
         for layer in [SourceLayer::Base, SourceLayer::Overlay] {
-            assert!(
-                db.set(alias, "edit".into(), layer)
-                    .unwrap_err()
-                    .contains("read-only")
-            );
+            assert!(matches!(
+                db.set(alias, "edit".into(), layer),
+                Err(SourceDatabaseError::GeneratedReadOnly { name }) if name == normalized
+            ));
         }
-        assert!(
-            db.bind_module(alias, ModuleIdentity::single_file("new"))
-                .unwrap_err()
-                .contains("read-only")
-        );
-        assert!(db.close_overlay(alias).unwrap_err().contains("read-only"));
+        assert!(matches!(
+            db.bind_module(alias, ModuleIdentity::single_file("new")),
+            Err(SourceDatabaseError::GeneratedReadOnly { name }) if name == normalized
+        ));
+        assert!(matches!(
+            db.close_overlay(alias),
+            Err(SourceDatabaseError::GeneratedReadOnly { name }) if name == normalized
+        ));
     }
-    assert!(
-        db.bind_module("other", first().module)
-            .unwrap_err()
-            .contains("already bound")
-    );
+    assert!(matches!(
+        db.bind_module("other", first().module),
+        Err(SourceDatabaseError::ModuleAlreadyBound { module }) if module == first().module
+    ));
 
     let staged = || capture("mem://next", "cache/next.kgr", "next", "next");
-    for (key, display, owner, error) in [
-        ("MEM://next", "other", "other", "key"),
-        ("mem://other", "./cache/next.kgr", "other", "display name"),
-        ("cache/next.kgr", "other", "other", "key"),
-        ("mem://other", "mem://next", "other", "display name"),
-        ("app://src", "other", "other", "key"),
-        ("mem://other", "./user.kgr", "other", "display name"),
-        ("mem://other", "other", "user", "already bound"),
-        ("mem://other", "other", "next", "already bound"),
-        ("mem://host", "other", "other", "different module"),
+    let key_conflict = |key: &str| SourceDatabaseError::GeneratedKeyConflict { key: key.into() };
+    let display_conflict = |name: &str| SourceDatabaseError::GeneratedDisplayNameConflict {
+        display: name.into(),
+    };
+    let module_conflict = |owner| SourceDatabaseError::ModuleAlreadyBound {
+        module: ModuleIdentity::single_file(owner),
+    };
+    for (key, display, owner, expected) in [
+        ("MEM://next", "other", "other", key_conflict("mem://next")),
+        (
+            "mem://other",
+            "./cache/next.kgr",
+            "other",
+            display_conflict("/project/cache/next.kgr"),
+        ),
+        (
+            "cache/next.kgr",
+            "other",
+            "other",
+            key_conflict("/project/cache/next.kgr"),
+        ),
+        (
+            "mem://other",
+            "mem://next",
+            "other",
+            display_conflict("mem://next"),
+        ),
+        ("app://src", "other", "other", key_conflict("app://src")),
+        (
+            "mem://other",
+            "./user.kgr",
+            "other",
+            display_conflict("/project/user.kgr"),
+        ),
+        ("mem://other", "other", "user", module_conflict("user")),
+        ("mem://other", "other", "next", module_conflict("next")),
+        (
+            "mem://host",
+            "other",
+            "other",
+            SourceDatabaseError::GeneratedKeyModuleMismatch {
+                key: "mem://host".into(),
+            },
+        ),
     ] {
-        let result = db.replace_generated(
-            vec![staged(), capture(key, display, owner, "other")],
-            &cancel,
-        );
-        assert!(result.unwrap_err().contains(error));
+        let error = db
+            .replace_generated(
+                vec![staged(), capture(key, display, owner, "other")],
+                &cancel,
+            )
+            .unwrap_err();
+        assert_eq!(discriminant(&error), discriminant(&expected), "{error:?}");
+        assert_eq!(error.to_string(), expected.to_string());
     }
     cancel.cancel();
-    assert!(
-        db.replace_generated(vec![], &cancel)
-            .unwrap_err()
-            .contains("cancelled")
-    );
+    assert!(matches!(
+        db.replace_generated(vec![], &cancel),
+        Err(SourceDatabaseError::CaptureCancelled)
+    ));
     assert_eq!(db.file_id("cache/next.kgr"), None);
     assert_eq!(db.file_id("mem://next"), None);
     assert_eq!(db.generated_file_id("cache/first.kgr"), Some(id));

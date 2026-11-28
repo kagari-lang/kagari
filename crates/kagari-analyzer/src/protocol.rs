@@ -36,5 +36,5 @@ pub(crate) fn source_name(uri: &Uri) -> Result<String, String> {
             return Err("UNC document paths are unsupported".into());
         }
     }
-    normalize_source_name(uri.as_str())
+    normalize_source_name(uri.as_str()).map_err(|error| error.to_string())
 }

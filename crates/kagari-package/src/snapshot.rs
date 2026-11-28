@@ -10,7 +10,7 @@ use blake3::Hasher;
 use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
 use kagari_source::{
     package::{PackageEnvironment, PackageScope},
-    source_database::{CapturedSource, SourceDatabase, SourceSnapshot},
+    source_database::{CapturedSource, SourceDatabase, SourceDatabaseError, SourceSnapshot},
 };
 use std::collections::BTreeMap;
 
@@ -116,15 +116,12 @@ impl ProgramInputs {
             }
         }
         let environment = PackageEnvironment::new(scopes)
-            .map_err(|message| PackageError::input("package environment", message))?;
+            .map_err(|error| PackageError::input("package environment", error.to_string()))?;
         sources
             .replace_captured(captured, environment, cancel)
-            .map_err(|message| {
-                if cancel.check().is_err() {
-                    PackageError::Cancelled
-                } else {
-                    PackageError::input("package sources", message)
-                }
+            .map_err(|error| match error {
+                SourceDatabaseError::CaptureCancelled => PackageError::Cancelled,
+                error => PackageError::input("package sources", error.to_string()),
             })
     }
 

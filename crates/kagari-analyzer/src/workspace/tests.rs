@@ -66,11 +66,10 @@ fn unsaved_buffer_navigates_to_each_snapshots_own_export_then_close_restores_dis
     // Losing the paired scopes on a failed delivery would break `game::api` lookup.
     let cancelled = CancellationToken::default();
     cancelled.cancel();
-    assert!(
-        workspace
-            .replace_generated(vec![], ImportEnvironment::default(), &cancelled)
-            .is_err()
-    );
+    assert!(matches!(
+        workspace.replace_generated(vec![], ImportEnvironment::default(), &cancelled),
+        Err(SourceDatabaseError::CaptureCancelled)
+    ));
     let old = workspace.analyze(&cancel).unwrap();
     workspace
         .replace_generated(vec![second], second_imports.clone(), &cancel)

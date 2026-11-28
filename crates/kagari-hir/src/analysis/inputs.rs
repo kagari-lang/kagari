@@ -3,7 +3,7 @@
 use crate::imports::environment::ImportEnvironment;
 use crate::{analysis::AnalysisDatabase, typeck::const_budget::ConstLimits};
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_source::source::SourceFile;
+use kagari_source::{source::SourceFile, source_database::SourceDatabaseError};
 use kagari_syntax::parser::ParseLimits;
 use kagari_types::declaration::module::ModuleDecl;
 use std::sync::Arc;
@@ -51,7 +51,7 @@ impl AnalysisDatabase {
 
 impl AnalysisInputs {
     /// Creates an empty analysis session without IO or provider registration.
-    pub fn database(&self) -> Result<AnalysisDatabase, String> {
+    pub fn database(&self) -> Result<AnalysisDatabase, SourceDatabaseError> {
         let mut database = AnalysisDatabase::new(&self.source_root)?;
         database.import_environment = self.import_environment.clone();
         database.native_modules = self.native_modules.clone();

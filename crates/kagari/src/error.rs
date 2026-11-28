@@ -6,6 +6,8 @@ use kagari_bytecode::source_package::SourcePackageError;
 use kagari_common::identity::mapping::DefinitionMappingError;
 #[cfg(feature = "source")]
 use kagari_compiler::{bytecode::BytecodeLoweringError, source::lower::MirLoweringError};
+#[cfg(feature = "source")]
+use kagari_package::error::PackageError;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
@@ -14,7 +16,12 @@ use kagari_runtime::{
     task::TaskFailureOrigin,
 };
 #[cfg(feature = "source")]
-use kagari_source::{diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile};
+use kagari_source::{
+    diagnostic::Diagnostic,
+    presentation::DiagnosticRecord,
+    source::SourceFile,
+    source_database::{SourceDatabaseError, SourceNameError},
+};
 #[cfg(feature = "source")]
 use smallvec::SmallVec;
 #[cfg(feature = "source")]
@@ -41,49 +48,77 @@ impl CompilationPhase {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum EmbeddingError {
+    #[error("{error}")]
     Registration {
+        #[source]
         error: RuntimeError,
     },
     #[cfg(feature = "source")]
+    #[error("{}: {error}", path.display())]
     DeclarationCache {
         path: PathBuf,
+        #[source]
         error: io::Error,
     },
-    Source {
-        message: String,
+    #[error("{message}")]
+    Source { message: String },
+    #[cfg(feature = "source")]
+    #[error("{error}")]
+    SourceName {
+        #[from]
+        error: SourceNameError,
+    },
+    #[cfg(feature = "source")]
+    #[error("{error}")]
+    SourceDatabase {
+        #[source]
+        error: SourceDatabaseError,
+    },
+    #[cfg(feature = "source")]
+    #[error("{error}")]
+    PackageInput {
+        #[source]
+        error: PackageError,
     },
     /// Complete-source packaging failed, including closures with source-less declarations.
     #[cfg(feature = "source")]
+    #[error("{error}")]
     SourcePackage {
+        #[source]
         error: SourcePackageError,
     },
     /// The executable has a source manifest, but its exact source text was not retained.
     #[cfg(feature = "source")]
+    #[error("exact source text was not retained")]
     SourceNotRetained,
     /// Diagnostic source attachments cannot replace immutable compilation inputs.
     #[cfg(feature = "source")]
+    #[error("compilation inputs were not retained")]
     MissingCompilationContext,
+    #[error("analysis cancelled")]
     Cancelled,
     #[cfg(feature = "source")]
-    Diagnostics {
-        diagnostics: Vec<DiagnosticRecord>,
-    },
+    #[error("source diagnostics emitted")]
+    Diagnostics { diagnostics: Vec<DiagnosticRecord> },
+    #[error("{message}")]
     Compilation {
         phase: CompilationPhase,
         message: String,
     },
+    #[error("{error}")]
     ArtifactValidation {
+        #[source]
         error: ArtifactValidationError,
     },
+    #[error("{error}")]
     Runtime {
+        #[source]
         error: RuntimeError,
     },
-    ReloadValidation {
-        code: String,
-        message: String,
-    },
+    #[error("{message}")]
+    ReloadValidation { code: String, message: String },
 }
 
 impl EmbeddingError {
@@ -107,6 +142,10 @@ impl EmbeddingError {
             #[cfg(feature = "source")]
             Self::DeclarationCache { .. } => "KG_DECLARATION_CACHE".to_owned(),
             Self::Source { .. } => "KG_SOURCE_INPUT".to_owned(),
+            #[cfg(feature = "source")]
+            Self::SourceName { .. } | Self::SourceDatabase { .. } | Self::PackageInput { .. } => {
+                "KG_SOURCE_INPUT".to_owned()
+            }
             #[cfg(feature = "source")]
             Self::SourcePackage { .. } => "KG_SOURCE_PACKAGE".to_owned(),
             #[cfg(feature = "source")]
@@ -171,6 +210,26 @@ impl EmbeddingError {
         Self::ReloadValidation {
             code: error.code().to_owned(),
             message: error.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "source")]
+impl From<SourceDatabaseError> for EmbeddingError {
+    fn from(error: SourceDatabaseError) -> Self {
+        match error {
+            SourceDatabaseError::CaptureCancelled => Self::Cancelled,
+            error => Self::SourceDatabase { error },
+        }
+    }
+}
+
+#[cfg(feature = "source")]
+impl From<PackageError> for EmbeddingError {
+    fn from(error: PackageError) -> Self {
+        match error {
+            PackageError::Cancelled => Self::Cancelled,
+            error => Self::PackageInput { error },
         }
     }
 }

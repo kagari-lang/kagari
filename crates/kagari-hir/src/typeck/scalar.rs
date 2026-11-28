@@ -4,7 +4,7 @@ use crate::{
     hir::expr::literal::{Literal, LiteralKind},
     types::TypeId,
 };
-use kagari_source::literal;
+use kagari_source::literal::{self, LiteralError};
 use kagari_types::{
     numeric,
     numeric::Number,
@@ -51,6 +51,31 @@ impl IntegerRangeError {
     }
 }
 
+/// A source literal could not produce a scalar fact of the selected HIR type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum ScalarLiteralError {
+    #[error(transparent)]
+    Source(#[from] LiteralError),
+    #[error(transparent)]
+    IntegerRange(#[from] IntegerRangeError),
+    #[error("integer literal requires an integer type")]
+    ExpectedIntegerType,
+    #[error("unsigned integers do not support negation")]
+    UnsignedNegation,
+    #[error("invalid f32 literal")]
+    InvalidF32,
+    #[error("float literal is outside the finite f32 range")]
+    NonFiniteF32,
+    #[error("invalid f64 literal")]
+    InvalidF64,
+    #[error("float literal is outside the finite f64 range")]
+    NonFiniteF64,
+    #[error("floating-point literal requires f32 or f64")]
+    ExpectedFloatType,
+    #[error("invalid bool literal")]
+    InvalidBool,
+}
+
 impl ScalarValue {
     /// Returns the intrinsic semantic type implied by the value tag.
     pub fn ty(&self) -> TypeId {
@@ -65,7 +90,7 @@ impl ScalarValue {
         })
     }
 
-    pub(crate) fn parse(literal: &Literal) -> Result<Self, &'static str> {
+    pub(crate) fn parse(literal: &Literal) -> Result<Self, ScalarLiteralError> {
         Self::parse_expected(literal, None, false)
     }
 
@@ -73,7 +98,7 @@ impl ScalarValue {
         literal: &Literal,
         expected: Option<BuiltinType>,
         negative: bool,
-    ) -> Result<Self, &'static str> {
+    ) -> Result<Self, ScalarLiteralError> {
         let (digits, suffix) = literal::numeric_literal_parts(&literal.text);
         let suffix_type = suffix.and_then(builtin_type);
         let expected = expected.filter(|ty| {
@@ -97,42 +122,44 @@ impl ScalarValue {
             LiteralKind::Number => {
                 let ty =
                     IntegerType::from_builtin(suffix_type.or(expected).unwrap_or(BuiltinType::I32))
-                        .ok_or("integer literal requires an integer type")?;
+                        .ok_or(ScalarLiteralError::ExpectedIntegerType)?;
                 if negative && !ty.layout().1 {
-                    return Err("unsigned integers do not support negation");
+                    return Err(ScalarLiteralError::UnsignedNegation);
                 }
                 let value = i128::from(literal::parse_integer_literal(&literal.text)?);
-                Self::integer(if negative { -value } else { value }, ty)
-                    .map_err(IntegerRangeError::message)
+                Ok(Self::integer(if negative { -value } else { value }, ty)?)
             }
             LiteralKind::Float => {
                 let compact = digits.replace('_', "");
                 let ty = suffix_type.or(expected).unwrap_or(BuiltinType::F64);
                 if ty == BuiltinType::F32 {
-                    let value: f32 = compact.parse().map_err(|_| "invalid f32 literal")?;
+                    let value: f32 = compact
+                        .parse()
+                        .map_err(|_| ScalarLiteralError::InvalidF32)?;
                     if !value.is_finite() {
-                        return Err("float literal is outside the finite f32 range");
+                        return Err(ScalarLiteralError::NonFiniteF32);
                     }
                     Ok(Self::F32(if negative { -value } else { value }))
                 } else if ty == BuiltinType::F64 {
-                    let value: f64 = compact.parse().map_err(|_| "invalid f64 literal")?;
+                    let value: f64 = compact
+                        .parse()
+                        .map_err(|_| ScalarLiteralError::InvalidF64)?;
                     if !value.is_finite() {
-                        return Err("float literal is outside the finite f64 range");
+                        return Err(ScalarLiteralError::NonFiniteF64);
                     }
                     Ok(Self::F64(if negative { -value } else { value }))
                 } else {
-                    Err("floating-point literal requires f32 or f64")
+                    Err(ScalarLiteralError::ExpectedFloatType)
                 }
             }
             LiteralKind::Bool => match literal.text.as_str() {
                 "true" => Ok(Self::Bool(true)),
                 "false" => Ok(Self::Bool(false)),
-                _ => Err("invalid bool literal"),
+                _ => Err(ScalarLiteralError::InvalidBool),
             },
             LiteralKind::String => Ok(Self::String(literal.text.clone())),
-            LiteralKind::Char => literal::decode_char_literal(&literal.text).map(Self::Char),
-            LiteralKind::Byte(value) => Self::integer(i128::from(value), IntegerType::U8)
-                .map_err(IntegerRangeError::message),
+            LiteralKind::Char => Ok(Self::Char(literal::decode_char_literal(&literal.text)?)),
+            LiteralKind::Byte(value) => Ok(Self::integer(i128::from(value), IntegerType::U8)?),
         }
     }
 

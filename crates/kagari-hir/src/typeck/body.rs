@@ -376,7 +376,7 @@ impl<'a> BodyChecker<'a> {
                 Err(reason) => {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidLiteral {
-                            reason: reason.to_owned(),
+                            reason: reason.to_string(),
                         })
                         .with_span(self.lowered.module.expr(expr_id).origin.diagnostic_span()),
                     );

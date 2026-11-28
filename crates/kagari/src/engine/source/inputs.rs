@@ -113,14 +113,12 @@ impl CheckedInputs {
         name: &str,
         cancel: &CancellationToken,
     ) -> CompileResult<String> {
-        self.database(cancel)?
-            .source_name(name)
-            .map_err(source_error)
+        self.database(cancel)?.source_name(name).map_err(Into::into)
     }
 
     fn database(&self, cancel: &CancellationToken) -> CompileResult<SourceDatabase> {
         cancel.check().map_err(|_| EmbeddingError::Cancelled)?;
-        SourceDatabase::new(self.environment().source_root()).map_err(source_error)
+        SourceDatabase::new(self.environment().source_root()).map_err(Into::into)
     }
 
     fn documents(&self, cancel: &CancellationToken) -> CompileResult<Vec<DocumentInput<'_>>> {
@@ -173,7 +171,7 @@ impl CheckedInputs {
                 }
                 SourceEdit::Replace { name, .. } | SourceEdit::Add { name, .. } => name,
             };
-            let key = database.source_name(name).map_err(source_error)?;
+            let key = database.source_name(name)?;
             if !targets.insert(key.clone()) {
                 return Err(source_error(format!(
                     "duplicate physical source edit: {name}"
@@ -189,7 +187,7 @@ impl CheckedInputs {
                     match database.source_name(&document.name) {
                         Ok(name) if name == key => Some(Ok(index)),
                         Ok(_) => None,
-                        Err(message) => Some(Err(source_error(message))),
+                        Err(error) => Some(Err(error.into())),
                     }
                 })
                 .collect::<CompileResult<Vec<_>>>()?;
@@ -236,9 +234,8 @@ impl CheckedInputs {
             }
         }
         let documents = capture_documents(documents, cancel)?;
-        let sources = database
-            .replace_captured(documents, self.sources.packages().clone(), cancel)
-            .map_err(|message| capture_error(message, cancel))?;
+        let sources =
+            database.replace_captured(documents, self.sources.packages().clone(), cancel)?;
         Ok(Arc::new(Self {
             sources,
             environment: self.environment.clone(),
@@ -265,10 +262,9 @@ impl CheckedInputs {
         cancel.check().map_err(|_| EmbeddingError::Cancelled)?;
         let mut sources = self.database(cancel)?;
         let documents = capture_documents(self.documents(cancel)?, cancel)?;
-        let source = sources
-            .replace_captured(documents, self.sources.packages().clone(), cancel)
-            .map_err(|message| capture_error(message, cancel))?;
-        let mut database = self.environment.database().map_err(source_error)?;
+        let source =
+            sources.replace_captured(documents, self.sources.packages().clone(), cancel)?;
+        let mut database = self.environment.database()?;
         let snapshot = database.snapshot(source, cancel).map_err(analysis_error)?;
         let root = snapshot
             .declaration_snapshot()
@@ -499,14 +495,6 @@ impl CompilationInputs {
 fn source_error(message: impl Into<String>) -> EmbeddingError {
     EmbeddingError::Source {
         message: message.into(),
-    }
-}
-
-fn capture_error(message: String, cancel: &CancellationToken) -> EmbeddingError {
-    if cancel.check().is_err() {
-        EmbeddingError::Cancelled
-    } else {
-        source_error(message)
     }
 }
 

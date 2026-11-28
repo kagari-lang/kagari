@@ -82,6 +82,13 @@ configuration and output behavior. Ownership follows the existing source pipelin
 | SDK source API | `SourceAnalysis` handoff under sealed native declarations; strict checked-program gate |
 | `kagari-cli` | Arguments/config, input/output, terminal/JSON rendering and guarded file replacement |
 
+Source operations report typed failures for literal decoding, source-name
+normalization, database updates, package-environment validation and copied source
+provenance. File reads retain the normalized path and underlying I/O error.
+Cancellation stays distinct from malformed literals and failed capture validation.
+Diagnostic codes and messages belong to the reporting boundary, not to internal
+control flow.
+
 `analyze_source` and `analyze_package` return a retained `SourceAnalysis`. Its
 `check` method requires an error-free closure, while optional lint consumes the
 same snapshot, including eligible facts from a partially erroneous program. Neither

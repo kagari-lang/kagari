@@ -1,4 +1,4 @@
-use super::{CapturedSource, SourceDatabase, SourceSnapshot, validate_module};
+use super::{CapturedSource, SourceDatabase, SourceDatabaseError, SourceSnapshot, validate_module};
 use crate::identity::FileId;
 use kagari_common::cancellation::CancellationToken;
 use std::{
@@ -35,15 +35,19 @@ impl SourceDatabase {
         &mut self,
         sources: Vec<CapturedSource>,
         cancel: &CancellationToken,
-    ) -> Result<SourceSnapshot, String> {
-        cancel.check().map_err(|_| "source capture cancelled")?;
+    ) -> Result<SourceSnapshot, SourceDatabaseError> {
+        cancel
+            .check()
+            .map_err(|_| SourceDatabaseError::CaptureCancelled)?;
         let revision = self.next_revision();
         let mut generated = GeneratedDocuments::default();
         let mut files = BTreeMap::new();
         let mut names = BTreeSet::new();
         let mut modules = BTreeSet::new();
         for (key, document) in &self.documents {
-            cancel.check().map_err(|_| "source capture cancelled")?;
+            cancel
+                .check()
+                .map_err(|_| SourceDatabaseError::CaptureCancelled)?;
             names.insert(key.clone());
             // Whole captures can have diagnostic labels that aren't addressable source names.
             if let Ok(display) = self.source_name(&document.display_name) {
@@ -56,31 +60,26 @@ impl SourceDatabase {
         }
         let mut changed = sources.len() != self.generated.keys.len();
         for source in sources {
-            cancel.check().map_err(|_| "source capture cancelled")?;
+            cancel
+                .check()
+                .map_err(|_| SourceDatabaseError::CaptureCancelled)?;
             let key = self.source_name(&source.key)?;
             let display = self.source_name(&source.display_name)?;
             validate_module(&source.module)?;
             if !modules.insert(source.module.clone()) {
-                return Err(format!(
-                    "module `{}` is already bound to another source",
-                    source.module
-                ));
+                return Err(SourceDatabaseError::ModuleAlreadyBound {
+                    module: source.module,
+                });
             }
             if !names.insert(key.clone()) {
-                return Err(format!(
-                    "generated source key `{key}` conflicts with another source"
-                ));
+                return Err(SourceDatabaseError::GeneratedKeyConflict { key });
             }
             if display != key && !names.insert(display.clone()) {
-                return Err(format!(
-                    "generated display name `{display}` conflicts with another source"
-                ));
+                return Err(SourceDatabaseError::GeneratedDisplayNameConflict { display });
             }
             let id = match self.generated.keys.get(&key) {
                 Some(&id) if self.snapshot.files[&id].module_identity() != &source.module => {
-                    return Err(format!(
-                        "generated source key `{key}` belongs to a different module"
-                    ));
+                    return Err(SourceDatabaseError::GeneratedKeyModuleMismatch { key });
                 }
                 Some(&id) => id,
                 None => FileId::fresh(),
@@ -93,7 +92,9 @@ impl SourceDatabase {
             }
             generated.keys.insert(key, id);
         }
-        cancel.check().map_err(|_| "source capture cancelled")?;
+        cancel
+            .check()
+            .map_err(|_| SourceDatabaseError::CaptureCancelled)?;
         if changed {
             self.generated = generated;
             self.snapshot.files = Arc::new(files);
